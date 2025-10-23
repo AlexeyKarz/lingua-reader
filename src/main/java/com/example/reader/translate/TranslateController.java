@@ -1,0 +1,36 @@
+package com.example.reader.translate;
+
+import io.micrometer.core.annotation.Timed;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/translate")
+public class TranslateController {
+
+    private final TranslateService svc;
+
+    public TranslateController(TranslateService svc) {
+        this.svc = svc;
+    }
+
+    @Timed(value="translate.word", description="Word lookups")
+    @GetMapping("/word")
+    public Map<String,String> word(
+            @RequestParam String text,
+            @RequestParam String source,
+            @RequestParam String target) {
+        return Map.of("text", text, "source", source, "target", target,
+                "translated", svc.word(text, source, target));
+    }
+
+    @Timed(value="translate.sentence", description="Literal sentence translation")
+    @PostMapping("/sentence")
+    public Map<String,String> sentence(@RequestBody Map<String,String> body) {
+        var text = body.getOrDefault("text","");
+        var source = body.getOrDefault("source","en");
+        var target = body.getOrDefault("target","de");
+        return Map.of("translated", svc.sentence(text, source, target));
+    }
+}
