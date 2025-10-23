@@ -8,7 +8,7 @@ group = "com.example"
 version = "0.0.1-SNAPSHOT"
 
 java {
-    toolchain { languageVersion.set(JavaLanguageVersion.of(21)) }
+    toolchain { languageVersion.set(JavaLanguageVersion.of(23)) }
 }
 
 repositories { mavenCentral() }
