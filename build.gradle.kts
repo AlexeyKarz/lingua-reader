@@ -19,6 +19,8 @@ dependencies {
     // Prometheus registry so /actuator/prometheus exposes metrics
     implementation("io.micrometer:micrometer-registry-prometheus")
 
+    implementation("org.springframework.boot:spring-boot-starter-aop") // needed for @Timed on beans
+
     // (Optional but recommended) Spring Modulith — helps structure a modular monolith
     implementation("org.springframework.modulith:spring-modulith-starter-core:1.2.13")
 

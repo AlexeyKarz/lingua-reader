@@ -3,10 +3,18 @@ package com.example.reader.catalog;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
+import io.micrometer.core.annotation.Timed;
 
 @RestController
 @RequestMapping("/api/catalog")
 public class CatalogController {
+
+    @Timed(
+            value = "catalog.books",
+            description = "List available books",
+            histogram = true, percentiles = {0.5, 0.95, 0.99},
+            extraTags = {"component", "controller"}
+    )
 
     // TODO replace with DB later (Postgres)
     @GetMapping("/books")

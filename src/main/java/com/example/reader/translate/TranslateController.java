@@ -15,7 +15,12 @@ public class TranslateController {
         this.svc = svc;
     }
 
-    @Timed(value="translate.word", description="Word lookups")
+    @Timed(
+            value = "translate.word",
+            description = "Word lookups",
+            histogram = true, percentiles = {0.5, 0.95, 0.99},
+            extraTags = {"component", "controller"}
+    )
     @GetMapping("/word")
     public Map<String,String> word(
             @RequestParam String text,
@@ -25,7 +30,12 @@ public class TranslateController {
                 "translated", svc.word(text, source, target));
     }
 
-    @Timed(value="translate.sentence", description="Literal sentence translation")
+    @Timed(
+            value = "translate.sentence",
+            description = "Literal sentence translation",
+            histogram = true, percentiles = {0.5, 0.95, 0.99},
+            extraTags = {"component", "controller"}
+    )
     @PostMapping("/sentence")
     public Map<String,String> sentence(@RequestBody Map<String,String> body) {
         var text = body.getOrDefault("text","");

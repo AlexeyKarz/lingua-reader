@@ -9,6 +9,13 @@ import java.util.Map;
 @RequestMapping("/api/reader")
 public class ReaderController {
 
+    @Timed(
+            value = "reader.aligned",
+            description = "Fetch aligned paragraphs",
+            histogram = true, percentiles = {0.5, 0.95, 0.99},
+            extraTags = {"component", "controller"}
+    )
+
     // TODO fetch aligned paragraphs from storage produced by ingestion
     @Timed(value="reader.paragraphs", description="Fetch aligned paragraphs")
     @GetMapping("/aligned")
