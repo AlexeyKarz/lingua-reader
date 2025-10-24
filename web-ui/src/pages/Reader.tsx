@@ -100,6 +100,20 @@ export default function Reader() {
         }
     }, [pop.kind])
 
+    // close when the text is not selected anymore
+    useEffect(() => {
+        const onSelChange = () => {
+            const sel = document.getSelection(); // or window.getSelection()
+            // If selection is empty/collapsed -> close
+            if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+                setPop({ kind: 'hidden' })
+            }
+        };
+        document.addEventListener('selectionchange', onSelChange);
+        return () => document.removeEventListener('selectionchange', onSelChange);
+    }, []);
+
+
     // Selection handler for each pane
     function handleMouseUp(which: 'left' | 'right') {
         const host = which === 'left' ? leftRef.current : rightRef.current
@@ -204,12 +218,20 @@ export default function Reader() {
 
                 {/* Edge-aware popover */}
                 {pop.kind !== 'hidden' && (
-                    <div
-                        ref={popRef}
-                        className="fixed z-50"
-                        style={{ top: `${coords.top}px`, left: `${coords.left}px` }}
-                    >
-                        <div className="card p-3 max-w-md">
+                    <div ref={popRef} className="fixed z-50" style={{ top: `${coords.top}px`, left: `${coords.left}px` }}>
+                        <div className="card p-3 max-w-md relative">
+                            {/* top-right close */}
+                            <button
+                                aria-label="Close"
+                                onClick={() => setPop({ kind: 'hidden' })}
+                                className="absolute -right-2 -top-2 h-6 w-6 rounded-full bg-red-600 text-white text-sm leading-6 text-center
+                                    hover:bg-red-700 active:bg-red-800 transition-colors"
+                                title="Close"
+                            >
+                                ×
+                            </button>
+
+
                             <div className="text-xs mb-1 opacity-70">
                                 {pop.sourceLang.toUpperCase()} → {pop.targetLang.toUpperCase()}
                             </div>
@@ -220,25 +242,14 @@ export default function Reader() {
                                     <button className="btn" onClick={doTranslate}>Translate</button>
                                 </div>
                             )}
-
-                            {pop.kind === 'loading' && (
-                                <div className="text-sm">Translating…</div>
-                            )}
-
+                            {pop.kind === 'loading' && <div className="text-sm">Translating…</div>}
                             {pop.kind === 'result' && (
                                 <>
                                     <div className="text-sm font-semibold mb-1">“{pop.text}”</div>
                                     <div className="text-sm whitespace-pre-wrap">{pop.result ?? '—'}</div>
                                 </>
                             )}
-
-                            {pop.kind === 'error' && (
-                                <div className="text-sm text-red-700">Error. Please try again.</div>
-                            )}
-
-                            <div className="mt-2 text-right">
-                                <button className="btn" onClick={() => setPop({ kind: 'hidden' })}>Close</button>
-                            </div>
+                            {pop.kind === 'error' && <div className="text-sm text-red-700">Error. Please try again.</div>}
                         </div>
                     </div>
                 )}
