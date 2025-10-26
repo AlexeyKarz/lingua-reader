@@ -9,6 +9,12 @@ import java.util.Map;
 @RequestMapping("/api/reader")
 public class ReaderController {
 
+    private final BookTextService svc;
+
+    public ReaderController(BookTextService svc) {
+        this.svc = svc;
+    }
+
     @Timed(
             value = "reader.aligned",
             description = "Fetch aligned paragraphs",
@@ -33,4 +39,29 @@ public class ReaderController {
                 "right", List.of("Hallo Welt.", "Dies ist ein Beispiel.")
         );
     }
+
+    @GetMapping("/pages")
+    public Map<String, Object> pages(
+            @RequestParam String bookId,
+            @RequestParam String src,     // original lang (left)
+            @RequestParam String tgt,     // translation lang (right)
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "250") int size // words per page
+    ) {
+
+        int totalSrc = svc.totalPages(bookId, src, size);
+        int totalTgt = svc.totalPages(bookId, tgt, size);
+        // keep the page index the same for both for now (they'll drift in content length—OK for MVP)
+        String left = svc.page(bookId, src, page, size);
+        String right = svc.page(bookId, tgt, page, size);
+        return Map.of(
+                "bookId", bookId,
+                "src", src, "tgt", tgt,
+                "page", page, "size", size,
+                "totalSrc", totalSrc, "totalTgt", totalTgt,
+                "left", List.of(left),   // keeps UI unchanged (array of paras)
+                "right", List.of(right)
+        );
+    }
+
 }

@@ -14,6 +14,10 @@ type PopState =
 }
 
 export default function Reader() {
+
+    const [page, setPage] = useState(0)
+    const size = 250 // words per page
+
     // Query params (example: ?bookId=faust&src=de&tgt=en)
     const params = new URLSearchParams(location.search)
     const bookId = params.get('bookId') ?? 'faust'
@@ -38,8 +42,9 @@ export default function Reader() {
         ;(async () => {
             setInfo('Loading…')
             try {
-                const r = await fetch(`/api/reader/aligned?bookId=${bookId}&src=${src}&tgt=${tgt}&page=0`)
+                const r = await fetch(`/api/reader/pages?bookId=${bookId}&src=${src}&tgt=${tgt}&page=${page}&size=${size}`)
                 const j = await r.json()
+                setData(j)
                 const fallback = {
                     bookId, src, tgt,
                     left: ["Habe nun, ach! Philosophie, Juristerei und Medizin, und leider auch Theologie!", "Durchaus studiert, mit heißem Bemühn."],
@@ -53,6 +58,21 @@ export default function Reader() {
             }
         })()
     }, [bookId, src, tgt])
+
+    // trigger reload when page changes
+    useEffect(() => {
+        (async () => {
+            setInfo('Loading…')
+            try {
+                const r = await fetch(`/api/reader/pages?bookId=${bookId}&src=${src}&tgt=${tgt}&page=${page}&size=${size}`)
+                const j = await r.json()
+                setData(j)
+                setInfo(`Loaded page ${page}`)
+            } catch {
+                setInfo('Error')
+            }
+        })()
+    }, [bookId, src, tgt, page])
 
     // Utility: clamp number into [min, max]
     const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(n, max))
@@ -204,8 +224,11 @@ export default function Reader() {
                     ref={leftRef}
                     onMouseUp={() => handleMouseUp('left')}
                     className="card p-4 leading-7 select-text"
+
                 >
-                    {data?.left?.slice(0, 8).map((p, i) => <p key={i} className="mb-3">{p}</p>)}
+                    {data?.left && data.left[0]?.trim()
+                        ? <p className="mb-3">{data.left[0]}</p>
+                        : <p className="mb-3 italic opacity-60">No content loaded.</p>}
                 </div>
 
                 <div
@@ -215,6 +238,15 @@ export default function Reader() {
                 >
                     {data?.right?.slice(0, 8).map((p, i) => <p key={i} className="mb-3">{p}</p>)}
                 </div>
+
+                {/* pager controls */}
+                <div className="mb-3 flex items-center gap-3">
+                    <button className="btn" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page <= 0}>Prev</button>
+                    <div className="text-sm">Page {page + 1}</div>
+                    <button className="btn" onClick={() => setPage(p => p + 1)}>Next</button>
+                    <span className="text-xs opacity-70">(~{size} words per language)</span>
+                </div>
+
 
                 {/* Edge-aware popover */}
                 {pop.kind !== 'hidden' && (
