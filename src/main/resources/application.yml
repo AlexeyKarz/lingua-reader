@@ -4,6 +4,16 @@ server:
 spring:
   application:
     name: multilang-reader-mono
+  datasource:
+    url: jdbc:postgresql://localhost:5432/mlr
+    username: mlr
+    password: mlr_password
+  jpa:
+    hibernate:
+      ddl-auto: validate   # or update for rapid prototyping
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
 
 management:
   endpoints:
