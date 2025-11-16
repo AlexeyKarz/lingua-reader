@@ -24,6 +24,22 @@ dependencies {
     // (Optional but recommended) Spring Modulith — helps structure a modular monolith
     implementation("org.springframework.modulith:spring-modulith-starter-core:1.2.13")
 
+    // parsing EPUB → XHTML/text
+    implementation("org.apache.tika:tika-core:2.9.1")
+    implementation("org.apache.tika:tika-parsers-standard-package:2.9.1")
+
+    // HTML parsing for chapter/paragraph extraction
+    implementation("org.jsoup:jsoup:1.18.1")
+
+    // sentence splitting (Java-native)
+    implementation("org.apache.opennlp:opennlp-tools:2.4.0")
+
+    // DB access (Spring JDBC is simple and fast for batch inserts)
+    implementation("org.springframework.boot:spring-boot-starter-jdbc")
+
+    // pgvector Java helpers (maps float[] to pgvector type)
+    implementation("com.pgvector:pgvector:0.1.6")
+
     testImplementation("org.springframework.boot:spring-boot-starter-test")
 
     // (Optional later) Testcontainers for Postgres or external deps
