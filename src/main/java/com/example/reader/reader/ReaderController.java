@@ -5,6 +5,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/reader")
@@ -40,50 +41,56 @@ public class ReaderController {
 
     @GetMapping("/pages")
     public Map<String, Object> pages(
-            @RequestParam String bookId,
-            @RequestParam String src,     // original lang (left)
-            @RequestParam String tgt,     // translation lang (right)
+            @RequestParam String bookId,     // e.g. "Faust (Part I)"
+            @RequestParam String src,        // "de"
+            @RequestParam String tgt,        // "en"
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "40") int size   // sentences per page
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "dp-mlMiniLM-v1-de-en") String method
     ) {
-
-        // For now, interpret bookId as work.title (e.g. "Faust (Part I)")
-        Long srcEditionId = repo.findEditionIdByWorkTitleAndLang(bookId, src);
-        Long tgtEditionId = repo.findEditionIdByWorkTitleAndLang(bookId, tgt);
-
-        if (srcEditionId == null || tgtEditionId == null) {
+        // Resolve editions for this work + languages
+        ReaderRepository.EditionIds ids = repo.findEditionIds(bookId, src, tgt);
+        if (ids == null) {
             return Map.of(
                     "bookId", bookId,
                     "src", src, "tgt", tgt,
                     "page", page, "size", size,
-                    "totalSrc", 0, "totalTgt", 0,
-                    "left", List.of("No edition found for " + bookId + " / " + src),
-                    "right", List.of("No edition found for " + bookId + " / " + tgt)
+                    "left", List.of(),
+                    "right", List.of(),
+                    "alignments", List.of(),
+                    "totalSrc", 0,
+                    "totalTgt", 0
             );
         }
 
-        int totalSrcSent = repo.countSentences(srcEditionId);
-        int totalTgtSent = repo.countSentences(tgtEditionId);
+        long workId  = ids.workId();
+        long srcEd   = ids.srcEditionId();
+        long tgtEd   = ids.tgtEditionId();
 
-        int totalSrcPages = (int) Math.ceil(totalSrcSent / (double) size);
-        int totalTgtPages = (int) Math.ceil(totalTgtSent / (double) size);
+        int totalSrc = repo.countSentences(srcEd);
+        int totalTgt = repo.countSentences(tgtEd);
 
-        // clamp page to valid range for each side
-        int safePageSrc = Math.max(0, Math.min(page, Math.max(0, totalSrcPages - 1)));
-        int safePageTgt = Math.max(0, Math.min(page, Math.max(0, totalTgtPages - 1)));
+        List<SentenceDto> left  = repo.fetchSentencePage(srcEd, page, size);
+        List<SentenceDto> right = repo.fetchSentencePage(tgtEd, page, size);
 
-        List<String> left = repo.fetchSentencePage(srcEditionId, safePageSrc, size);
-        List<String> right = repo.fetchSentencePage(tgtEditionId, safePageTgt, size);
+        List<Long> leftIds  = left.stream().map(SentenceDto::id).collect(Collectors.toList());
+        List<Long> rightIds = right.stream().map(SentenceDto::id).collect(Collectors.toList());
+
+        List<AlignmentLinkDto> links = repo.fetchAlignmentsForPage(
+                workId, srcEd, tgtEd, method, leftIds, rightIds
+        );
 
         return Map.of(
                 "bookId", bookId,
-                "src", src, "tgt", tgt,
+                "src", src,
+                "tgt", tgt,
                 "page", page,
                 "size", size,
-                "totalSrc", totalSrcPages,
-                "totalTgt", totalTgtPages,
+                "totalSrc", totalSrc,
+                "totalTgt", totalTgt,
                 "left", left,
-                "right", right
+                "right", right,
+                "alignments", links
         );
     }
 }

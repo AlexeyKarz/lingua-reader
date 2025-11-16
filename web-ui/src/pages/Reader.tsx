@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
-type Aligned = { left: string[]; right: string[]; bookId: string; src: string; tgt: string }
+// type Aligned = { left: string[]; right: string[]; bookId: string; src: string; tgt: string }
 
 type PopState =
     | { kind: 'hidden' }
@@ -13,21 +13,55 @@ type PopState =
     result?: string
 }
 
+type Sentence = { id: number; text: string }
+
+type AlignmentLink = {
+    leftId: number
+    rightId: number
+    score: number
+}
+
+type PageData = {
+    bookId: string
+    src: string
+    tgt: string
+    page: number
+    size: number
+    totalSrc: number
+    totalTgt: number
+    left: Sentence[]
+    right: Sentence[]
+    alignments: AlignmentLink[]
+}
+
+
 export default function Reader() {
 
     const [page, setPage] = useState(0)
-    const size = 15 // sentences per page
+    const size = 20 // sentences per page
+
+    const [data, setData] = useState<PageData | null>(null)
+    const [info, setInfo] = useState('Ready')
+
+    // map leftId -> rightId for current page
+    const [alignMap, setAlignMap] = useState<Map<number, number>>(new Map())
+    const [highlightRightId, setHighlightRightId] = useState<number | null>(null)
+
+    // right-side sentence refs for scrolling
+    const rightRefs = useRef<Record<number, HTMLParagraphElement | null>>({})
+
 
     // Query params (example: ?bookId=faust&src=de&tgt=en)
     const params = new URLSearchParams(location.search)
     // const bookId = params.get('bookId') ?? 'faust'
+    // LATER ADD FETCH FROM THE CATALOGUE (CREATE CATALOGUE, maybe json with all the books)
     const bookId = "Faust (Part I)"
     // LEFT = original (src), RIGHT = publisher translation (tgt)
     const src = params.get('src') ?? 'de'
     const tgt = params.get('tgt') ?? 'en'
 
-    const [data, setData] = useState<Aligned | null>(null)
-    const [info, setInfo] = useState('Ready')
+    // const [data, setData] = useState<Aligned | null>(null)
+    // const [info, setInfo] = useState('Ready')
 
     // Popover & positioning
     const [pop, setPop] = useState<PopState>({ kind: 'hidden' })
@@ -38,27 +72,66 @@ export default function Reader() {
     const leftRef = useRef<HTMLDivElement>(null)
     const rightRef = useRef<HTMLDivElement>(null)
 
-    // Load first page (or fallback)
+    // // Load first page (or fallback)
+    // useEffect(() => {
+    //     ;(async () => {
+    //         setInfo('Loading…')
+    //         try {
+    //             const r = await fetch(`/api/reader/pages?bookId=${bookId}&src=${src}&tgt=${tgt}&page=${page}&size=${size}`)
+    //             const j = await r.json()
+    //             setData(j)
+    //             const fallback = {
+    //                 bookId, src, tgt,
+    //                 left: ["Habe nun, ach! Philosophie, Juristerei und Medizin, und leider auch Theologie!", "Durchaus studiert, mit heißem Bemühn."],
+    //                 right:["I’ve studied now Philosophy and Jurisprudence, Medicine,—and even, alas! Theology—", "From end to end, with labor keen."]
+    //             }
+    //             setData(j.left ? j : fallback)
+    //             setInfo('Loaded')
+    //         } catch {
+    //             setData(null)
+    //             setInfo('Error loading text')
+    //         }
+    //     })()
+    // }, [bookId, src, tgt])
+
     useEffect(() => {
         ;(async () => {
             setInfo('Loading…')
             try {
-                const r = await fetch(`/api/reader/pages?bookId=${bookId}&src=${src}&tgt=${tgt}&page=${page}&size=${size}`)
-                const j = await r.json()
+                const qs = new URLSearchParams({
+                    bookId,
+                    src,
+                    tgt,
+                    page: String(page),
+                    size: String(size),
+                    method: 'dp-mlMiniLM-v1-de-en', // or your method name
+                })
+                const r = await fetch(`/api/reader/pages?${qs}`)
+                const j = (await r.json()) as PageData
                 setData(j)
-                const fallback = {
-                    bookId, src, tgt,
-                    left: ["Habe nun, ach! Philosophie, Juristerei und Medizin, und leider auch Theologie!", "Durchaus studiert, mit heißem Bemühn."],
-                    right:["I’ve studied now Philosophy and Jurisprudence, Medicine,—and even, alas! Theology—", "From end to end, with labor keen."]
-                }
-                setData(j.left ? j : fallback)
-                setInfo('Loaded')
-            } catch {
+                setInfo(
+                    `Loaded page ${j.page + 1} · ${j.left.length} DE sentences / ${j.right.length} EN sentences`
+                )
+
+                // Build alignment map leftId -> rightId (take best per leftId)
+                const m = new Map<number, number>()
+                j.alignments.forEach(link => {
+                    if (!m.has(link.leftId)) {
+                        m.set(link.leftId, link.rightId)
+                    }
+                })
+                setAlignMap(m)
+                setHighlightRightId(null)
+                // reset refs
+                rightRefs.current = {}
+            } catch (e) {
+                console.error(e)
                 setData(null)
-                setInfo('Error loading text')
+                setInfo('Error loading page')
             }
         })()
-    }, [bookId, src, tgt])
+    }, [bookId, src, tgt, page])
+
 
     // trigger reload when page changes
     useEffect(() => {
@@ -133,6 +206,17 @@ export default function Reader() {
         document.addEventListener('selectionchange', onSelChange);
         return () => document.removeEventListener('selectionchange', onSelChange);
     }, []);
+
+    function handleLeftSentenceClick(sentenceId: number) {
+        const rightId = alignMap.get(sentenceId)
+        if (!rightId) return
+
+        setHighlightRightId(rightId)
+        const el = rightRefs.current[rightId]
+        if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+    }
 
 
     // Selection handler for each pane
@@ -226,24 +310,39 @@ export default function Reader() {
                     onMouseUp={() => handleMouseUp('left')}
                     className="card p-4 leading-7 select-text"
                 >
-                    {data?.left?.map((p, i) => (
-                        <p key={i} className="mb-3">
-                            {p}
+                    {data?.left.map(s => (
+                        <p
+                            key={s.id}
+                            className="mb-3 cursor-pointer hover:bg-amber-100/60 transition-colors"
+                            onClick={() => handleLeftSentenceClick(s.id)}
+                        >
+                            {s.text}
                         </p>
                     ))}
                 </div>
+
 
                 <div
                     ref={rightRef}
                     onMouseUp={() => handleMouseUp('right')}
                     className="card p-4 leading-7 select-text"
                 >
-                    {data?.right?.map((p, i) => (
-                        <p key={i} className="mb-3">
-                            {p}
+                    {data?.right.map(s => (
+                        <p
+                            key={s.id}
+                            ref={el => {
+                                rightRefs.current[s.id] = el
+                            }}
+                            className={
+                                'mb-3 transition-colors ' +
+                                (highlightRightId === s.id ? 'bg-amber-200/80' : '')
+                            }
+                        >
+                            {s.text}
                         </p>
                     ))}
                 </div>
+
 
                 {/* pager controls */}
                 <div className="mb-3 flex items-center gap-3">
