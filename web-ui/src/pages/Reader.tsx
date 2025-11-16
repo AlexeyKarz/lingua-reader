@@ -16,11 +16,12 @@ type PopState =
 export default function Reader() {
 
     const [page, setPage] = useState(0)
-    const size = 250 // words per page
+    const size = 15 // sentences per page
 
     // Query params (example: ?bookId=faust&src=de&tgt=en)
     const params = new URLSearchParams(location.search)
-    const bookId = params.get('bookId') ?? 'faust'
+    // const bookId = params.get('bookId') ?? 'faust'
+    const bookId = "Faust (Part I)"
     // LEFT = original (src), RIGHT = publisher translation (tgt)
     const src = params.get('src') ?? 'de'
     const tgt = params.get('tgt') ?? 'en'
@@ -224,11 +225,12 @@ export default function Reader() {
                     ref={leftRef}
                     onMouseUp={() => handleMouseUp('left')}
                     className="card p-4 leading-7 select-text"
-
                 >
-                    {data?.left && data.left[0]?.trim()
-                        ? <p className="mb-3">{data.left[0]}</p>
-                        : <p className="mb-3 italic opacity-60">No content loaded.</p>}
+                    {data?.left?.map((p, i) => (
+                        <p key={i} className="mb-3">
+                            {p}
+                        </p>
+                    ))}
                 </div>
 
                 <div
@@ -236,7 +238,11 @@ export default function Reader() {
                     onMouseUp={() => handleMouseUp('right')}
                     className="card p-4 leading-7 select-text"
                 >
-                    {data?.right?.slice(0, 8).map((p, i) => <p key={i} className="mb-3">{p}</p>)}
+                    {data?.right?.map((p, i) => (
+                        <p key={i} className="mb-3">
+                            {p}
+                        </p>
+                    ))}
                 </div>
 
                 {/* pager controls */}
@@ -244,7 +250,7 @@ export default function Reader() {
                     <button className="btn" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page <= 0}>Prev</button>
                     <div className="text-sm">Page {page + 1}</div>
                     <button className="btn" onClick={() => setPage(p => p + 1)}>Next</button>
-                    <span className="text-xs opacity-70">(~{size} words per language)</span>
+                    <span className="text-xs opacity-70">(~{size} sentences per language)</span>
                 </div>
 
 
