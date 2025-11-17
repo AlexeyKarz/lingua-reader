@@ -39,16 +39,16 @@ public class ReaderController {
         );
     }
 
+    @Timed(value = "reader.pages", description = "Fetch aligned page")
     @GetMapping("/pages")
     public Map<String, Object> pages(
-            @RequestParam String bookId,     // e.g. "Faust (Part I)"
-            @RequestParam String src,        // "de"
-            @RequestParam String tgt,        // "en"
+            @RequestParam String bookId,
+            @RequestParam String src,
+            @RequestParam String tgt,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "dp-mlMiniLM-v1-de-en") String method
     ) {
-        // Resolve editions for this work + languages
         ReaderRepository.EditionIds ids = repo.findEditionIds(bookId, src, tgt);
         if (ids == null) {
             return Map.of(
@@ -63,22 +63,40 @@ public class ReaderController {
             );
         }
 
-        long workId  = ids.workId();
-        long srcEd   = ids.srcEditionId();
-        long tgtEd   = ids.tgtEditionId();
+        long workId = ids.workId();
+        long srcEd  = ids.srcEditionId();
+        long tgtEd  = ids.tgtEditionId();
 
         int totalSrc = repo.countSentences(srcEd);
-        int totalTgt = repo.countSentences(tgtEd);
+        int totalTgt = repo.countSentences(tgtEd); // still useful info
 
-        List<SentenceDto> left  = repo.fetchSentencePage(srcEd, page, size);
-        List<SentenceDto> right = repo.fetchSentencePage(tgtEd, page, size);
+        // 1) Find start ids for the body
+        Long srcBodyStart = repo.findBodyStartSegmentId(srcEd);
+        Long tgtBodyStart = repo.findBodyStartSegmentId(tgtEd);
 
-        List<Long> leftIds  = left.stream().map(SentenceDto::id).collect(Collectors.toList());
-        List<Long> rightIds = right.stream().map(SentenceDto::id).collect(Collectors.toList());
+        // 2) Page source sentences (DE)
+        List<SentenceDto> left  = repo.fetchSentencePage(srcEd, srcBodyStart, page, size);
+        List<Long> leftIds = left.stream().map(SentenceDto::id).toList();
 
-        List<AlignmentLinkDto> links = repo.fetchAlignmentsForPage(
-                workId, srcEd, tgtEd, method, leftIds, rightIds
+
+
+
+        // 3) Get alignments for those left IDs (across the *whole* EN edition)
+        List<AlignmentLinkDto> links = repo.fetchAlignmentsForLeftIds(
+                workId, srcEd, tgtEd, method, leftIds
         );
+
+        // 4) Collect distinct right IDs and fetch those EN sentences
+        List<Long> rightIds = links.stream()
+                .map(AlignmentLinkDto::rightId)
+                .distinct()
+                .sorted()
+                .toList();
+
+        List<SentenceDto> right = repo.fetchSentencesByIds(rightIds);
+
+//        List<SentenceDto> right = repo.fetchSentencePage(tgtEd, tgtBodyStart, page, size);
+
 
         return Map.of(
                 "bookId", bookId,
@@ -93,4 +111,5 @@ public class ReaderController {
                 "alignments", links
         );
     }
+
 }

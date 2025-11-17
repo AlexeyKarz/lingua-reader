@@ -209,7 +209,11 @@ export default function Reader() {
 
     function handleLeftSentenceClick(sentenceId: number) {
         const rightId = alignMap.get(sentenceId)
-        if (!rightId) return
+        if (!rightId) {
+            // TODO: instead of alert maybe I could set some other solution
+            alert('No publisher translation aligned for this sentence. Use AI translation if needed.')
+            return
+        }
 
         setHighlightRightId(rightId)
         const el = rightRefs.current[rightId]
@@ -217,6 +221,8 @@ export default function Reader() {
             el.scrollIntoView({ behavior: 'smooth', block: 'center' })
         }
     }
+
+
 
 
     // Selection handler for each pane

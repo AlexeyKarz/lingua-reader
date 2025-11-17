@@ -25,7 +25,7 @@ Usage example:
 
 import os
 import argparse
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 import numpy as np
 import psycopg
@@ -78,22 +78,53 @@ def fetch_edition_ids(conn, work_title: str, src_lang: str, tgt_lang: str) -> Tu
     work_id, src_id, tgt_id = row
     return int(work_id), int(src_id), int(tgt_id)
 
+def fetch_edition_ids_and_body_start(conn, work_title, src_lang, tgt_lang):
+    sql = """
+        select w.id as work_id,
+               max(case when e.lang = %s then e.id end) as src_id,
+               max(case when e.lang = %s then e.id end) as tgt_id,
+               max(case when e.lang = %s then e.body_start_segment_id end) as src_body,
+               max(case when e.lang = %s then e.body_start_segment_id end) as tgt_body
+        from work w
+        join edition e on e.work_id = w.id
+        where w.title = %s
+        group by w.id
+        limit 1
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql, (src_lang, tgt_lang, src_lang, tgt_lang, work_title))
+        row = cur.fetchone()
+    if not row:
+        raise RuntimeError("...")
 
-def fetch_sentences_with_vecs(conn, edition_id: int) -> Tuple[List[int], np.ndarray]:
+    work_id, src_id, tgt_id, src_body, tgt_body = row
+    return int(work_id), int(src_id), int(tgt_id), src_body, tgt_body
+
+
+
+def fetch_sentences_with_vecs(conn, edition_id: int, body_start_id: Optional[int]):
     """
     Returns (segment_ids, vectors) for all sentence-level segments in order
     for a given edition. Requires embedding rows to exist for those segments.
     """
-    sql = """
+    if body_start_id is None:
+        where_extra = ""
+        params = (edition_id,)
+    else:
+        where_extra = "and s.id >= %s"
+        params = (edition_id, body_start_id)
+
+    sql = f"""
         select s.id, e.vec
         from segment s
         join embedding e on e.segment_id = s.id
         where s.edition_id = %s
           and s.level = 'sentence'
+          {where_extra}
         order by s.id
     """
     with conn.cursor() as cur:
-        cur.execute(sql, (edition_id,))
+        cur.execute(sql, params)
         rows = cur.fetchall()
 
     if not rows:
@@ -323,8 +354,8 @@ def parse_args():
     p.add_argument(
         "--min-score",
         type=float,
-        default=0.2,
-        help="Minimum cosine similarity to keep an alignment when writing to DB (default: 0.2)",
+        default=0.35,
+        help="Minimum cosine similarity to keep an alignment when writing to DB (default: 0.35)",
     )
     p.add_argument(
         "--gap-penalty",
@@ -346,14 +377,15 @@ def main():
 
     conn = get_conn()
     try:
-        work_id, src_ed, tgt_ed = fetch_edition_ids(conn, args.work, args.src, args.tgt)
+        work_id, src_ed, tgt_ed, src_body, tgt_body = fetch_edition_ids_and_body_start(conn, args.work, args.src, args.tgt)
         print(
             f"Aligning work='{args.work}' (id={work_id}) "
             f"{args.src} edition {src_ed} → {args.tgt} edition {tgt_ed}"
         )
 
-        src_ids, src_vecs = fetch_sentences_with_vecs(conn, src_ed)
-        tgt_ids, tgt_vecs = fetch_sentences_with_vecs(conn, tgt_ed)
+        src_ids, src_vecs = fetch_sentences_with_vecs(conn, src_ed, src_body)
+        tgt_ids, tgt_vecs = fetch_sentences_with_vecs(conn, tgt_ed, tgt_body)
+
         print(f"Loaded {len(src_ids)} source sentences, {len(tgt_ids)} target sentences")
 
         pairs = dp_align(

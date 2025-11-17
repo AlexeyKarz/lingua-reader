@@ -58,19 +58,32 @@ public class ReaderRepository {
         return total != null ? total : 0;
     }
 
-    public List<SentenceDto> fetchSentencePage(long editionId, int page, int size) {
+    public Long findBodyStartSegmentId(long editionId) {
+        String sql = "select body_start_segment_id from edition where id = :ed";
+        return jdbc.queryForObject(
+                sql,
+                new MapSqlParameterSource().addValue("ed", editionId),
+                Long.class
+        );
+    }
+
+
+    public List<SentenceDto> fetchSentencePage(long editionId, Long bodyStartId, int page, int size) {
         int offset = page * size;
+
         String sql = """
-            select id, text
-            from segment
-            where edition_id = :ed
-              and level = 'sentence'
-            order by id
-            offset :off limit :lim
-            """;
+        select id, text
+        from segment
+        where edition_id = :ed
+          and level = 'sentence'
+          and (:bodyStart is null or id >= :bodyStart)
+        order by id
+        offset :off limit :lim
+        """;
 
         var params = new MapSqlParameterSource()
                 .addValue("ed", editionId)
+                .addValue("bodyStart", bodyStartId)
                 .addValue("off", offset)
                 .addValue("lim", size);
 
@@ -117,6 +130,60 @@ public class ReaderRepository {
                 )
         );
     }
+
+    public List<AlignmentLinkDto> fetchAlignmentsForLeftIds(
+            long workId,
+            long srcEditionId,
+            long tgtEditionId,
+            String method,
+            List<Long> leftIds
+    ) {
+        if (leftIds.isEmpty()) return List.of();
+
+        String sql = """
+        select a.left_segment_id, a.right_segment_id, a.score
+        from alignment a
+        where a.work_id = :wid
+          and a.edition_src_id = :srcEd
+          and a.edition_tgt_id = :tgtEd
+          and a.method = :method
+          and a.left_segment_id = any(:leftIds)
+        """;
+
+        var params = new MapSqlParameterSource()
+                .addValue("wid", workId)
+                .addValue("srcEd", srcEditionId)
+                .addValue("tgtEd", tgtEditionId)
+                .addValue("method", method)
+                .addValue("leftIds", leftIds.toArray(Long[]::new));
+
+        return jdbc.query(sql, params, (rs, rowNum) ->
+                new AlignmentLinkDto(
+                        rs.getLong("left_segment_id"),
+                        rs.getLong("right_segment_id"),
+                        rs.getDouble("score")
+                )
+        );
+    }
+
+
+    public List<SentenceDto> fetchSentencesByIds(List<Long> ids) {
+        if (ids.isEmpty()) return List.of();
+
+        String sql = """
+        select id, text
+        from segment
+        where id = any(:ids)
+        order by id
+        """;
+
+        var params = new MapSqlParameterSource()
+                .addValue("ids", ids.toArray(Long[]::new));
+
+        return jdbc.query(sql, params, (rs, rowNum) ->
+                new SentenceDto(rs.getLong("id"), rs.getString("text")));
+    }
+
 
     public Long findEditionIdByWorkTitleAndLang(String workTitle, String lang) {
         var sql = """
