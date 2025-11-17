@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import {useEffect, useLayoutEffect, useRef, useState, useMemo, type JSX} from 'react'
 
 // type Aligned = { left: string[]; right: string[]; bookId: string; src: string; tgt: string }
 
@@ -40,6 +40,8 @@ export default function Reader() {
     const [page, setPage] = useState(0)
     const size = 20 // sentences per page
 
+    const [notice, setNotice] = useState<string | null>(null)
+
     const [data, setData] = useState<PageData | null>(null)
     const [info, setInfo] = useState('Ready')
 
@@ -50,6 +52,15 @@ export default function Reader() {
     // right-side sentence refs for scrolling
     const rightRefs = useRef<Record<number, HTMLParagraphElement | null>>({})
 
+    const alignedRightIds = useMemo(() => {
+        const set = new Set<number>()
+        data?.alignments?.forEach(link => {
+            set.add(link.rightId)
+        })
+        return set
+    }, [data])
+
+    const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set())
 
     // Query params (example: ?bookId=faust&src=de&tgt=en)
     const params = new URLSearchParams(location.search)
@@ -63,6 +74,16 @@ export default function Reader() {
     // const [data, setData] = useState<Aligned | null>(null)
     // const [info, setInfo] = useState('Ready')
 
+    // Front matter states
+    const [frontMatter, setFrontMatter] = useState<{
+        left: Sentence[]
+        right: Sentence[]
+    } | null>(null)
+
+    const [showFrontLeft, setShowFrontLeft] = useState(false)
+    const [showFrontRight, setShowFrontRight] = useState(false)
+    const [frontInfo, setFrontInfo] = useState<string>('') // optional small status
+
     // Popover & positioning
     const [pop, setPop] = useState<PopState>({ kind: 'hidden' })
     const popRef = useRef<HTMLDivElement>(null)
@@ -71,28 +92,6 @@ export default function Reader() {
     // Panes — LEFT (original/src), RIGHT (translation/tgt)
     const leftRef = useRef<HTMLDivElement>(null)
     const rightRef = useRef<HTMLDivElement>(null)
-
-    // // Load first page (or fallback)
-    // useEffect(() => {
-    //     ;(async () => {
-    //         setInfo('Loading…')
-    //         try {
-    //             const r = await fetch(`/api/reader/pages?bookId=${bookId}&src=${src}&tgt=${tgt}&page=${page}&size=${size}`)
-    //             const j = await r.json()
-    //             setData(j)
-    //             const fallback = {
-    //                 bookId, src, tgt,
-    //                 left: ["Habe nun, ach! Philosophie, Juristerei und Medizin, und leider auch Theologie!", "Durchaus studiert, mit heißem Bemühn."],
-    //                 right:["I’ve studied now Philosophy and Jurisprudence, Medicine,—and even, alas! Theology—", "From end to end, with labor keen."]
-    //             }
-    //             setData(j.left ? j : fallback)
-    //             setInfo('Loaded')
-    //         } catch {
-    //             setData(null)
-    //             setInfo('Error loading text')
-    //         }
-    //     })()
-    // }, [bookId, src, tgt])
 
     useEffect(() => {
         ;(async () => {
@@ -132,6 +131,18 @@ export default function Reader() {
         })()
     }, [bookId, src, tgt, page])
 
+    // close notice (no alignment) automatically
+    useEffect(() => {
+        if (!notice) return
+
+        const id = window.setTimeout(() => {
+            setNotice(null)
+        }, 5_000) // 5 seconds
+
+        return () => {
+            window.clearTimeout(id)
+        }
+    }, [notice])
 
     // trigger reload when page changes
     useEffect(() => {
@@ -147,6 +158,13 @@ export default function Reader() {
             }
         })()
     }, [bookId, src, tgt, page])
+
+    // prefetch the front matter
+    useEffect(() => {
+        if (page !== 0) return
+        // fire and forget; we don't care about the result here
+        void ensureFrontMatterLoaded()
+    }, [page, bookId, src, tgt])
 
     // Utility: clamp number into [min, max]
     const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(n, max))
@@ -207,11 +225,22 @@ export default function Reader() {
         return () => document.removeEventListener('selectionchange', onSelChange);
     }, []);
 
+    function toggleGroup(idx: number) {
+        setExpandedGroups(prev => {
+            const next = new Set(prev)
+            if (next.has(idx)) next.delete(idx)
+            else next.add(idx)
+            return next
+        })
+    }
+
+
     function handleLeftSentenceClick(sentenceId: number) {
         const rightId = alignMap.get(sentenceId)
         if (!rightId) {
-            // TODO: instead of alert maybe I could set some other solution
-            alert('No publisher translation aligned for this sentence. Use AI translation if needed.')
+            setNotice(
+                'No aligned publisher translation for this sentence. Check unaligned text (if any) or use AI translation.'
+            )
             return
         }
 
@@ -275,6 +304,40 @@ export default function Reader() {
         }
     }
 
+    async function ensureFrontMatterLoaded() {
+        if (frontMatter !== null) return
+
+        try {
+            setFrontInfo('Loading front matter…')
+            const qs = new URLSearchParams({
+                bookId,
+                src,
+                tgt,
+            })
+            const r = await fetch(`/api/reader/front-matter?${qs}`)
+            const j = await r.json()
+            setFrontMatter({
+                left: (j.left as Sentence[]) ?? [],
+                right: (j.right as Sentence[]) ?? [],
+            })
+            setFrontInfo('')
+        } catch (e) {
+            console.error(e)
+            setFrontInfo('Error loading front matter')
+        }
+    }
+
+    async function toggleFrontLeft() {
+        await ensureFrontMatterLoaded()
+        setShowFrontLeft(v => !v)
+    }
+
+    async function toggleFrontRight() {
+        await ensureFrontMatterLoaded()
+        setShowFrontRight(v => !v)
+    }
+
+
     // Close on Escape / background clicks
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setPop({ kind: 'hidden' })
@@ -316,6 +379,41 @@ export default function Reader() {
                     onMouseUp={() => handleMouseUp('left')}
                     className="card p-4 leading-7 select-text"
                 >
+                    {page === 0 && (
+                        <>
+                    {/* Front matter toggle, only on the first page */}
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                        <button
+                            type="button"
+                            className="text-xs px-2 py-1 rounded border border-amber-300/70 text-amber-800 bg-amber-50 hover:bg-amber-100 transition-colors"
+                            onClick={toggleFrontLeft}
+                        >
+                            {showFrontLeft
+                                ? `Hide front matter`
+                                : `Show front matter${
+                                    frontMatter && frontMatter.left.length
+                                        ? ` (${frontMatter.left.length} sentences)`
+                                        : ''
+                                }`}
+                        </button>
+                        {frontInfo && <span className="text-[10px] opacity-60">{frontInfo}</span>}
+                    </div>
+
+                    {/* Expanded front matter */}
+                    {showFrontLeft && frontMatter && frontMatter.left.length > 0 && (
+                        <div className="mb-3 border-l border-amber-200 pl-3 text-sm opacity-80">
+                            {frontMatter.left.map(s => (
+                                <p key={s.id} className="mb-2 italic">
+                                    {s.text}
+                                </p>
+                            ))}
+                            <hr className="border-amber-200/70 my-2" />
+                        </div>
+                    )}
+                </>
+                )}
+
+                    {/* Main body sentences */}
                     {data?.left.map(s => (
                         <p
                             key={s.id}
@@ -328,26 +426,149 @@ export default function Reader() {
                 </div>
 
 
+                {/*<div*/}
+                {/*    ref={rightRef}*/}
+                {/*    onMouseUp={() => handleMouseUp('right')}*/}
+                {/*    className="card p-4 leading-7 select-text"*/}
+                {/*>*/}
+                {/*    {data?.right.map(s => (*/}
+                {/*        <p*/}
+                {/*            key={s.id}*/}
+                {/*            ref={el => {*/}
+                {/*                rightRefs.current[s.id] = el*/}
+                {/*            }}*/}
+                {/*            className={*/}
+                {/*                'mb-3 transition-colors ' +*/}
+                {/*                (highlightRightId === s.id ? 'bg-amber-200/80' : '')*/}
+                {/*            }*/}
+                {/*        >*/}
+                {/*            {s.text}*/}
+                {/*        </p>*/}
+                {/*    ))}*/}
+                {/*</div>*/}
+
                 <div
                     ref={rightRef}
                     onMouseUp={() => handleMouseUp('right')}
                     className="card p-4 leading-7 select-text"
                 >
-                    {data?.right.map(s => (
-                        <p
-                            key={s.id}
-                            ref={el => {
-                                rightRefs.current[s.id] = el
-                            }}
-                            className={
-                                'mb-3 transition-colors ' +
-                                (highlightRightId === s.id ? 'bg-amber-200/80' : '')
-                            }
+                    {page === 0 && (
+                        <>
+                    {/* Front matter toggle */}
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                        <button
+                            type="button"
+                            className="text-xs px-2 py-1 rounded border border-amber-300/70 text-amber-800 bg-amber-50 hover:bg-amber-100 transition-colors"
+                            onClick={toggleFrontRight}
                         >
-                            {s.text}
-                        </p>
-                    ))}
+                            {showFrontRight
+                                ? `Hide front matter`
+                                : `Show front matter${
+                                    frontMatter && frontMatter.right.length
+                                        ? ` (${frontMatter.right.length} sentences)`
+                                        : ''
+                                }`}
+                        </button>
+                        {frontInfo && <span className="text-[10px] opacity-60">{frontInfo}</span>}
+                    </div>
+
+                    {showFrontRight && frontMatter && frontMatter.right.length > 0 && (
+                        <div className="mb-3 border-l border-amber-200 pl-3 text-sm opacity-80">
+                            {frontMatter.right.map(s => (
+                                <p
+                                    key={s.id}
+                                    ref={el => {
+                                        rightRefs.current[s.id] = el
+                                    }}
+                                    className="mb-2 italic"
+                                >
+                                    {s.text}
+                                </p>
+                            ))}
+                            <hr className="border-amber-200/70 my-2" />
+                        </div>
+                    )}
+                        </>
+                    )}
+
+                    {/* aligned sentences + buttons for unaligned sentences*/}
+                    {(() => {
+                        if (!data?.right) return null
+
+                        const nodes: JSX.Element[] = []
+                        let buffer: typeof data.right = []
+                        let groupIndex = 0
+
+                        const flushGroup = () => {
+                            if (buffer.length === 0) return
+                            const idx = groupIndex++
+                            const expanded = expandedGroups.has(idx)
+
+                            nodes.push(
+                                <div key={`grp-${idx}`} className="mb-2">
+                                    <button
+                                        type="button"
+                                        className="text-xs px-2 py-1 rounded border border-amber-300/70 text-amber-800 bg-amber-50 hover:bg-amber-100 transition-colors"
+                                        onClick={() => toggleGroup(idx)}
+                                    >
+                                        {expanded
+                                            ? `Hide ${buffer.length} unaligned sentence${buffer.length > 1 ? 's' : ''}`
+                                            : `Show ${buffer.length} unaligned sentence${buffer.length > 1 ? 's' : ''}`}
+                                    </button>
+                                    {expanded && (
+                                        <div className="mt-1 pl-3 border-l border-amber-200">
+                                            {buffer.map(s => (
+                                                <p
+                                                    key={s.id}
+                                                    ref={el => {
+                                                        rightRefs.current[s.id] = el
+                                                    }}
+                                                    className="mb-2 text-sm opacity-80 italic"
+                                                >
+                                                    {s.text}
+                                                </p>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )
+
+                            buffer = []
+                        }
+
+                        data.right.forEach(s => {
+                            const isAligned = alignedRightIds.has(s.id)
+
+                            if (isAligned) {
+                                // Finish any buffered unaligned group before this aligned sentence
+                                flushGroup()
+
+                                nodes.push(
+                                    <p
+                                        key={s.id}
+                                        ref={el => {
+                                            rightRefs.current[s.id] = el
+                                        }}
+                                        className={
+                                            'mb-3 transition-colors ' +
+                                            (highlightRightId === s.id ? 'bg-amber-200/80' : '')
+                                        }
+                                    >
+                                        {s.text}
+                                    </p>
+                                )
+                            } else {
+                                buffer.push(s)
+                            }
+                        })
+
+                        // Flush trailing group if any
+                        flushGroup()
+
+                        return nodes
+                    })()}
                 </div>
+
 
 
                 {/* pager controls */}
@@ -401,6 +622,29 @@ export default function Reader() {
             <p className="mt-3 text-xs opacity-70">
                 Tip: select a word or drag a sentence. Click <b>Translate</b> near your selection.
             </p>
+
+            {notice && (
+                <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
+                    <div className="card px-4 py-3 shadow-lg border border-amber-200 bg-amber-50 max-w-lg flex items-start gap-3">
+                        <div className="mt-1 text-amber-700">
+                            {/* small info dot */}
+                            <span className="inline-block h-2 w-2 rounded-full bg-amber-500" />
+                        </div>
+                        <div className="text-sm text-amber-900">
+                            {notice}
+                        </div>
+                        <button
+                            type="button"
+                            aria-label="Close"
+                            onClick={() => setNotice(null)}
+                            className="ml-2 text-xs text-amber-700 hover:text-amber-900 px-1 rounded hover:bg-amber-100"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                </div>
+            )}
+
         </div>
     )
 }

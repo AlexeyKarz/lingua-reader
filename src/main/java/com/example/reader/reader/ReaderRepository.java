@@ -184,22 +184,83 @@ public class ReaderRepository {
                 new SentenceDto(rs.getLong("id"), rs.getString("text")));
     }
 
+    public List<SentenceDto> fetchSentencesInRange(long editionId, long fromId, long toId) {
+        String sql = """
+        select id, text
+        from segment
+        where edition_id = :ed
+          and level = 'sentence'
+          and id between :fromId and :toId
+        order by id
+        """;
 
-    public Long findEditionIdByWorkTitleAndLang(String workTitle, String lang) {
-        var sql = """
-            select e.id
-            from edition e
-            join work w on e.work_id = w.id
-            where w.title = :title and e.lang = :lang
-            limit 1
-            """;
-        return jdbc.query(
-                sql,
-                new MapSqlParameterSource()
-                        .addValue("title", workTitle)
-                        .addValue("lang", lang),
-                rs -> rs.next() ? rs.getLong(1) : null
-        );
+        var params = new MapSqlParameterSource()
+                .addValue("ed", editionId)
+                .addValue("fromId", fromId)
+                .addValue("toId", toId);
+
+        return jdbc.query(sql, params,
+                (rs, rowNum) -> new SentenceDto(rs.getLong("id"), rs.getString("text")));
     }
+
+    public List<SentenceDto> fetchFrontMatter(long editionId, Long bodyStartId) {
+        // If bodyStartId is null, we don't know where body starts – return empty for now
+        if (bodyStartId == null) {
+            return List.of();
+        }
+
+        String sql = """
+        select id, text
+        from segment
+        where edition_id = :ed
+          and level = 'sentence'
+          and id < :bodyStart
+        order by id
+        """;
+
+        var params = new MapSqlParameterSource()
+                .addValue("ed", editionId)
+                .addValue("bodyStart", bodyStartId);
+
+        return jdbc.query(sql, params,
+                (rs, rowNum) -> new SentenceDto(rs.getLong("id"), rs.getString("text")));
+    }
+
+
+
+//    public List<SentenceDto> fetchFrontMatter(long editionId, long bodyStartId) {
+//        String sql = """
+//        select id, text
+//        from segment
+//        where edition_id = :ed
+//          and level = 'sentence'
+//          and id < :body
+//        order by id
+//        """;
+//        var params = new MapSqlParameterSource()
+//                .addValue("ed", editionId)
+//                .addValue("body", bodyStartId);
+//        return jdbc.query(sql, params,
+//                (rs, rowNum) -> new SentenceDto(rs.getLong("id"), rs.getString("text")));
+//    }
+
+
+//
+//    public Long findEditionIdByWorkTitleAndLang(String workTitle, String lang) {
+//        var sql = """
+//            select e.id
+//            from edition e
+//            join work w on e.work_id = w.id
+//            where w.title = :title and e.lang = :lang
+//            limit 1
+//            """;
+//        return jdbc.query(
+//                sql,
+//                new MapSqlParameterSource()
+//                        .addValue("title", workTitle)
+//                        .addValue("lang", lang),
+//                rs -> rs.next() ? rs.getLong(1) : null
+//        );
+//    }
 
 }
