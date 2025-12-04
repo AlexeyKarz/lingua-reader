@@ -65,11 +65,11 @@ export default function Reader() {
     // Query params (example: ?bookId=faust&src=de&tgt=en)
     const params = new URLSearchParams(location.search)
     // const bookId = params.get('bookId') ?? 'faust'
-    // LATER ADD FETCH FROM THE CATALOGUE (CREATE CATALOGUE, maybe json with all the books)
-    const bookId = "Faust (Part I)"
-    // LEFT = original (src), RIGHT = publisher translation (tgt)
+    const bookId =
+        params.get('bookId') ?? 'Faust (Part I)' // fallback, but ideally always provided
     const src = params.get('src') ?? 'de'
     const tgt = params.get('tgt') ?? 'en'
+    // LEFT = original (src), RIGHT = publisher translation (tgt)
 
     // const [data, setData] = useState<Aligned | null>(null)
     // const [info, setInfo] = useState('Ready')
