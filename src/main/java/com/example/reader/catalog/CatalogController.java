@@ -4,6 +4,8 @@ import io.micrometer.core.annotation.Timed;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
@@ -11,6 +13,7 @@ import java.util.List;
 @RequestMapping("/api/catalog")
 public class CatalogController {
 
+    private static final Logger log = LoggerFactory.getLogger(CatalogController.class);
     private final CatalogRepository repo;
 
     public CatalogController(CatalogRepository repo) {
@@ -26,6 +29,7 @@ public class CatalogController {
     )
     @GetMapping("/books")
     public List<CatalogEntry> books() {
+        log.info("Catalog fetch requested");
         return repo.listBooks();
     }
 }

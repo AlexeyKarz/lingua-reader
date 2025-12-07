@@ -1,6 +1,8 @@
 package com.example.reader.translate;
 
 import io.micrometer.core.annotation.Timed;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -8,6 +10,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/translate")
 public class TranslateController {
+
+    private static final Logger log = LoggerFactory.getLogger(TranslateController.class);
 
     private final TranslateService svc;
 
@@ -27,6 +31,7 @@ public class TranslateController {
             @RequestParam String source,
             @RequestParam String target) {
 
+        log.info("User word lookup: {} -> {} ({} chars)", source, target, text.length());
         String translated = svc.word(text, source, target);
         return Map.of(
                 "text", text,
@@ -47,6 +52,7 @@ public class TranslateController {
         var text = body.getOrDefault("text","");
         var source = body.getOrDefault("source","en");
         var target = body.getOrDefault("target","de");
+        log.info("User sentence translate: {} -> {} ({} chars)", source, target, text.length());
         return Map.of("translated", svc.sentence(text, source, target));
     }
 
@@ -68,8 +74,9 @@ public class TranslateController {
             context = context + " | Literal translation shown to user: " + translation;
         }
 
+        log.info("User explain request: {} -> {} ({} chars, ctx {} chars)",
+                source, target, text.length(), context.length());
         String explanation = svc.explain(text, source, target, context);
         return Map.of("explanation", explanation);
     }
 }
-

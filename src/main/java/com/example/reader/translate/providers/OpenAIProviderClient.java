@@ -1,6 +1,8 @@
 package com.example.reader.translate.providers;
 
 import com.example.reader.translate.properties.OpenAITranslateProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -9,6 +11,8 @@ import java.util.List;
 import java.util.Map;
 
 public class OpenAIProviderClient implements ProviderClient {
+
+    private static final Logger log = LoggerFactory.getLogger(OpenAIProviderClient.class);
 
     private final WebClient webClient;
     private final String model;
@@ -22,10 +26,12 @@ public class OpenAIProviderClient implements ProviderClient {
                 .baseUrl("https://api.openai.com")
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + props.getApiKey())
                 .build();
+        log.info("OpenAI provider enabled with model {}", this.model);
     }
 
     @Override
     public String literal(String text, String source, String target) {
+        log.info("Calling OpenAI literal translation {} -> {} ({} chars)", source, target, text.length());
         String systemPrompt = """
                 You are a translation engine.
                 Translate strictly from the source language to the target language.
@@ -42,11 +48,13 @@ public class OpenAIProviderClient implements ProviderClient {
 
     @Override
     public String explain(String text, String source, String target, String bookContext) {
+        log.info("Calling OpenAI explain {} -> {} ({} chars, ctx {} chars)",
+                source, target, text.length(), bookContext == null ? 0 : bookContext.length());
         String systemPrompt = """
                 You are a language tutor that helps with understanding texts (books, short stories, novellas).
                 Explain provided text in detail: vocabulary, grammar, nuances and how it would be naturally understood.
                 Output in the user's target language, but show important original words as needed.
-                Try to make the answer as concise and clear as possible. Do now use markdown symbols.
+                Try to make the answer as concise and clear as possible. Do now use markdown symbols (like bold * or header # symbols).
                 """;
 
         String userPrompt = "Source language: " + source +
@@ -59,6 +67,7 @@ public class OpenAIProviderClient implements ProviderClient {
 
     private String callChat(String systemPrompt, String userPrompt) {
         // Minimal Chat Completions-style call
+        long started = System.currentTimeMillis();
         Map<String, Object> body = Map.of(
                 "model", model,
                 "messages", List.of(
@@ -68,19 +77,28 @@ public class OpenAIProviderClient implements ProviderClient {
                 "temperature", 0.1
         );
 
-        OpenAIChatResponse response = this.webClient
-                .post()
-                .uri("/v1/chat/completions")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(body)
-                .retrieve()
-                .bodyToMono(OpenAIChatResponse.class)
-                .block();
+        try {
+            OpenAIChatResponse response = this.webClient
+                    .post()
+                    .uri("/v1/chat/completions")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(OpenAIChatResponse.class)
+                    .block();
 
-        if (response == null || response.choices == null || response.choices.isEmpty()) {
-            throw new IllegalStateException("Empty OpenAI response");
+            long durationMs = System.currentTimeMillis() - started;
+            if (response == null || response.choices == null || response.choices.isEmpty()) {
+                throw new IllegalStateException("Empty OpenAI response");
+            }
+            String content = response.choices.getFirst().message.content;
+            log.info("OpenAI call succeeded in {} ms ({} chars)", durationMs, content == null ? 0 : content.length());
+            return content;
+        } catch (Exception e) {
+            long durationMs = System.currentTimeMillis() - started;
+            log.error("OpenAI call failed after {} ms: {}", durationMs, e.getMessage());
+            throw e;
         }
-        return response.choices.getFirst().message.content;
     }
 
     // DTOs to parse the response (minimal)

@@ -144,21 +144,6 @@ export default function Reader() {
         }
     }, [notice])
 
-    // trigger reload when page changes
-    useEffect(() => {
-        (async () => {
-            setInfo('Loading…')
-            try {
-                const r = await fetch(`/api/reader/pages?bookId=${bookId}&src=${src}&tgt=${tgt}&page=${page}&size=${size}`)
-                const j = await r.json()
-                setData(j)
-                setInfo(`Loaded page ${page}`)
-            } catch {
-                setInfo('Error')
-            }
-        })()
-    }, [bookId, src, tgt, page])
-
     // prefetch the front matter
     useEffect(() => {
         if (page !== 0) return
