@@ -1,11 +1,8 @@
 package com.example.reader.translate.providers;
 
-import com.example.reader.translate.OpenAITranslateProperties;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.context.annotation.Primary;
+import com.example.reader.translate.properties.OpenAITranslateProperties;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.List;

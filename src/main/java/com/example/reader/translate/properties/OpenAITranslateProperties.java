@@ -1,5 +1,5 @@
 // src/main/java/com/example/reader/translate/OpenAITranslateProperties.java
-package com.example.reader.translate;
+package com.example.reader.translate.properties;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 

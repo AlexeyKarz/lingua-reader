@@ -31,7 +31,7 @@ management:
       application: ${spring.application.name}
 
 translate:
-  provider: openai # stub / openai / ollama
+  provider: ollama # stub / openai / ollama
 
   openai:
     enabled: true   # set to true in prod or in a local override
