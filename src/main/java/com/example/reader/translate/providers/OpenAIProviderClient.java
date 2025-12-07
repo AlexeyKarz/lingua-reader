@@ -46,6 +46,7 @@ public class OpenAIProviderClient implements ProviderClient {
                 You are a language tutor that helps with understanding texts (books, short stories, novellas).
                 Explain provided text in detail: vocabulary, grammar, nuances and how it would be naturally understood.
                 Output in the user's target language, but show important original words as needed.
+                Try to make the answer as concise and clear as possible. Do now use markdown symbols.
                 """;
 
         String userPrompt = "Source language: " + source +

@@ -40,6 +40,8 @@ public class OllamaProviderClient implements ProviderClient {
         String prompt = """
                 You are a language tutor.
                 Explain vocabulary, grammar, and nuance for this sentence.
+                The explanation should be as concise and clear as possible.
+                Do not use markdown symbols.
                 Provide the explanation in %s.
                 Use book context if helpful.
 

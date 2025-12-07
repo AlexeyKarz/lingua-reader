@@ -14,5 +14,9 @@ body { background: var(--bg); color: var(--text); }
 .btn { @apply px-3 py-1.5 rounded; background: var(--peach); color: black; }
 .btn:hover { background: var(--peach-700); }
 
+.btn-secondary {
+  @apply px-3 py-1.5 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 transition;
+}
+
 .card { @apply rounded shadow border border-gray-300; background: #fffef9; }
 .input { @apply px-3 py-1.5 rounded border border-gray-300 bg-white; }

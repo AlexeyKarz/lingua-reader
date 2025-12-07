@@ -40,7 +40,7 @@ public class TranslateService {
             histogram = true, percentiles = {0.5, 0.95, 0.99},
             extraTags = {"component", "service"}
     )
-    public String explainSentence(String text, String source, String target, String bookContext) {
+    public String explain(String text, String source, String target, String bookContext) {
         return provider.explain(text, source, target, bookContext);
     }
 }

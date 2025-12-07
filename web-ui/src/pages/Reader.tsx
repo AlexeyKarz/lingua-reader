@@ -11,6 +11,7 @@ type PopState =
     sourceLang: string
     targetLang: string
     result?: string
+    action?: 'translate' | 'explain'
 }
 
 type Sentence = { id: number; text: string }
@@ -278,31 +279,93 @@ export default function Reader() {
         setPop({ kind: 'ready', text, rect, sourceLang, targetLang })
     }
 
-    async function doTranslate() {
-        if (pop.kind !== 'ready' && pop.kind !== 'error') return
+    // async function doTranslate() {
+    //     if (pop.kind !== 'ready' && pop.kind !== 'error') return
+    //     const { text, sourceLang, targetLang } = pop
+    //     const isWord = text.length <= 40 && !/\s/.test(text)
+    //
+    //     setPop({ ...pop, kind: 'loading' })
+    //     try {
+    //         if (isWord) {
+    //             const qs = new URLSearchParams({ text, source: sourceLang, target: targetLang })
+    //             const r = await fetch(`/api/translate/word?${qs}`)
+    //             const translated = await r.text()
+    //             setPop(p => (p.kind === 'loading' ? { ...p, kind: 'result', result: translated } : p))
+    //         } else {
+    //             const r = await fetch('/api/translate/sentence', {
+    //                 method: 'POST',
+    //                 headers: { 'Content-Type': 'application/json' },
+    //                 body: JSON.stringify({ text, source: sourceLang, target: targetLang })
+    //             })
+    //             const j = await r.json()
+    //             setPop(p => (p.kind === 'loading' ? { ...p, kind: 'result', result: j.translated } : p))
+    //         }
+    //     } catch {
+    //         setPop(p => (p.kind === 'loading' ? { ...p, kind: 'error' } : p))
+    //     }
+    // }
+
+    async function doAction(action: 'translate' | 'explain') {
+        if (pop.kind === 'hidden') return
+
+        const canStart =
+            pop.kind === 'ready' ||
+            pop.kind === 'error' ||
+            (action === 'explain' && pop.kind === 'result' && pop.action !== 'explain')
+
+        if (!canStart) return
+
         const { text, sourceLang, targetLang } = pop
         const isWord = text.length <= 40 && !/\s/.test(text)
 
-        setPop({ ...pop, kind: 'loading' })
+        setPop({ ...pop, kind: 'loading', action })
+
         try {
-            if (isWord) {
-                const qs = new URLSearchParams({ text, source: sourceLang, target: targetLang })
-                const r = await fetch(`/api/translate/word?${qs}`)
-                const translated = await r.text()
-                setPop(p => (p.kind === 'loading' ? { ...p, kind: 'result', result: translated } : p))
+            let resultText = ''
+
+            if (action === 'translate') {
+                if (isWord) {
+                    const qs = new URLSearchParams({ text, source: sourceLang, target: targetLang })
+                    const r = await fetch(`/api/translate/word?${qs}`)
+                    const j = await r.json()
+                    resultText = j.translated ?? ''
+                } else {
+                    const r = await fetch('/api/translate/sentence', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text, source: sourceLang, target: targetLang })
+                    })
+                    const j = await r.json()
+                    resultText = j.translated ?? ''
+                }
             } else {
-                const r = await fetch('/api/translate/sentence', {
+                // Explain for both word/sentence via one endpoint
+                const context = `${bookId} | ${src.toUpperCase()}→${tgt.toUpperCase()}`
+                const translation = pop.result ?? ''
+                const r = await fetch('/api/translate/explain', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text, source: sourceLang, target: targetLang })
+                    body: JSON.stringify({
+                        text,
+                        source: sourceLang,
+                        target: targetLang,
+                        context,
+                        translation
+                    })
                 })
                 const j = await r.json()
-                setPop(p => (p.kind === 'loading' ? { ...p, kind: 'result', result: j.translated } : p))
+                resultText = j.explanation ?? ''
             }
+
+            setPop(p => (p.kind === 'loading'
+                    ? { ...p, kind: 'result', result: resultText, action }
+                    : p
+            ))
         } catch {
-            setPop(p => (p.kind === 'loading' ? { ...p, kind: 'error' } : p))
+            setPop(p => (p.kind === 'loading' ? { ...p, kind: 'error', action } : p))
         }
     }
+
 
     async function ensureFrontMatterLoaded() {
         if (frontMatter !== null) return
@@ -601,16 +664,36 @@ export default function Reader() {
                             </div>
 
                             {pop.kind === 'ready' && (
-                                <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-2 flex-wrap">
                                     <div className="text-sm font-semibold truncate max-w-[16rem]">“{pop.text}”</div>
-                                    <button className="btn" onClick={doTranslate}>Translate</button>
+                                    <button className="btn" onClick={() => doAction('translate')}>Translate</button>
                                 </div>
                             )}
-                            {pop.kind === 'loading' && <div className="text-sm">Translating…</div>}
+                            {pop.kind === 'loading' && (
+                                <div className="text-sm">
+                                    {pop.action === 'explain' ? 'Explaining…' : 'Translating…'}
+                                </div>
+                            )}
                             {pop.kind === 'result' && (
                                 <>
+                                    <div className="text-xs mb-1 opacity-70">
+                                        {pop.action === 'explain' ? 'Explanation' : 'Translation'}
+                                    </div>
+
                                     <div className="text-sm font-semibold mb-1">“{pop.text}”</div>
-                                    <div className="text-sm whitespace-pre-wrap">{pop.result ?? '—'}</div>
+                                    <div className="text-sm whitespace-pre-wrap mb-3">{pop.result ?? '—'}</div>
+
+                                    {/* Only show Explain button when we currently display a translation */}
+                                    {pop.action !== 'explain' && (
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                className="btn-secondary"
+                                                onClick={() => doAction('explain')}
+                                            >
+                                                Explain
+                                            </button>
+                                        </div>
+                                    )}
                                 </>
                             )}
                             {pop.kind === 'error' && <div className="text-sm text-red-700">Error. Please try again.</div>}
@@ -620,7 +703,7 @@ export default function Reader() {
             </div>
 
             <p className="mt-3 text-xs opacity-70">
-                Tip: select a word or drag a sentence. Click <b>Translate</b> near your selection.
+                Tip: select a word or sentence. Use <b>Translate</b> for literal output. On the translation use <b>Explain</b> for grammar/nuance insights.
             </p>
 
             {notice && (

@@ -59,11 +59,16 @@ public class TranslateController {
     @PostMapping("/explain")
     public Map<String,String> explain(@RequestBody Map<String,String> body) {
         var text = body.getOrDefault("text","");
-        var source = body.getOrDefault("source","en");
+        var source = body.getOrDefault("source","");
         var target = body.getOrDefault("target","en");
         var context = body.getOrDefault("context","");
+        var translation = body.getOrDefault("translation","");
 
-        String explanation = svc.explainSentence(text, source, target, context);
+        if (!translation.isBlank()) {
+            context = context + " | Literal translation shown to user: " + translation;
+        }
+
+        String explanation = svc.explain(text, source, target, context);
         return Map.of("explanation", explanation);
     }
 }
