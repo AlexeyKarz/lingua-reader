@@ -41,6 +41,8 @@ export default function Reader() {
     const [page, setPage] = useState(0)
     const size = 20 // sentences per page
 
+    const rangeRef = useRef<Range | null>(null)
+
     const [notice, setNotice] = useState<string | null>(null)
 
     const [data, setData] = useState<PageData | null>(null)
@@ -65,15 +67,12 @@ export default function Reader() {
 
     // Query params (example: ?bookId=faust&src=de&tgt=en)
     const params = new URLSearchParams(location.search)
-    // const bookId = params.get('bookId') ?? 'faust'
+
     const bookId =
         params.get('bookId') ?? 'Faust (Part I)' // fallback, but ideally always provided
+
     const src = params.get('src') ?? 'de'
     const tgt = params.get('tgt') ?? 'en'
-    // LEFT = original (src), RIGHT = publisher translation (tgt)
-
-    // const [data, setData] = useState<Aligned | null>(null)
-    // const [info, setInfo] = useState('Ready')
 
     // Front matter states
     const [frontMatter, setFrontMatter] = useState<{
@@ -204,14 +203,34 @@ export default function Reader() {
     // Reposition on resize/scroll while popover is visible
     useEffect(() => {
         if (pop.kind === 'hidden') return
-        const onR = () => setPop(p => (p.kind === 'hidden' ? p : { ...p })) // trigger useLayoutEffect
+
+        const onR = () => {
+            const r = rangeRef.current
+            if (!r) return
+
+            try {
+                const newRect = r.getBoundingClientRect()
+                // Avoid useless state churn when rect becomes empty
+                if (!newRect || (newRect.width === 0 && newRect.height === 0)) return
+
+                setPop(p => (p.kind === 'hidden' ? p : { ...p, rect: newRect }))
+            } catch {
+                // If the range becomes invalid (e.g., page changed),
+                // we can safely hide the popover.
+                setPop({ kind: 'hidden' })
+                rangeRef.current = null
+            }
+        }
+
         window.addEventListener('resize', onR)
         window.addEventListener('scroll', onR, true)
+
         return () => {
             window.removeEventListener('resize', onR)
             window.removeEventListener('scroll', onR, true)
         }
     }, [pop.kind])
+
 
     // close when the text is not selected anymore
     useEffect(() => {
@@ -219,6 +238,7 @@ export default function Reader() {
             const sel = document.getSelection(); // or window.getSelection()
             // If selection is empty/collapsed -> close
             if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+                rangeRef.current = null
                 setPop({ kind: 'hidden' })
             }
         };
@@ -268,8 +288,10 @@ export default function Reader() {
         const text = sel.toString().trim()
         if (!text) return
 
-        const range = sel.getRangeAt(0)
-        const rect = range.getBoundingClientRect() // viewport rect of selection
+        const range = sel.getRangeAt(0).cloneRange()
+        rangeRef.current = range
+        const rect = range.getBoundingClientRect()
+
 
         // LEFT pane = original (src) → translate to tgt; RIGHT pane = translation (tgt) → translate to src
         const sourceLang = which === 'left' ? src : tgt
@@ -278,32 +300,6 @@ export default function Reader() {
         // Show the popover in "ready" state (only a button for now)
         setPop({ kind: 'ready', text, rect, sourceLang, targetLang })
     }
-
-    // async function doTranslate() {
-    //     if (pop.kind !== 'ready' && pop.kind !== 'error') return
-    //     const { text, sourceLang, targetLang } = pop
-    //     const isWord = text.length <= 40 && !/\s/.test(text)
-    //
-    //     setPop({ ...pop, kind: 'loading' })
-    //     try {
-    //         if (isWord) {
-    //             const qs = new URLSearchParams({ text, source: sourceLang, target: targetLang })
-    //             const r = await fetch(`/api/translate/word?${qs}`)
-    //             const translated = await r.text()
-    //             setPop(p => (p.kind === 'loading' ? { ...p, kind: 'result', result: translated } : p))
-    //         } else {
-    //             const r = await fetch('/api/translate/sentence', {
-    //                 method: 'POST',
-    //                 headers: { 'Content-Type': 'application/json' },
-    //                 body: JSON.stringify({ text, source: sourceLang, target: targetLang })
-    //             })
-    //             const j = await r.json()
-    //             setPop(p => (p.kind === 'loading' ? { ...p, kind: 'result', result: j.translated } : p))
-    //         }
-    //     } catch {
-    //         setPop(p => (p.kind === 'loading' ? { ...p, kind: 'error' } : p))
-    //     }
-    // }
 
     async function doAction(action: 'translate' | 'explain') {
         if (pop.kind === 'hidden') return
@@ -409,6 +405,7 @@ export default function Reader() {
             if (pop.kind === 'hidden') return
             if (popRef.current && popRef.current.contains(target)) return
             if (leftRef.current?.contains(target) || rightRef.current?.contains(target)) return
+            rangeRef.current = null
             setPop({ kind: 'hidden' })
         }
         window.addEventListener('keydown', onKey)
@@ -487,28 +484,6 @@ export default function Reader() {
                         </p>
                     ))}
                 </div>
-
-
-                {/*<div*/}
-                {/*    ref={rightRef}*/}
-                {/*    onMouseUp={() => handleMouseUp('right')}*/}
-                {/*    className="card p-4 leading-7 select-text"*/}
-                {/*>*/}
-                {/*    {data?.right.map(s => (*/}
-                {/*        <p*/}
-                {/*            key={s.id}*/}
-                {/*            ref={el => {*/}
-                {/*                rightRefs.current[s.id] = el*/}
-                {/*            }}*/}
-                {/*            className={*/}
-                {/*                'mb-3 transition-colors ' +*/}
-                {/*                (highlightRightId === s.id ? 'bg-amber-200/80' : '')*/}
-                {/*            }*/}
-                {/*        >*/}
-                {/*            {s.text}*/}
-                {/*        </p>*/}
-                {/*    ))}*/}
-                {/*</div>*/}
 
                 <div
                     ref={rightRef}
@@ -645,19 +620,22 @@ export default function Reader() {
 
                 {/* Edge-aware popover */}
                 {pop.kind !== 'hidden' && (
-                    <div ref={popRef} className="fixed z-50" style={{ top: `${coords.top}px`, left: `${coords.left}px` }}>
+                    <div
+                        ref={popRef}
+                        className="fixed z-50"
+                        style={{ top: `${coords.top}px`, left: `${coords.left}px` }}
+                    >
                         <div className="card p-3 max-w-md relative">
                             {/* top-right close */}
                             <button
                                 aria-label="Close"
                                 onClick={() => setPop({ kind: 'hidden' })}
                                 className="absolute -right-2 -top-2 h-6 w-6 rounded-full bg-red-600 text-white text-sm leading-6 text-center
-                                    hover:bg-red-700 active:bg-red-800 transition-colors"
+                   hover:bg-red-700 active:bg-red-800 transition-colors"
                                 title="Close"
                             >
                                 ×
                             </button>
-
 
                             <div className="text-xs mb-1 opacity-70">
                                 {pop.sourceLang.toUpperCase()} → {pop.targetLang.toUpperCase()}
@@ -666,22 +644,28 @@ export default function Reader() {
                             {pop.kind === 'ready' && (
                                 <div className="flex items-center gap-2 flex-wrap">
                                     <div className="text-sm font-semibold truncate max-w-[16rem]">“{pop.text}”</div>
-                                    <button className="btn" onClick={() => doAction('translate')}>Translate</button>
+                                    <button className="btn" onClick={() => doAction('translate')}>
+                                        Translate
+                                    </button>
                                 </div>
                             )}
+
                             {pop.kind === 'loading' && (
                                 <div className="text-sm">
                                     {pop.action === 'explain' ? 'Explaining…' : 'Translating…'}
                                 </div>
                             )}
+
                             {pop.kind === 'result' && (
-                                <>
+                                <div className="max-h-[50vh] overflow-y-auto pr-1">
                                     <div className="text-xs mb-1 opacity-70">
                                         {pop.action === 'explain' ? 'Explanation' : 'Translation'}
                                     </div>
 
                                     <div className="text-sm font-semibold mb-1">“{pop.text}”</div>
-                                    <div className="text-sm whitespace-pre-wrap mb-3">{pop.result ?? '—'}</div>
+                                    <div className="text-sm whitespace-pre-wrap mb-3">
+                                        {pop.result ?? '—'}
+                                    </div>
 
                                     {/* Only show Explain button when we currently display a translation */}
                                     {pop.action !== 'explain' && (
@@ -694,12 +678,16 @@ export default function Reader() {
                                             </button>
                                         </div>
                                     )}
-                                </>
+                                </div>
                             )}
-                            {pop.kind === 'error' && <div className="text-sm text-red-700">Error. Please try again.</div>}
+
+                            {pop.kind === 'error' && (
+                                <div className="text-sm text-red-700">Error. Please try again.</div>
+                            )}
                         </div>
                     </div>
                 )}
+
             </div>
 
             <p className="mt-3 text-xs opacity-70">
