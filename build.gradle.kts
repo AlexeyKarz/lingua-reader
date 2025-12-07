@@ -18,6 +18,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     // Prometheus registry so /actuator/prometheus exposes metrics
     implementation("io.micrometer:micrometer-registry-prometheus")
+    implementation("org.springframework.boot:spring-boot-starter-webflux")
 
     implementation("org.springframework.boot:spring-boot-starter-aop") // needed for @Timed on beans
 

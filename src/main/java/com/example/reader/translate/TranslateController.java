@@ -26,8 +26,14 @@ public class TranslateController {
             @RequestParam String text,
             @RequestParam String source,
             @RequestParam String target) {
-        return Map.of("text", text, "source", source, "target", target,
-                "translated", svc.word(text, source, target));
+
+        String translated = svc.word(text, source, target);
+        return Map.of(
+                "text", text,
+                "source", source,
+                "target", target,
+                "translated", translated
+        );
     }
 
     @Timed(
@@ -43,4 +49,22 @@ public class TranslateController {
         var target = body.getOrDefault("target","de");
         return Map.of("translated", svc.sentence(text, source, target));
     }
+
+    @Timed(
+            value = "translate.explain",
+            description = "Sentence explanation requests",
+            histogram = true, percentiles = {0.5, 0.95, 0.99},
+            extraTags = {"component", "controller"}
+    )
+    @PostMapping("/explain")
+    public Map<String,String> explain(@RequestBody Map<String,String> body) {
+        var text = body.getOrDefault("text","");
+        var source = body.getOrDefault("source","en");
+        var target = body.getOrDefault("target","en");
+        var context = body.getOrDefault("context","");
+
+        String explanation = svc.explainSentence(text, source, target, context);
+        return Map.of("explanation", explanation);
+    }
 }
+

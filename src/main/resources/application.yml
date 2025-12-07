@@ -29,3 +29,15 @@ management:
         http.server.requests: true
     tags:
       application: ${spring.application.name}
+
+translate:
+  provider: openai # stub / openai / ollama
+
+  openai:
+    enabled: true   # set to true in prod or in a local override
+    apiKey: ${OPENAI_API_KEY:}
+    model: gpt-4o-mini
+
+  ollama:
+    baseurl: http://localhost:11434
+    model: llama3.1:8b

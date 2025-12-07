@@ -1,12 +1,16 @@
 package com.example.reader.translate.providers;
 
-import org.springframework.stereotype.Component;
+public interface ProviderClient {
 
-// TODO replace with real HTTP client to a local model or cloud provider
-@Component
-public class ProviderClient {
-    public String literal(String text, String source, String target) {
-        // Placeholder for a provider call; keep fast for now
-        return "[" + source + "→" + target + "] " + text;
-    }
+    /**
+     * Literal translation, as close as possible to the source wording.
+     * Used both for single words and short sentences.
+     */
+    String literal(String text, String source, String target);
+
+    /**
+     * Explanatory translation: grammar, nuance, etc.
+     * Can include longer / structured output.
+     */
+    String explain(String text, String source, String target, String bookContext);
 }
