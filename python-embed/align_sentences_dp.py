@@ -380,13 +380,14 @@ def main():
         work_id, src_ed, tgt_ed, src_body, tgt_body = fetch_edition_ids_and_body_start(conn, args.work, args.src, args.tgt)
         print(
             f"Aligning work='{args.work}' (id={work_id}) "
-            f"{args.src} edition {src_ed} → {args.tgt} edition {tgt_ed}"
+            f"{args.src} edition {src_ed} → {args.tgt} edition {tgt_ed} "
+            f"(body starts: src={src_body}, tgt={tgt_body})"
         )
 
         src_ids, src_vecs = fetch_sentences_with_vecs(conn, src_ed, src_body)
         tgt_ids, tgt_vecs = fetch_sentences_with_vecs(conn, tgt_ed, tgt_body)
 
-        print(f"Loaded {len(src_ids)} source sentences, {len(tgt_ids)} target sentences")
+        print(f"Loaded {len(src_ids)} source sentences, {len(tgt_ids)} target sentences (post body_start filter)")
 
         pairs = dp_align(
             src_ids,

@@ -61,19 +61,28 @@ export default function CatalogPage() {
                             ))}
                         </div>
 
-                        {/* For now: simple DE–EN or EN–DE links if both exist */}
-                        {book.langs.includes('de') && book.langs.includes('en') && (
-                            <div className="mt-3 flex gap-2 text-sm">
-                                <a
-                                    href={`/reader?bookId=${encodeURIComponent(
-                                        book.id
-                                    )}&src=de&tgt=en`}
-                                    className="btn"
-                                >
-                                    Read DE → EN
-                                </a>
-                            </div>
-                        )}
+                        {/* Generic reader link: pick the first two langs, if present */}
+                        <div className="mt-3 flex gap-2 text-sm">
+                            {(() => {
+                                if (book.langs.length < 2) {
+                                    return <span className="text-xs opacity-60">Add another language edition to read side-by-side.</span>
+                                }
+
+                                // Simple default: first lang = source (left), second = target (right).
+                                // (langs come from the DB ordered alphabetically)
+                                const srcLang = book.langs[0]
+                                const tgtLang = book.langs[1]
+
+                                return (
+                                    <a
+                                        href={`/reader?bookId=${encodeURIComponent(book.id)}&src=${srcLang}&tgt=${tgtLang}`}
+                                        className="btn"
+                                    >
+                                        Read {srcLang.toUpperCase()} → {tgtLang.toUpperCase()}
+                                    </a>
+                                )
+                            })()}
+                        </div>
                     </div>
                 ))}
 

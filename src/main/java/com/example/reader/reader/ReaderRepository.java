@@ -5,6 +5,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.sql.Types;
 
 @Repository
 public class ReaderRepository {
@@ -83,7 +84,7 @@ public class ReaderRepository {
 
         var params = new MapSqlParameterSource()
                 .addValue("ed", editionId)
-                .addValue("bodyStart", bodyStartId)
+                .addValue("bodyStart", bodyStartId, Types.BIGINT)
                 .addValue("off", offset)
                 .addValue("lim", size);
 
@@ -166,6 +167,38 @@ public class ReaderRepository {
         );
     }
 
+    public List<AlignmentLinkDto> fetchAlignmentsForLeftIdsAnyMethod(
+            long workId,
+            long srcEditionId,
+            long tgtEditionId,
+            List<Long> leftIds
+    ) {
+        if (leftIds.isEmpty()) return List.of();
+
+        String sql = """
+        select a.left_segment_id, a.right_segment_id, a.score
+        from alignment a
+        where a.work_id = :wid
+          and a.edition_src_id = :srcEd
+          and a.edition_tgt_id = :tgtEd
+          and a.left_segment_id = any(:leftIds)
+        """;
+
+        var params = new MapSqlParameterSource()
+                .addValue("wid", workId)
+                .addValue("srcEd", srcEditionId)
+                .addValue("tgtEd", tgtEditionId)
+                .addValue("leftIds", leftIds.toArray(Long[]::new));
+
+        return jdbc.query(sql, params, (rs, rowNum) ->
+                new AlignmentLinkDto(
+                        rs.getLong("left_segment_id"),
+                        rs.getLong("right_segment_id"),
+                        rs.getDouble("score")
+                )
+        );
+    }
+
 
     public List<SentenceDto> fetchSentencesByIds(List<Long> ids) {
         if (ids.isEmpty()) return List.of();
@@ -220,47 +253,9 @@ public class ReaderRepository {
 
         var params = new MapSqlParameterSource()
                 .addValue("ed", editionId)
-                .addValue("bodyStart", bodyStartId);
+                .addValue("bodyStart", bodyStartId, Types.BIGINT);
 
         return jdbc.query(sql, params,
                 (rs, rowNum) -> new SentenceDto(rs.getLong("id"), rs.getString("text")));
     }
-
-
-
-//    public List<SentenceDto> fetchFrontMatter(long editionId, long bodyStartId) {
-//        String sql = """
-//        select id, text
-//        from segment
-//        where edition_id = :ed
-//          and level = 'sentence'
-//          and id < :body
-//        order by id
-//        """;
-//        var params = new MapSqlParameterSource()
-//                .addValue("ed", editionId)
-//                .addValue("body", bodyStartId);
-//        return jdbc.query(sql, params,
-//                (rs, rowNum) -> new SentenceDto(rs.getLong("id"), rs.getString("text")));
-//    }
-
-
-//
-//    public Long findEditionIdByWorkTitleAndLang(String workTitle, String lang) {
-//        var sql = """
-//            select e.id
-//            from edition e
-//            join work w on e.work_id = w.id
-//            where w.title = :title and e.lang = :lang
-//            limit 1
-//            """;
-//        return jdbc.query(
-//                sql,
-//                new MapSqlParameterSource()
-//                        .addValue("title", workTitle)
-//                        .addValue("lang", lang),
-//                rs -> rs.next() ? rs.getLong(1) : null
-//        );
-//    }
-
 }

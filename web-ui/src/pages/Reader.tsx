@@ -103,7 +103,7 @@ export default function Reader() {
                     tgt,
                     page: String(page),
                     size: String(size),
-                    method: 'dp-mlMiniLM-v1-de-en', // or your method name
+                    method: `dp-mlMiniLM-v1-${src}-${tgt}`,
                 })
                 const r = await fetch(`/api/reader/pages?${qs}`)
                 const j = (await r.json()) as PageData

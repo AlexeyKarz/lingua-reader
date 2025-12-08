@@ -90,6 +90,13 @@ public class ReaderController {
                 workId, srcEd, tgtEd, method, leftIds
         );
 
+        // Fallback: if no alignments for requested method, try any method for this pair
+        if (links.isEmpty()) {
+            log.warn("No alignments found for method {} on bookId='{}' {}->{}, falling back to any method",
+                    method, bookId, src, tgt);
+            links = repo.fetchAlignmentsForLeftIdsAnyMethod(workId, srcEd, tgtEd, leftIds);
+        }
+
         List<SentenceDto> right;
 
         if (links.isEmpty()) {

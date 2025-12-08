@@ -57,6 +57,8 @@ public class IngestCommand implements CommandLineRunner {
         }
 
         System.out.println("Ingested " + workTitle + " [" + lang + "] from " + fileSpec);
+        // Exit so CLI runs (bootRun with ingest) terminate instead of leaving the web server running.
+        System.exit(0);
     }
 
     private Map<String,String> parseFlags(String[] arr) {

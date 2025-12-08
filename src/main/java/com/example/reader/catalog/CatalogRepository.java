@@ -18,14 +18,39 @@ public class CatalogRepository {
 
     public List<CatalogEntry> listBooks() {
         String sql = """
+            with latest_align as (
+                select a.work_id, a.edition_src_id, a.edition_tgt_id
+                from alignment a
+                join (
+                    select work_id, max(created_at) as max_created
+                    from alignment
+                    group by work_id
+                ) ma on ma.work_id = a.work_id and ma.max_created = a.created_at
+            )
             select
                 w.title as id,
                 w.title,
                 w.author,
                 w.pub_year,
-                array_agg(distinct e.lang order by e.lang) as langs
+                (
+                  select array_agg(lo.lang order by lo.ord_key, lo.lang)
+                  from (
+                    select
+                      e2.lang as lang,
+                      min(
+                        case
+                          when la2.edition_src_id = e2.id then 0
+                          when la2.edition_tgt_id = e2.id then 1
+                          else 2
+                        end
+                      ) as ord_key
+                    from edition e2
+                    left join latest_align la2 on la2.work_id = w.id
+                    where e2.work_id = w.id
+                    group by e2.lang
+                  ) lo
+                ) as langs
             from work w
-            join edition e on e.work_id = w.id
             group by w.id, w.title, w.author, w.pub_year
             order by w.title
             """;

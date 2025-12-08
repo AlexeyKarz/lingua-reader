@@ -84,7 +84,7 @@ def upsert_embeddings(
 # -------------------------
 
 def main():
-    print(f"Loading model: {MODEL_NAME}")
+    print(f"Loading embedding model: {MODEL_NAME}")
     model = SentenceTransformer(MODEL_NAME)
 
     conn = get_conn()
@@ -103,7 +103,7 @@ def main():
                 break
 
             segment_ids, texts = zip(*rows)
-            print(f"Encoding batch of {len(texts)} sentences (starting at segment_id {segment_ids[0]})")
+            print(f"Encoding batch of {len(texts)} sentences (starting at segment_id {segment_ids[0]}) using {MODEL_NAME}")
 
             # sentence-transformers returns numpy array (n_sentences, 384)
             vectors = model.encode(
