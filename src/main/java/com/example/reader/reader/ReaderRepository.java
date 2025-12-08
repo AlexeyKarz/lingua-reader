@@ -73,12 +73,14 @@ public class ReaderRepository {
         int offset = page * size;
 
         String sql = """
-        select id, text
-        from segment
-        where edition_id = :ed
-          and level = 'sentence'
-          and (:bodyStart is null or id >= :bodyStart)
-        order by id
+        select s.id, s.text, c.id as chap_id, c.text as chap_title
+        from segment s
+        left join segment p on p.id = s.parent_id
+        left join segment c on c.id = p.parent_id and c.level = 'chapter'
+        where s.edition_id = :ed
+          and s.level = 'sentence'
+          and (:bodyStart is null or s.id >= :bodyStart)
+        order by s.id
         offset :off limit :lim
         """;
 
@@ -89,7 +91,12 @@ public class ReaderRepository {
                 .addValue("lim", size);
 
         return jdbc.query(sql, params, (rs, rowNum) ->
-                new SentenceDto(rs.getLong("id"), rs.getString("text")));
+                new SentenceDto(
+                        rs.getLong("id"),
+                        rs.getString("text"),
+                        (Long) rs.getObject("chap_id"),
+                        rs.getString("chap_title")
+                ));
     }
 
     public List<AlignmentLinkDto> fetchAlignmentsForPage(
@@ -204,27 +211,36 @@ public class ReaderRepository {
         if (ids.isEmpty()) return List.of();
 
         String sql = """
-        select id, text
-        from segment
-        where id = any(:ids)
-        order by id
+        select s.id, s.text, c.id as chap_id, c.text as chap_title
+        from segment s
+        left join segment p on p.id = s.parent_id
+        left join segment c on c.id = p.parent_id and c.level = 'chapter'
+        where s.id = any(:ids)
+        order by s.id
         """;
 
         var params = new MapSqlParameterSource()
                 .addValue("ids", ids.toArray(Long[]::new));
 
         return jdbc.query(sql, params, (rs, rowNum) ->
-                new SentenceDto(rs.getLong("id"), rs.getString("text")));
+                new SentenceDto(
+                        rs.getLong("id"),
+                        rs.getString("text"),
+                        (Long) rs.getObject("chap_id"),
+                        rs.getString("chap_title")
+                ));
     }
 
     public List<SentenceDto> fetchSentencesInRange(long editionId, long fromId, long toId) {
         String sql = """
-        select id, text
-        from segment
-        where edition_id = :ed
-          and level = 'sentence'
-          and id between :fromId and :toId
-        order by id
+        select s.id, s.text, c.id as chap_id, c.text as chap_title
+        from segment s
+        left join segment p on p.id = s.parent_id
+        left join segment c on c.id = p.parent_id and c.level = 'chapter'
+        where s.edition_id = :ed
+          and s.level = 'sentence'
+          and s.id between :fromId and :toId
+        order by s.id
         """;
 
         var params = new MapSqlParameterSource()
@@ -233,7 +249,12 @@ public class ReaderRepository {
                 .addValue("toId", toId);
 
         return jdbc.query(sql, params,
-                (rs, rowNum) -> new SentenceDto(rs.getLong("id"), rs.getString("text")));
+                (rs, rowNum) -> new SentenceDto(
+                        rs.getLong("id"),
+                        rs.getString("text"),
+                        (Long) rs.getObject("chap_id"),
+                        rs.getString("chap_title")
+                ));
     }
 
     public List<SentenceDto> fetchFrontMatter(long editionId, Long bodyStartId) {
@@ -243,12 +264,14 @@ public class ReaderRepository {
         }
 
         String sql = """
-        select id, text
-        from segment
-        where edition_id = :ed
-          and level = 'sentence'
-          and id < :bodyStart
-        order by id
+        select s.id, s.text, c.id as chap_id, c.text as chap_title
+        from segment s
+        left join segment p on p.id = s.parent_id
+        left join segment c on c.id = p.parent_id and c.level = 'chapter'
+        where s.edition_id = :ed
+          and s.level = 'sentence'
+          and s.id < :bodyStart
+        order by s.id
         """;
 
         var params = new MapSqlParameterSource()
@@ -256,6 +279,11 @@ public class ReaderRepository {
                 .addValue("bodyStart", bodyStartId, Types.BIGINT);
 
         return jdbc.query(sql, params,
-                (rs, rowNum) -> new SentenceDto(rs.getLong("id"), rs.getString("text")));
+                (rs, rowNum) -> new SentenceDto(
+                        rs.getLong("id"),
+                        rs.getString("text"),
+                        (Long) rs.getObject("chap_id"),
+                        rs.getString("chap_title")
+                ));
     }
 }

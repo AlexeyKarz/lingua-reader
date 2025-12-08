@@ -13,6 +13,8 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.text.Normalizer;
 
 @Component
 public class EpubExtractor {
@@ -41,9 +43,12 @@ public class EpubExtractor {
         for (Element el : js.select("body h1, body h2, body h3, body p")) {
             String tag = el.tagName().toLowerCase();
             if (tag.matches("h[1-3]")) {
-                // start a new chapter on each heading
-                current = new Chapter(el.text(), null, new ArrayList<>());
-                chapters.add(current);
+                // start a new chapter only on likely chapter headings
+                String heading = el.text().trim();
+                if (isLikelyChapterHeading(heading)) {
+                    current = new Chapter(heading, null, new ArrayList<>());
+                    chapters.add(current);
+                }
             } else if (tag.equals("p")) {
                 String t = el.text().trim();
                 if (!t.isEmpty()) {
@@ -60,6 +65,49 @@ public class EpubExtractor {
         }
 
         return new Doc(chapters);
+    }
+
+    // Heuristic: avoid counting every heading as a chapter; focus on likely chapter labels.
+    private boolean isLikelyChapterHeading(String raw) {
+        if (raw == null) return false;
+        String s = raw.trim();
+        if (s.isEmpty()) return false;
+
+        String lower = s.toLowerCase(Locale.ROOT);
+        String plain = stripAccents(lower);
+        // Ignore common non-chapter headings
+        if (plain.contains("contents")
+                || plain.contains("illustration")
+                || plain.contains("copyright")
+                || plain.contains("license")
+                || plain.contains("project gutenberg")
+                || plain.contains("title page")
+                || plain.contains("preface")
+                || plain.contains("prefacio")
+                || plain.contains("prologo")
+                || plain.contains("prologue")) {
+            return false;
+        }
+
+        // If it explicitly mentions chapter/stave/part/book/section, assume chapter
+        if (lower.matches(".*\\b(chapter|stave|part|book|section)\\b.*")) {
+            return true;
+        }
+        if (plain.matches(".*\\b(chapitre|estrofa|capitulo|kapitel|capitolo|capitulo|capitulos|parte|libro|seccion|sezione|teil|cuento)\\b.*")) {
+            return true;
+        }
+
+        // Leading roman numerals or digits are often chapter labels
+        if (lower.matches("^(chapter\\s+)?[ivxlcdm]+\\b.*")) return true;
+        if (lower.matches("^\\d+\\b.*")) return true;
+
+        // Otherwise treat short headings as non-chapters
+        return false;
+    }
+
+    private String stripAccents(String input) {
+        return Normalizer.normalize(input, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "");
     }
 
 

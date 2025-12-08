@@ -14,7 +14,7 @@ type PopState =
     action?: 'translate' | 'explain'
 }
 
-type Sentence = { id: number; text: string }
+type Sentence = { id: number; text: string; chapterId?: number | null; chapterTitle?: string | null }
 
 type AlignmentLink = {
     leftId: number
@@ -153,6 +153,54 @@ export default function Reader() {
 
     // Utility: clamp number into [min, max]
     const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(n, max))
+
+    type ChapterState = { current: number | null }
+
+    function renderSentencesWithChapters(
+        sentences: Sentence[] | undefined,
+        side: 'left' | 'right',
+        onSentenceClick?: (id: number) => void,
+        chapterState?: ChapterState
+    ) {
+        if (!sentences) return null
+        const nodes: JSX.Element[] = []
+        const state = chapterState ?? { current: null }
+
+        sentences.forEach(s => {
+            const chapChanged = s.chapterId != null && s.chapterId !== state.current
+            if (chapChanged) {
+                state.current = s.chapterId as number
+                if (s.chapterTitle) {
+                    nodes.push(
+                        <div key={`chap-${side}-${s.chapterId}`} className="mt-2 mb-1 text-sm font-semibold text-amber-800">
+                            {s.chapterTitle}
+                        </div>
+                    )
+                }
+            }
+
+            nodes.push(
+                <p
+                    key={s.id}
+                    ref={el => {
+                        if (side === 'right') {
+                            rightRefs.current[s.id] = el
+                        }
+                    }}
+                    className={
+                        'mb-3 transition-colors ' +
+                        (side === 'left' ? 'cursor-pointer hover:bg-amber-100/60 ' : '') +
+                        (highlightRightId === s.id && side === 'right' ? 'bg-amber-200/80' : '')
+                    }
+                    onClick={onSentenceClick ? () => onSentenceClick(s.id) : undefined}
+                >
+                    {s.text}
+                </p>
+            )
+        })
+
+        return nodes
+    }
 
     // Compute popover coords after it (re)renders or when selection rect changes.
     useLayoutEffect(() => {
@@ -459,15 +507,7 @@ export default function Reader() {
                 )}
 
                     {/* Main body sentences */}
-                    {data?.left.map(s => (
-                        <p
-                            key={s.id}
-                            className="mb-3 cursor-pointer hover:bg-amber-100/60 transition-colors"
-                            onClick={() => handleLeftSentenceClick(s.id)}
-                        >
-                            {s.text}
-                        </p>
-                    ))}
+                    {renderSentencesWithChapters(data?.left, 'left', handleLeftSentenceClick)}
                 </div>
 
                 <div
@@ -521,6 +561,7 @@ export default function Reader() {
                         const nodes: JSX.Element[] = []
                         let buffer: typeof data.right = []
                         let groupIndex = 0
+                        const rightChapterState: { current: number | null } = { current: null }
 
                         const flushGroup = () => {
                             if (buffer.length === 0) return
@@ -540,17 +581,7 @@ export default function Reader() {
                                     </button>
                                     {expanded && (
                                         <div className="mt-1 pl-3 border-l border-amber-200">
-                                            {buffer.map(s => (
-                                                <p
-                                                    key={s.id}
-                                                    ref={el => {
-                                                        rightRefs.current[s.id] = el
-                                                    }}
-                                                    className="mb-2 text-sm opacity-80 italic"
-                                                >
-                                                    {s.text}
-                                                </p>
-                                            ))}
+                                            {renderSentencesWithChapters(buffer, 'right', undefined, rightChapterState)}
                                         </div>
                                     )}
                                 </div>
@@ -567,18 +598,9 @@ export default function Reader() {
                                 flushGroup()
 
                                 nodes.push(
-                                    <p
-                                        key={s.id}
-                                        ref={el => {
-                                            rightRefs.current[s.id] = el
-                                        }}
-                                        className={
-                                            'mb-3 transition-colors ' +
-                                            (highlightRightId === s.id ? 'bg-amber-200/80' : '')
-                                        }
-                                    >
-                                        {s.text}
-                                    </p>
+                                    <div key={s.id}>
+                                        {renderSentencesWithChapters([s], 'right', undefined, rightChapterState)}
+                                    </div>
                                 )
                             } else {
                                 buffer.push(s)

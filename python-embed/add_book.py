@@ -477,7 +477,7 @@ def main():
 
     # Ingest each edition
     if args.reset_existing:
-        print(f"Resetting existing editions")
+        print(f"Resetting existing editions...")
         reset_existing(args.work, [e["lang"] for e in editions])
 
     for ed in editions:
