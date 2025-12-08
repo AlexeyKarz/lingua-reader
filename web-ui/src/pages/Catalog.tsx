@@ -61,27 +61,25 @@ export default function CatalogPage() {
                             ))}
                         </div>
 
-                        {/* Generic reader link: pick the first two langs, if present */}
-                        <div className="mt-3 flex gap-2 text-sm">
-                            {(() => {
-                                if (book.langs.length < 2) {
-                                    return <span className="text-xs opacity-60">Add another language edition to read side-by-side.</span>
-                                }
-
-                                // Simple default: first lang = source (left), second = target (right).
-                                // (langs come from the DB ordered alphabetically)
-                                const srcLang = book.langs[0]
-                                const tgtLang = book.langs[1]
-
-                                return (
-                                    <a
-                                        href={`/reader?bookId=${encodeURIComponent(book.id)}&src=${srcLang}&tgt=${tgtLang}`}
-                                        className="btn"
-                                    >
-                                        Read {srcLang.toUpperCase()} → {tgtLang.toUpperCase()}
-                                    </a>
-                                )
-                            })()}
+                        {/* Reader links: all source→target combinations */}
+                        <div className="mt-3 flex flex-wrap gap-2 text-sm">
+                            {book.langs.length < 2 ? (
+                                <span className="text-xs opacity-60">Add another language edition to read side-by-side.</span>
+                            ) : (
+                                (() => {
+                                    const src = book.langs[0] // first = original/source (ordered by backend)
+                                    const tgts = book.langs.slice(1)
+                                    return tgts.map(tgt => (
+                                        <a
+                                            key={`${src}-${tgt}`}
+                                            href={`/reader?bookId=${encodeURIComponent(book.id)}&src=${src}&tgt=${tgt}`}
+                                            className="btn"
+                                        >
+                                            Read {src.toUpperCase()} → {tgt.toUpperCase()}
+                                        </a>
+                                    ))
+                                })()
+                            )}
                         </div>
                     </div>
                 ))}

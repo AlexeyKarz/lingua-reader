@@ -39,7 +39,9 @@ type PageData = {
 export default function Reader() {
 
     const [page, setPage] = useState(0)
-    const size = 20 // sentences per page
+    const [size, setSize] = useState(20) // sentences per page
+    const [jumpInput, setJumpInput] = useState('1')
+    const [jumpError, setJumpError] = useState<string | null>(null)
 
     const rangeRef = useRef<Range | null>(null)
 
@@ -47,6 +49,10 @@ export default function Reader() {
 
     const [data, setData] = useState<PageData | null>(null)
     const [info, setInfo] = useState('Ready')
+    const totalPages = useMemo(
+        () => (data?.totalSrc ? Math.max(1, Math.ceil(data.totalSrc / size)) : null),
+        [data?.totalSrc, size]
+    )
 
     // map leftId -> rightId for current page
     const [alignMap, setAlignMap] = useState<Map<number, number>>(new Map())
@@ -93,15 +99,30 @@ export default function Reader() {
     const leftRef = useRef<HTMLDivElement>(null)
     const rightRef = useRef<HTMLDivElement>(null)
 
+    // Jump handler
+    function handleJump() {
+        const val = Number(jumpInput)
+        if (!Number.isFinite(val) || val < 1) {
+            setJumpError('Enter a positive page number')
+            return
+        }
+        if (totalPages && val > totalPages) {
+            setJumpError(`Max page is ${totalPages}`)
+            return
+        }
+        setJumpError(null)
+        setPage(val - 1)
+    }
+
     useEffect(() => {
         ;(async () => {
             setInfo('Loading…')
             try {
-                const qs = new URLSearchParams({
-                    bookId,
-                    src,
-                    tgt,
-                    page: String(page),
+        const qs = new URLSearchParams({
+            bookId,
+            src,
+            tgt,
+            page: String(page),
                     size: String(size),
                     method: `dp-mlMiniLM-v1-${src}-${tgt}`,
                 })
@@ -109,7 +130,7 @@ export default function Reader() {
                 const j = (await r.json()) as PageData
                 setData(j)
                 setInfo(
-                    `Loaded page ${j.page + 1} · ${j.left.length} DE sentences / ${j.right.length} EN sentences`
+                    `Loaded page ${j.page + 1} · ${j.left.length} sentences (src) / ${j.right.length} sentences (tgt)`
                 )
 
                 // Build alignment map leftId -> rightId (take best per leftId)
@@ -123,13 +144,14 @@ export default function Reader() {
                 setHighlightRightId(null)
                 // reset refs
                 rightRefs.current = {}
+                setJumpInput(String(j.page + 1))
             } catch (e) {
                 console.error(e)
                 setData(null)
                 setInfo('Error loading page')
             }
         })()
-    }, [bookId, src, tgt, page])
+    }, [bookId, src, tgt, page, size])
 
     // close notice (no alignment) automatically
     useEffect(() => {
@@ -617,11 +639,68 @@ export default function Reader() {
 
 
                 {/* pager controls */}
-                <div className="mb-3 flex items-center gap-3">
-                    <button className="btn" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page <= 0}>Prev</button>
-                    <div className="text-sm">Page {page + 1}</div>
-                    <button className="btn" onClick={() => setPage(p => p + 1)}>Next</button>
-                    <span className="text-xs opacity-70">(~{size} sentences per language)</span>
+                <div className="mb-4 flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-3">
+                        <button className="btn" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page <= 0}>Prev</button>
+                        <div className="text-sm whitespace-nowrap">
+                            Page {page + 1}{data?.totalSrc ? ` / ${Math.max(1, Math.ceil(data.totalSrc / size))}` : ''}
+                        </div>
+                        <button className="btn" onClick={() => setPage(p => p + 1)}>Next</button>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm flex-nowrap">
+                        <label className="text-xs opacity-70">Jump to</label>
+                        <div className="flex items-center gap-2">
+                            <input
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                value={jumpInput}
+                                onChange={e => {
+                                    setJumpInput(e.target.value)
+                                    setJumpError(null)
+                                }}
+                                className="w-16 border rounded px-2 py-1 text-sm"
+                                onKeyDown={e => {
+                                    if (e.key === 'Enter') {
+                                        e.preventDefault()
+                                        handleJump()
+                                    }
+                                }}
+                            />
+                            <button
+                                className="btn"
+                                onClick={handleJump}
+                            >
+                                Go
+                            </button>
+                        </div>
+                        {jumpError && <span className="text-xs text-red-700">{jumpError}</span>}
+                        {data?.totalSrc && (
+                            <span className="text-xs opacity-60">of {Math.max(1, Math.ceil(data.totalSrc / size))}</span>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-2 text-sm flex-nowrap">
+                        <label className="text-xs opacity-70">Sentences/page</label>
+                        <select
+                            value={size}
+                            onChange={e => {
+                                const val = Number(e.target.value)
+                                if (!Number.isFinite(val)) return
+                                // Recompute page to keep the current left-offset approximately stable
+                                const currentOffset = page * size
+                                const newPage = Math.floor(currentOffset / val)
+                                setPage(newPage)
+                                setSize(val)
+                                setJumpInput('1')
+                            }}
+                            className="border rounded px-2 py-1 text-sm"
+                        >
+                            {[5, 10, 15, 20, 30, 40, 50].map(n => (
+                                <option key={n} value={n}>{n}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <span className="text-xs opacity-70">(~{size} sentences per original language)</span>
                 </div>
 
 
