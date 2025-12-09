@@ -13,6 +13,15 @@ java {
 
 repositories { mavenCentral() }
 
+
+val nettyVersion = "4.1.122.Final"
+
+val osxClassifier = when {
+    System.getProperty("os.arch").contains("aarch64")
+            || System.getProperty("os.arch").contains("arm") -> "osx-aarch_64"
+    else -> "osx-x86_64"
+}
+
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
@@ -40,6 +49,9 @@ dependencies {
 
     // pgvector Java helpers (maps float[] to pgvector type)
     implementation("com.pgvector:pgvector:0.1.6")
+
+    // For correct DNS resolutions on MacOS
+    runtimeOnly("io.netty:netty-resolver-dns-native-macos:$nettyVersion:$osxClassifier")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
 
