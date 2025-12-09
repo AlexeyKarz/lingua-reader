@@ -74,6 +74,7 @@ public class ReaderController {
         long workId = ids.workId();
         long srcEd  = ids.srcEditionId();
         long tgtEd  = ids.tgtEditionId();
+        ReaderRepository.WorkMeta meta = repo.fetchWorkMeta(workId);
 
         int totalSrc = repo.countSentences(srcEd);
         int totalTgt = repo.countSentences(tgtEd);
@@ -121,18 +122,20 @@ public class ReaderController {
         log.info("Reader page response: bookId='{}' {}->{} page={} left={} right={} alignments={}",
                 bookId, src, tgt, page, left.size(), right.size(), links.size());
 
-        return Map.of(
-                "bookId", bookId,
-                "src", src,
-                "tgt", tgt,
-                "page", page,
-                "size", size,
-                "totalSrc", totalSrc,
-                "totalTgt", totalTgt,
-                "left", left,
-                "right", right,
-                "alignments", links
-        );
+        Map<String,Object> resp = new java.util.HashMap<>();
+        resp.put("bookId", bookId);
+        resp.put("src", src);
+        resp.put("tgt", tgt);
+        resp.put("title", meta.title());
+        resp.put("author", meta.author() == null ? "" : meta.author());
+        resp.put("page", page);
+        resp.put("size", size);
+        resp.put("totalSrc", totalSrc);
+        resp.put("totalTgt", totalTgt);
+        resp.put("left", left);
+        resp.put("right", right);
+        resp.put("alignments", links);
+        return resp;
     }
 
     @GetMapping("/front-matter")

@@ -26,6 +26,8 @@ type PageData = {
     bookId: string
     src: string
     tgt: string
+    title?: string
+    author?: string | null
     page: number
     size: number
     totalSrc: number
@@ -42,6 +44,7 @@ export default function Reader() {
     const [size, setSize] = useState(20) // sentences per page
     const [jumpInput, setJumpInput] = useState('1')
     const [jumpError, setJumpError] = useState<string | null>(null)
+    const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
     const rangeRef = useRef<Range | null>(null)
 
@@ -53,6 +56,12 @@ export default function Reader() {
         () => (data?.totalSrc ? Math.max(1, Math.ceil(data.totalSrc / size)) : null),
         [data?.totalSrc, size]
     )
+    const isEmptyPair =
+        !!data &&
+        data.totalSrc === 0 &&
+        data.totalTgt === 0 &&
+        data.left.length === 0 &&
+        data.right.length === 0
 
     // map leftId -> rightId for current page
     const [alignMap, setAlignMap] = useState<Map<number, number>>(new Map())
@@ -95,6 +104,8 @@ export default function Reader() {
     const popRef = useRef<HTMLDivElement>(null)
     const [coords, setCoords] = useState<{ top: number; left: number }>({ top: -9999, left: -9999 })
 
+    const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle')
+
     // Panes — LEFT (original/src), RIGHT (translation/tgt)
     const leftRef = useRef<HTMLDivElement>(null)
     const rightRef = useRef<HTMLDivElement>(null)
@@ -116,6 +127,8 @@ export default function Reader() {
 
     useEffect(() => {
         ;(async () => {
+            setStatus('loading')
+            setErrorMsg(null)
             setInfo('Loading…')
             try {
         const qs = new URLSearchParams({
@@ -127,11 +140,16 @@ export default function Reader() {
                     method: `dp-mlMiniLM-v1-${src}-${tgt}`,
                 })
                 const r = await fetch(`/api/reader/pages?${qs}`)
+                if (!r.ok) {
+                    const msg = await r.text().catch(() => '')
+                    throw new Error(msg || 'Failed to load page')
+                }
                 const j = (await r.json()) as PageData
                 setData(j)
                 setInfo(
                     `Loaded page ${j.page + 1} · ${j.left.length} sentences (src) / ${j.right.length} sentences (tgt)`
                 )
+                setStatus('idle')
 
                 // Build alignment map leftId -> rightId (take best per leftId)
                 const m = new Map<number, number>()
@@ -148,7 +166,9 @@ export default function Reader() {
             } catch (e) {
                 console.error(e)
                 setData(null)
-                setInfo('Error loading page')
+                setInfo('Error loading page (check language pair and alignments)')
+                setErrorMsg(e instanceof Error ? e.message : 'Error loading page')
+                setStatus('error')
             }
         })()
     }, [bookId, src, tgt, page, size])
@@ -475,11 +495,22 @@ export default function Reader() {
                 <span className="text-sm opacity-70">{info}</span>
             </div>
 
+            {status === 'error' && (
+                <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
+                    {errorMsg || 'Could not load this page. Check the language pair or try again.'}
+                </div>
+            )}
+            {isEmptyPair && (
+                <div className="mb-3 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                    No aligned data for this book/language pair. Try another pair or ingest alignments.
+                </div>
+            )}
+
             {/* Titles */}
             <div className="grid grid-cols-2 gap-4 mb-2">
                 <div className="text-sm opacity-70">
                     <div className="font-semibold">Original ({src.toUpperCase()})</div>
-                    <div className="opacity-70">Author(s): (e.g., Goethe)</div>
+                    <div className="opacity-70">Author(s): {data?.author || '—'}</div>
                 </div>
                 <div className="text-right text-sm opacity-70">
                     <div className="font-semibold">Publisher Translation ({tgt.toUpperCase()})</div>

@@ -18,6 +18,7 @@ public class ReaderRepository {
 
     // Small holder for IDs
     public record EditionIds(long workId, long srcEditionId, long tgtEditionId) {}
+    public record WorkMeta(String title, String author) {}
 
     public EditionIds findEditionIds(String workTitle, String srcLang, String tgtLang) {
         String sql = """
@@ -38,9 +39,21 @@ public class ReaderRepository {
         return jdbc.query(sql, params, rs -> {
             if (!rs.next()) return null;
             long workId = rs.getLong("work_id");
-            long srcId  = rs.getLong("src_id");
-            long tgtId  = rs.getLong("tgt_id");
+            Long srcId  = (Long) rs.getObject("src_id");
+            Long tgtId  = (Long) rs.getObject("tgt_id");
+            if (srcId == null || tgtId == null) {
+                return null;
+            }
             return new EditionIds(workId, srcId, tgtId);
+        });
+    }
+
+    public WorkMeta fetchWorkMeta(long workId) {
+        String sql = "select title, author from work where id = :id";
+        var params = new MapSqlParameterSource().addValue("id", workId);
+        return jdbc.query(sql, params, rs -> {
+            if (!rs.next()) return new WorkMeta("", null);
+            return new WorkMeta(rs.getString("title"), rs.getString("author"));
         });
     }
 
