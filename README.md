@@ -78,11 +78,18 @@ In `application.yml`:
 
 ```yaml
 translate:
-  provider: stub  # stub | openai | ollama
+  provider: stub  # stub | openai | google | ollama
 
   openai:
     apiKey: ${OPENAI_API_KEY:}
     model: gpt-4o-mini
+    timeoutSeconds: 30
+
+  google:
+    apiKey: ${GOOGLE_API_KEY:}
+    model: gemini-1.5-flash-latest
+    baseUrl: https://generativelanguage.googleapis.com
+    timeoutSeconds: 30
 
   ollama:
     baseUrl: http://localhost:11434
@@ -189,13 +196,13 @@ CREATE TABLE IF NOT EXISTS alignment (
 Example on how to add a book using `add_book.py` script. Call from python-embed/
 ```
 python add_book.py \
-    --work "The lady Cornelia" --year 1843 --author "Cervantes" \
-    --edition "lang=es,file=classpath:books/lady_cornelia_es.epub" \
-    --edition "lang=en,file=classpath:books/lady_cornelia_en.epub" \
+    --work "A Christmas Carol" --year 1843 --author "Charles Dickens" \
+    --edition "lang=en,file=classpath:books/navidad_en.epub" \
+    --edition "lang=es,file=classpath:books/navidad_es.epub" \
     --aligner dp \
-    --body-start 'lang=es,text="Cuando yo estaba en Salamanca"' \
-    --body-start 'lang=en,text="When I was in Salamanca"'
-
+    --reset-existing \
+    --body-start 'lang=en,text="Marley was dead, to begin with"' \
+    --body-start 'lang=es,text="Marley estaba muerto; eso para empezar"'
 ```
 
 **Embedding & alignment:**
@@ -211,9 +218,12 @@ python add_book.py \
 
 # copy paste section
 python add_book.py \
---work "A Christmas Carol" --author "Charles Dickens" \
---edition "lang=en,file=classpath:books/navidad_en.epub" \
---edition "lang=es,file=classpath:books/navidad_es.epub" \
+--work "The Sand-Man" --year 1816 --author "Ernst Theodor Amadeus Hoffmann" \
+--edition "lang=de,file=classpath:books/sandman_de.epub" \
+--edition "lang=en,file=classpath:books/sandman_en.epub" \
 --aligner dp \
---body-start 'lang=en,text="Marley was dead, to begin with"' \
---body-start 'lang=es,text="Marley estaba muerto; eso para empezar"'
+--reset-existing
+
+
+pandoc sandman_en.txt -o sandman_en.epub --metadata title="The Sand-Man"
+pandoc sandman_de.txt -o sandman_de.epub --metadata title="Der Sandmann"

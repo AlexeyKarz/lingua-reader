@@ -17,9 +17,9 @@ public class OpenAITranslateProperties {
     private String model;
 
     /**
-     * Whether this provider is enabled.
+     * Timeout in seconds.
      */
-    private boolean enabled = false;
+    private int timeoutSeconds = 30;
 
     public String getApiKey() { return apiKey; }
     public void setApiKey(String apiKey) { this.apiKey = apiKey; }
@@ -27,6 +27,6 @@ public class OpenAITranslateProperties {
     public String getModel() { return model; }
     public void setModel(String model) { this.model = model; }
 
-    public boolean isEnabled() { return enabled; }
-    public void setEnabled(boolean enabled) { this.enabled = enabled; }
+    public int getTimeoutSeconds() { return timeoutSeconds; }
+    public void setTimeoutSeconds(int timeoutSeconds) { this.timeoutSeconds = timeoutSeconds; }
 }

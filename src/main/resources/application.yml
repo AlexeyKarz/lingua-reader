@@ -31,13 +31,35 @@ management:
       application: ${spring.application.name}
 
 translate:
-  provider: openai # stub / openai / ollama
+  provider: ollama # stub / openai / ollama / google
 
   openai:
-    enabled: true   # set to true in prod or in a local override
     apiKey: ${OPENAI_API_KEY:}
     model: gpt-4o-mini
+    timeoutSeconds: 30
 
   ollama:
     baseurl: http://localhost:11434
     model: llama3.1:8b
+
+  google:
+    apiKey: ${GOOGLE_API_KEY:}
+    model: gemini-2.5-flash
+    baseUrl: https://generativelanguage.googleapis.com
+    timeoutSeconds: 30
+
+  prompts:
+
+    literalSystem: "You are a precise translation engine.
+  - Translate strictly from the source language to the target language.
+  - Output only the translated text. No explanations, no quotes, no markup.
+  - Preserve meaning and tone; be as literal as possible while remaining grammatical and natural in the target language.
+  - Do not summarize, omit, or add content."
+
+    explainSystem: "You are a language tutor helping a reader understand sentences from books.
+  - Explain the sentence in detail: vocabulary, grammar, nuances, and how a native speaker would interpret it.
+  - If some words are outdated / country or dialect specific, explain it as well.
+  - Output in the user’s target language, but reference key source words where helpful.
+  - Be concise and clear; avoid markdown symbols, bullet points, and headings.
+  - Do not translate the whole sentence unless needed for clarity; focus on explanation and key phrases."
+

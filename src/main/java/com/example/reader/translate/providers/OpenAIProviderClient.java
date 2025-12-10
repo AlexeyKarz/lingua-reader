@@ -1,6 +1,7 @@
 package com.example.reader.translate.providers;
 
 import com.example.reader.translate.properties.OpenAITranslateProperties;
+import com.example.reader.translate.properties.PromptProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -16,53 +17,45 @@ public class OpenAIProviderClient implements ProviderClient {
 
     private final WebClient webClient;
     private final String model;
+    private final int timeoutSeconds;
+    private final String literalSystem;
+    private final String explainSystem;
 
-    public OpenAIProviderClient(OpenAITranslateProperties props, WebClient.Builder builder) {
+    public OpenAIProviderClient(OpenAITranslateProperties props, PromptProperties prompts, WebClient.Builder builder) {
         if (props.getApiKey() == null || props.getApiKey().isBlank()) {
             throw new IllegalStateException("translate.openai.enabled=true but no API key configured");
         }
+        this.timeoutSeconds = props.getTimeoutSeconds();
         this.model = props.getModel();
         this.webClient = builder
                 .baseUrl("https://api.openai.com")
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + props.getApiKey())
                 .build();
         log.info("OpenAI provider enabled with model {}", this.model);
+        this.literalSystem = prompts.getLiteralSystem();
+        this.explainSystem = prompts.getExplainSystem();
     }
 
     @Override
     public String literal(String text, String source, String target) {
         log.info("Calling OpenAI literal translation {} -> {} ({} chars)", source, target, text.length());
-        String systemPrompt = """
-                You are a translation engine.
-                Translate strictly from the source language to the target language.
-                Output ONLY the translation text, no explanations, no quotes, no markup.
-                Keep the translation as literal as possible while remaining grammatical.
-                """;
-
         String userPrompt = "Source language: " + source +
                 "\nTarget language: " + target +
                 "\nText:\n" + text;
 
-        return callChat(systemPrompt, userPrompt);
+        return callChat(literalSystem, userPrompt);
     }
 
     @Override
     public String explain(String text, String source, String target, String bookContext) {
         log.info("Calling OpenAI explain {} -> {} ({} chars, ctx {} chars)",
                 source, target, text.length(), bookContext == null ? 0 : bookContext.length());
-        String systemPrompt = """
-                You are a language tutor that helps with understanding texts (books, short stories, novellas).
-                Explain provided text in detail: vocabulary, grammar, nuances and how it would be naturally understood.
-                Output in the user's target language, but show important original words as needed.
-                Try to make the answer as concise and clear as possible. Do now use markdown symbols (like bold * or header # symbols).
-                """;
-
         String userPrompt = "Source language: " + source +
                 "\nTarget language (for explanation): " + target +
                 "\nBook context: " + bookContext +
                 "\nSentence:\n" + text;
 
-        return callChat(systemPrompt, userPrompt);
+        return callChat(explainSystem, userPrompt);
     }
 
     private String callChat(String systemPrompt, String userPrompt) {
@@ -85,6 +78,7 @@ public class OpenAIProviderClient implements ProviderClient {
                     .bodyValue(body)
                     .retrieve()
                     .bodyToMono(OpenAIChatResponse.class)
+                    .timeout(java.time.Duration.ofSeconds(timeoutSeconds))
                     .block();
 
             long durationMs = System.currentTimeMillis() - started;
