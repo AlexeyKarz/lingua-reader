@@ -31,7 +31,7 @@ management:
       application: ${spring.application.name}
 
 translate:
-  provider: ollama # stub / openai / ollama / google
+  provider: openai # stub / openai / ollama / google
 
   openai:
     apiKey: ${OPENAI_API_KEY:}

@@ -7,5 +7,6 @@ public record CatalogEntry(
         String title,        // human-readable
         String author,       // nullable
         Integer year,        // nullable
-        List<String> langs   // e.g. ["de", "en"]
+        List<String> langs,  // e.g. ["de", "en"]
+        String originalLang  // nullable; preferred source
 ) {}

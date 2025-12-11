@@ -32,6 +32,7 @@ public class CatalogRepository {
                 w.title,
                 w.author,
                 w.pub_year,
+                w.original_lang,
                 (
                   select array_agg(lo.lang order by lo.ord_key, lo.lang)
                   from (
@@ -41,6 +42,7 @@ public class CatalogRepository {
                         case
                           when la2.edition_src_id = e2.id then 0
                           when la2.edition_tgt_id = e2.id then 1
+                          when w.original_lang = e2.lang then 0
                           else 2
                         end
                       ) as ord_key
@@ -69,7 +71,8 @@ public class CatalogRepository {
                     title,
                     author,
                     year,
-                    Arrays.asList(langs)
+                    Arrays.asList(langs),
+                    rs.getString("original_lang")
             );
         });
     }

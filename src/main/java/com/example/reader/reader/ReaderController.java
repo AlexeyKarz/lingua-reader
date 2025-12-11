@@ -46,22 +46,34 @@ public class ReaderController {
     @GetMapping("/pages")
     public Map<String, Object> pages(
             @RequestParam String bookId,
-            @RequestParam String src,
+            @RequestParam(required = false) String src,
             @RequestParam String tgt,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "dp-mlMiniLM-v1-de-en") String method
     ) {
-        log.info("Reader page requested: bookId='{}' {} -> {} page={} size={} method={}",
-                bookId, src, tgt, page, size, method);
+        // Resolve src if missing: prefer original_lang
+        String resolvedSrc = src;
+        if (resolvedSrc == null || resolvedSrc.isBlank()) {
+            var meta = repo.fetchWorkMetaByTitle(bookId);
+            if (meta != null && meta.originalLang() != null && !meta.originalLang().isBlank()) {
+                resolvedSrc = meta.originalLang();
+            } else {
+                // fallback: use tgt as src to avoid null
+                resolvedSrc = tgt;
+            }
+        }
 
-        ReaderRepository.EditionIds ids = repo.findEditionIds(bookId, src, tgt);
+        log.info("Reader page requested: bookId='{}' {} -> {} page={} size={} method={}",
+                bookId, resolvedSrc, tgt, page, size, method);
+
+        ReaderRepository.EditionIds ids = repo.findEditionIds(bookId, resolvedSrc, tgt);
         if (ids == null) {
             log.warn("Reader page request failed: no editions for bookId='{}' src='{}' tgt='{}'",
-                    bookId, src, tgt);
+                    bookId, resolvedSrc, tgt);
             return Map.of(
                     "bookId", bookId,
-                    "src", src, "tgt", tgt,
+                    "src", resolvedSrc, "tgt", tgt,
                     "page", page, "size", size,
                     "left", List.of(),
                     "right", List.of(),
@@ -76,12 +88,12 @@ public class ReaderController {
         long tgtEd  = ids.tgtEditionId();
         ReaderRepository.WorkMeta meta = repo.fetchWorkMeta(workId);
 
-        int totalSrc = repo.countSentences(srcEd);
-        int totalTgt = repo.countSentences(tgtEd);
-
         // 1) page DE normally (using your body_start-aware fetchSentencePage)
         Long srcBodyStart = repo.findBodyStartSegmentId(srcEd);   // you already added this helper earlier
         Long tgtBodyStart = repo.findBodyStartSegmentId(tgtEd);
+
+        int totalSrc = repo.countSentencesFrom(srcEd, srcBodyStart);
+        int totalTgt = repo.countSentencesFrom(tgtEd, tgtBodyStart);
 
         List<SentenceDto> left = repo.fetchSentencePage(srcEd, srcBodyStart, page, size);
         List<Long> leftIds = left.stream().map(SentenceDto::id).toList();
@@ -120,11 +132,11 @@ public class ReaderController {
         }
 
         log.info("Reader page response: bookId='{}' {}->{} page={} left={} right={} alignments={}",
-                bookId, src, tgt, page, left.size(), right.size(), links.size());
+                bookId, resolvedSrc, tgt, page, left.size(), right.size(), links.size());
 
         Map<String,Object> resp = new java.util.HashMap<>();
         resp.put("bookId", bookId);
-        resp.put("src", src);
+        resp.put("src", resolvedSrc);
         resp.put("tgt", tgt);
         resp.put("title", meta.title());
         resp.put("author", meta.author() == null ? "" : meta.author());

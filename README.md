@@ -26,6 +26,8 @@ Current focus: **data pipeline** (EPUB ingestion → segmentation → embeddings
 - opennlp-de-ud-gsd-sentence-1.3-2.5.4.bin
 - opennlp-en-ud-ewt-sentence-1.3-2.5.4.bin
 - opennlp-ru-ud-gsd-sentence-1.3-2.5.4.bin
+- opennlp-es-ud-gsd-sentence-1.3-2.5.4.bin
+- opennlp-fr-ud-gsd-sentence-1.3-2.5.4.bin
 
 **Frontend**
 - React + TypeScript + Vite
@@ -196,7 +198,7 @@ CREATE TABLE IF NOT EXISTS alignment (
 Example on how to add a book using `add_book.py` script. Call from python-embed/
 ```
 python add_book.py \
-    --work "A Christmas Carol" --year 1843 --author "Charles Dickens" \
+    --work "A Christmas Carol" --year 1843 --author "Charles Dickens" --original-lang en \
     --edition "lang=en,file=classpath:books/navidad_en.epub" \
     --edition "lang=es,file=classpath:books/navidad_es.epub" \
     --aligner dp \
@@ -218,11 +220,32 @@ python add_book.py \
 
 # copy paste section
 python add_book.py \
---work "The Sand-Man" --year 1816 --author "Ernst Theodor Amadeus Hoffmann" \
---edition "lang=de,file=classpath:books/sandman_de.epub" \
---edition "lang=en,file=classpath:books/sandman_en.epub" \
+--work "Trafalgar" --year 1873 --author "Benito Pérez Galdós" \
+--edition "lang=es,file=classpath:books/trafalgar_es.epub" \
+--edition "lang=en,file=classpath:books/trafalgar_en.epub" \
 --aligner dp \
---reset-existing
+--reset-existing \
+--body-start 'lang=es,text="Se me permitirá que antes de referir el gran suceso de que fui testigo"' \
+--body-start 'lang=en,text="I trust that, before relating the important events of which"' 
+
+
+python add_book.py \
+--work "The Last Day of a Condemned Man" --year 1829 --original-lang "fr" --author "Victor-Marie Hugo" \
+--edition "lang=fr,file=classpath:books/hugo_fr.epub" \
+--edition "lang=en,file=classpath:books/hugo_en.epub" \
+--edition "lang=ru,file=classpath:books/hugo_ru.epub" \
+--aligner dp \
+--reset-existing \
+--body-start 'lang=fr,text="Condamné à mort"' \
+--body-start 'lang=en,text="SENTENCED to death!"'
+--body-start 'lang=ru,text="Приговорен к смерти!"'
+
+python align_sentences_dp.py \
+--work "The Last Day of a Condemned Man" --src fr --tgt en --method dp-mlMiniLM-v1-fr-en
+
+python align_sentences_dp.py \
+--work "The Last Day of a Condemned Man" --src fr --tgt ru --method dp-mlMiniLM-v1-fr-ru
+
 
 
 pandoc sandman_en.txt -o sandman_en.epub --metadata title="The Sand-Man"

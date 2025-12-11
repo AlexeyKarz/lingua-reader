@@ -30,6 +30,7 @@ public class IngestCommand implements CommandLineRunner {
         String publisher = flags.getOrDefault("--publisher", null);
         String translator= flags.getOrDefault("--translator", null);
         String author = flags.getOrDefault("--author", null);
+        String originalLang = flags.getOrDefault("--original-lang", null);
 
         Resource res = loader.getResource(fileSpec);
         if (!res.exists()) throw new IllegalArgumentException("EPUB not found: " + fileSpec);
@@ -38,7 +39,7 @@ public class IngestCommand implements CommandLineRunner {
         var doc = extractor.extract(res);
 
         // Upsert work/edition -> returns IDs
-        long workId = writer.ensureWork(workTitle, author, year);
+        long workId = writer.ensureWork(workTitle, author, year, originalLang);
         long editionId = writer.ensureEdition(workId, lang, publisher, translator, year, fileSpec, "epub3");
 
         // Write hierarchy: chapters -> paragraphs -> sentences
@@ -57,18 +58,33 @@ public class IngestCommand implements CommandLineRunner {
         }
 
         System.out.println("Ingested " + workTitle + " [" + lang + "] from " + fileSpec);
-        // Exit so CLI runs (bootRun with ingest) terminate instead of leaving the web server running.
-        System.exit(0);
+        // If running headless (non-web), exit after ingest; otherwise leave the server running.
+        if (isHeadless(flags)) {
+            System.exit(0);
+        }
     }
 
     private Map<String,String> parseFlags(String[] arr) {
         Map<String,String> m = new HashMap<>();
-        for (int i=0;i<arr.length;i++) {
+        for (int i = 0; i < arr.length; i++) {
             if (arr[i].startsWith("--")) {
-                String v = (i+1 < arr.length && !arr[i+1].startsWith("--")) ? arr[++i] : "true";
-                m.put(arr[i-1], v);
+                String key = arr[i];
+                String v = "true";
+                if (i + 1 < arr.length && !arr[i + 1].startsWith("--")) {
+                    v = arr[i + 1];
+                    i++; // skip value
+                }
+                m.put(key, v);
             }
         }
         return m;
+    }
+
+    private boolean isHeadless(Map<String,String> flags) {
+        // Allow explicit override via flag
+        if ("true".equalsIgnoreCase(flags.getOrDefault("--headless", "false"))) return true;
+        // Also check Spring profile hint, if provided
+        String appType = System.getProperty("spring.main.web-application-type");
+        return appType != null && appType.equalsIgnoreCase("none");
     }
 }

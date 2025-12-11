@@ -12,7 +12,7 @@ public class SegmentWriter {
     private final NamedParameterJdbcTemplate jdbc;
     public SegmentWriter(NamedParameterJdbcTemplate jdbc) { this.jdbc = jdbc; }
 
-    public long ensureWork(String title, String author, Integer year) {
+    public long ensureWork(String title, String author, Integer year, String originalLang) {
         Long id = jdbc.getJdbcTemplate().query(
                 "select id from work where title = ? limit 1",
                 ps -> ps.setString(1, title),
@@ -26,11 +26,12 @@ public class SegmentWriter {
                 .addValue("t", title)
                 .addValue("a", author)
                 .addValue("y", year)
+                .addValue("ol", originalLang)
                 .addValue("pd", true);
 
         jdbc.update("""
-        insert into work(title, author, pub_year, public_domain)
-        values(:t,:a,:y,:pd)
+        insert into work(title, author, pub_year, original_lang, public_domain)
+        values(:t,:a,:y,:ol,:pd)
         returning id
         """, params, key);
 

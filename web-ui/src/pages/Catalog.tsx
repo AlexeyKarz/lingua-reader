@@ -6,6 +6,7 @@ type CatalogEntry = {
     author: string | null
     year: number | null
     langs: string[]
+    originalLang?: string | null
 }
 
 export default function CatalogPage() {
@@ -61,14 +62,16 @@ export default function CatalogPage() {
                             ))}
                         </div>
 
-                        {/* Reader links: all source→target combinations */}
+                        {/* Reader links: original -> translations if originalLang is set; else first -> others */}
                         <div className="mt-3 flex flex-wrap gap-2 text-sm">
                             {book.langs.length < 2 ? (
                                 <span className="text-xs opacity-60">Add another language edition to read side-by-side.</span>
                             ) : (
                                 (() => {
-                                    const src = book.langs[0] // first = original/source (ordered by backend)
-                                    const tgts = book.langs.slice(1)
+                                    const src = book.originalLang && book.langs.includes(book.originalLang)
+                                        ? book.originalLang
+                                        : book.langs[0]
+                                    const tgts = book.langs.filter(l => l !== src)
                                     return tgts.map(tgt => (
                                         <a
                                             key={`${src}-${tgt}`}

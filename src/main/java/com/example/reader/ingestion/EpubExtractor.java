@@ -6,18 +6,22 @@ import org.apache.tika.sax.ToXMLContentHandler;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.text.Normalizer;
 
 @Component
 public class EpubExtractor {
+
+    private static final Logger log = LoggerFactory.getLogger(EpubExtractor.class);
 
     public record Para(String text, String cfi) {}
     public record Chapter(String title, String cfi, List<Para> paragraphs) {}
@@ -30,9 +34,17 @@ public class EpubExtractor {
 
         try (InputStream is = epub.getInputStream()) {
             parser.parse(is, handler, md);
+        } catch (Exception e) {
+            log.error("Failed to parse EPUB {}: {}", epub.getFilename(), e.getMessage());
+            throw e;
         }
 
         String xhtml = handler.toString();
+        if (xhtml == null || xhtml.isBlank()) {
+            log.error("Parsed EPUB {} but received empty content from Tika", epub.getFilename());
+            throw new IllegalStateException("EPUB parse produced empty content");
+        }
+
         Document js = Jsoup.parse(xhtml, StandardCharsets.UTF_8.name());
 
         List<Chapter> chapters = new ArrayList<>();
@@ -119,6 +131,8 @@ public class EpubExtractor {
             case "de" -> "models/de-sent.bin";
             case "en" -> "models/en-sent.bin";
             case "ru" -> "models/ru-sent.bin";
+            case "es" -> "models/es-sent.bin";
+            case "fr" -> "models/fr-sent.bin";
             default   -> "models/en-sent.bin";
         };
         try (var in = getClass().getClassLoader().getResourceAsStream(modelName)) {

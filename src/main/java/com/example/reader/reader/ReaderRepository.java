@@ -18,7 +18,7 @@ public class ReaderRepository {
 
     // Small holder for IDs
     public record EditionIds(long workId, long srcEditionId, long tgtEditionId) {}
-    public record WorkMeta(String title, String author) {}
+    public record WorkMeta(String title, String author, String originalLang) {}
 
     public EditionIds findEditionIds(String workTitle, String srcLang, String tgtLang) {
         String sql = """
@@ -49,11 +49,28 @@ public class ReaderRepository {
     }
 
     public WorkMeta fetchWorkMeta(long workId) {
-        String sql = "select title, author from work where id = :id";
+        String sql = "select title, author, original_lang from work where id = :id";
         var params = new MapSqlParameterSource().addValue("id", workId);
         return jdbc.query(sql, params, rs -> {
-            if (!rs.next()) return new WorkMeta("", null);
-            return new WorkMeta(rs.getString("title"), rs.getString("author"));
+            if (!rs.next()) return new WorkMeta("", null, null);
+            return new WorkMeta(
+                    rs.getString("title"),
+                    rs.getString("author"),
+                    rs.getString("original_lang")
+            );
+        });
+    }
+
+    public WorkMeta fetchWorkMetaByTitle(String title) {
+        String sql = "select title, author, original_lang from work where title = :t limit 1";
+        var params = new MapSqlParameterSource().addValue("t", title);
+        return jdbc.query(sql, params, rs -> {
+            if (!rs.next()) return null;
+            return new WorkMeta(
+                    rs.getString("title"),
+                    rs.getString("author"),
+                    rs.getString("original_lang")
+            );
         });
     }
 
@@ -67,6 +84,24 @@ public class ReaderRepository {
         Integer total = jdbc.queryForObject(
                 sql,
                 new MapSqlParameterSource().addValue("ed", editionId),
+                Integer.class
+        );
+        return total != null ? total : 0;
+    }
+
+    public int countSentencesFrom(long editionId, Long bodyStartId) {
+        String sql = """
+            select count(*)
+            from segment
+            where edition_id = :ed
+              and level = 'sentence'
+              and (:bodyStart is null or id >= :bodyStart)
+            """;
+        Integer total = jdbc.queryForObject(
+                sql,
+                new MapSqlParameterSource()
+                        .addValue("ed", editionId)
+                        .addValue("bodyStart", bodyStartId, Types.BIGINT),
                 Integer.class
         );
         return total != null ? total : 0;

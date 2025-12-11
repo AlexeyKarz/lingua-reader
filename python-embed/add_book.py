@@ -91,19 +91,21 @@ def resolve_file_arg(file_value: str) -> str:
 
 
 def gradle_ingest(work: str, year: Optional[int], author: Optional[str],
-                 lang: str, file_arg: str, translator: Optional[str]) -> None:
+                 lang: str, file_arg: str, translator: Optional[str],
+                 original_lang: Optional[str]) -> None:
     """
     Runs:
-      ./gradlew bootRun --args='ingest --work "..." --lang xx --file ... --year N [--author "..."] [--translator "..."]'
+      ./gradlew bootRun --args='ingest --headless --work "..." --lang xx --file ... --year N [--author "..."] [--translator "..."]'
     """
     year_part = f' --year {year}' if year else ""
     author_part = f' --author "{author}"' if author else ""
+    original_part = f' --original-lang "{original_lang}"' if original_lang else ""
     translator_part = f' --translator "{translator}"' if translator else ""
 
     # Build a single --args string
     args_str = (
-        f'ingest --work "{work}" --lang {lang} --file {file_arg}'
-        f'{year_part}{author_part}{translator_part} --spring.main.web-application-type=none'
+        f'ingest --headless --work "{work}" --lang {lang} --file {file_arg}'
+        f'{year_part}{author_part}{original_part}{translator_part}'
     )
 
     cmd = [
@@ -429,6 +431,7 @@ def main():
     p.add_argument("--work", required=True)
     p.add_argument("--year", type=int, default=None)
     p.add_argument("--author", default=None, help="Author name for the work (applied to all editions)")
+    p.add_argument("--original-lang", default=None, help="Preferred/original language code for the work")
     p.add_argument("--method", default=None, help="Alignment method tag (stored in alignment.method)")
     p.add_argument("--align-src", help="Lang code for source edition (default: first --edition)")
     p.add_argument("--align-tgt", help="Lang code for target edition (default: second --edition)")
@@ -485,7 +488,7 @@ def main():
         file_arg = resolve_file_arg(ed["file"])
         translator = ed.get("translator")
 
-        gradle_ingest(args.work, args.year, args.author, lang, file_arg, translator)
+        gradle_ingest(args.work, args.year, args.author, lang, file_arg, translator, args.original_lang)
 
     # Optionally set body_start_segment_id based on provided text fragments
     body_specs: List[Dict[str, str]] = []
@@ -493,7 +496,8 @@ def main():
         for spec in args.body_start:
             parsed = parse_kv_list(spec)
             body_specs.append(parsed)
-        set_body_start(args.work, body_specs)
+    set_body_start(args.work, body_specs)
+
 
     # Embed any new sentences (idempotent)
     run_embed()
