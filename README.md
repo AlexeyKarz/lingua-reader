@@ -1,4 +1,4 @@
-# multilang-reader-mono (a draft)
+# Multilang-reader-mono (a draft)
 
 Monolith MVP for a multilingual reading assistant built to support a future **monolith vs microservices** comparison.
 
@@ -22,12 +22,17 @@ Current focus: **data pipeline** (EPUB ingestion → segmentation → embeddings
 **Offline/batch**
 - Python (embeddings + alignment scripts)
 
-**Sentence embedding models:**
+**Sentence detecting models:**
 - opennlp-de-ud-gsd-sentence-1.3-2.5.4.bin
 - opennlp-en-ud-ewt-sentence-1.3-2.5.4.bin
 - opennlp-ru-ud-gsd-sentence-1.3-2.5.4.bin
 - opennlp-es-ud-gsd-sentence-1.3-2.5.4.bin
 - opennlp-fr-ud-gsd-sentence-1.3-2.5.4.bin
+
+Stored in `src/main/resources/models` as `de-sent.bin`, `en-sent.bin`
+Used for splitting sentences (in `EpubExtractor`). 
+Models are taken from: https://opennlp.apache.org/models.html 
+
 
 **Frontend**
 - React + TypeScript + Vite
@@ -39,6 +44,7 @@ Current focus: **data pipeline** (EPUB ingestion → segmentation → embeddings
     - `stub` (default)
     - `openai`
     - `ollama`
+    - `google`
 
 ---
 
@@ -50,14 +56,30 @@ Current focus: **data pipeline** (EPUB ingestion → segmentation → embeddings
 ### 1) DB
 Start Postgres (docker or local). Ensure pgvector is installed in your DB.
 
-If using docker-compose, confirm:
-- Postgres
-- Prometheus
-- Grafana
+If using docker-compose:
+- Default uses your local Postgres (`host.docker.internal`).
+- To run containerized Postgres, enable the `db` profile and point app to it.
+- For API keys and DB overrides, use a local `.env` file (see `.env.example`).
+
+Examples:
+```
+# Use local Postgres (default)
+docker compose up --build
+
+# Use container Postgres
+DB_HOST=postgres docker compose --profile db up --build
+
+# Use local .env for API keys / DB settings
+docker compose --env-file .env up --build
+```
 
 ### 2) Backend
 
 ```./gradlew bootRun```
+
+Set the environmental variables:
+```export OPENAI_API_KEY=your_key``` or / and
+```export GOOGLE_API_KEY=your_key```
 
 Prometheus metrics:
 - http://localhost:8080/actuator/prometheus
@@ -216,6 +238,10 @@ python add_book.py \
 - Catalog language order follows edition insertion order (array_agg ordered by edition id), so pass editions to `add_book.py` in your preferred source→target order (first = source/left, second = target/right).
 
 
+### TODO ???
+
+-  Add Loki + Promtail to capture the Python logfmt output.
+
 
 
 # copy paste section
@@ -250,3 +276,4 @@ python align_sentences_dp.py \
 
 pandoc sandman_en.txt -o sandman_en.epub --metadata title="The Sand-Man"
 pandoc sandman_de.txt -o sandman_de.epub --metadata title="Der Sandmann"
+

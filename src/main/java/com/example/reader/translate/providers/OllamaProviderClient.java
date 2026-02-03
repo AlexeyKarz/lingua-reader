@@ -2,6 +2,7 @@
 package com.example.reader.translate.providers;
 
 import com.example.reader.translate.properties.OllamaTranslateProperties;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -10,15 +11,18 @@ import java.util.Map;
 public class OllamaProviderClient implements ProviderClient {
 
     private final WebClient client;
+    private final MeterRegistry registry;
     private final String model;
     private final String explainModel;
+    private final String providerName = "ollama";
 
-    public OllamaProviderClient(OllamaTranslateProperties props, WebClient.Builder builder) {
+    public OllamaProviderClient(OllamaTranslateProperties props, WebClient.Builder builder, MeterRegistry registry) {
         this.client = builder.baseUrl(props.getBaseUrl()).build();
         this.model = props.getModel();
         this.explainModel = (props.getExplainModel() == null || props.getExplainModel().isBlank())
                 ? props.getModel()
                 : props.getExplainModel();
+        this.registry = registry;
     }
 
     @Override
@@ -32,7 +36,15 @@ public class OllamaProviderClient implements ProviderClient {
                 %s
                 """.formatted(source, target, text);
 
-        return generate(model, prompt);
+        return ProviderMetrics.record(
+                registry,
+                providerName,
+                model,
+                "literal",
+                source,
+                target,
+                () -> generate(model, prompt)
+        );
     }
 
     @Override
@@ -51,7 +63,15 @@ public class OllamaProviderClient implements ProviderClient {
                 %s
                 """.formatted(target, bookContext, source, text);
 
-        return generate(explainModel, prompt);
+        return ProviderMetrics.record(
+                registry,
+                providerName,
+                explainModel,
+                "explain",
+                source,
+                target,
+                () -> generate(explainModel, prompt)
+        );
     }
 
     private String generate(String model, String prompt) {

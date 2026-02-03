@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import os
+import re
+from datetime import datetime, timezone
 from typing import List, Tuple
 
 import numpy as np
@@ -14,6 +16,25 @@ from sentence_transformers import SentenceTransformer
 
 MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 BATCH_SIZE = 256  # number of sentences per DB batch
+
+# -------------------------
+# Logging helper (logfmt for Loki)
+# -------------------------
+
+def log(event: str, level: str = "INFO", **fields) -> None:
+    ts = datetime.now(timezone.utc).isoformat()
+    parts = [f"ts={ts}", f"level={level}", f"event={event}"]
+    for k, v in fields.items():
+        if v is None:
+            continue
+        if isinstance(v, bool):
+            val = "true" if v else "false"
+        else:
+            val = str(v)
+        if re.search(r"[\\s=]", val):
+            val = "\"" + val.replace("\"", "\\\"") + "\""
+        parts.append(f"{k}={val}")
+    print(" ".join(parts))
 
 # -------------------------
 # DB helpers
@@ -84,7 +105,7 @@ def upsert_embeddings(
 # -------------------------
 
 def main():
-    print(f"Loading embedding model: {MODEL_NAME}")
+    log("embed_model_load", model=MODEL_NAME)
     model = SentenceTransformer(MODEL_NAME)
 
     conn = get_conn()
@@ -99,11 +120,11 @@ def main():
         while True:
             rows = fetch_unembedded_sentences(conn, BATCH_SIZE)
             if not rows:
-                print("No more unembedded sentences. Done.")
+                log("embed_done", total_processed=total_processed)
                 break
 
             segment_ids, texts = zip(*rows)
-            print(f"Encoding batch of {len(texts)} sentences (starting at segment_id {segment_ids[0]}) using {MODEL_NAME}")
+            log("embed_batch", batch_size=len(texts), start_segment_id=segment_ids[0], model=MODEL_NAME)
 
             # sentence-transformers returns numpy array (n_sentences, 384)
             vectors = model.encode(
@@ -116,11 +137,11 @@ def main():
 
             upsert_embeddings(conn, list(segment_ids), vectors, MODEL_NAME)
             total_processed += len(texts)
-            print(f"Total processed so far: {total_processed}")
+            log("embed_progress", total_processed=total_processed)
 
     finally:
         conn.close()
-        print("Connection closed.")
+        log("embed_connection_closed")
 
 
 if __name__ == "__main__":

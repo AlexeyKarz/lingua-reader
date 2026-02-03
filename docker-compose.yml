@@ -1,4 +1,17 @@
 services:
+  postgres:
+    image: postgres:16
+    container_name: multilang-reader-postgres
+    profiles: ["db"]
+    environment:
+      - POSTGRES_DB=mlr
+      - POSTGRES_USER=mlr
+      - POSTGRES_PASSWORD=mlr_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   app:
     build: .
     container_name: multilang-reader-mono
@@ -7,6 +20,11 @@ services:
       - "8080:8080"
     environment:
       - JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75.0
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://${DB_HOST:-host.docker.internal}:${DB_PORT:-5432}/${DB_NAME:-mlr}
+      - SPRING_DATASOURCE_USERNAME=${DB_USER:-mlr}
+      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD:-mlr_password}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
 
   prometheus:
     image: prom/prometheus:latest
@@ -30,3 +48,6 @@ services:
       - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
     depends_on:
       - prometheus
+
+volumes:
+  postgres_data:

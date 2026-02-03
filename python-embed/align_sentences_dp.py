@@ -24,7 +24,9 @@ Usage example:
 """
 
 import os
+import re
 import argparse
+from datetime import datetime, timezone
 from typing import List, Tuple, Optional
 
 import numpy as np
@@ -36,6 +38,21 @@ from pgvector.psycopg import register_vector
 # -------------------------
 # DB connection helper
 # -------------------------
+
+def log(event: str, level: str = "INFO", **fields) -> None:
+    ts = datetime.now(timezone.utc).isoformat()
+    parts = [f"ts={ts}", f"level={level}", f"event={event}"]
+    for k, v in fields.items():
+        if v is None:
+            continue
+        if isinstance(v, bool):
+            val = "true" if v else "false"
+        else:
+            val = str(v)
+        if re.search(r"[\\s=]", val):
+            val = "\"" + val.replace("\"", "\\\"") + "\""
+        parts.append(f"{k}={val}")
+    print(" ".join(parts))
 
 def get_conn() -> psycopg.Connection:
     load_dotenv()
@@ -171,7 +188,7 @@ def dp_align(
 
     # Similarity matrix S[i,j] for i in [0..N-1], j in [0..M-1]
     # dot product of normalized vectors = cosine similarity in [-1, 1]
-    print(f"Computing similarity matrix of size {N} x {M} ...")
+    log("dp_similarity_matrix", src_count=N, tgt_count=M)
     S = np.dot(src_vecs, tgt_vecs.T).astype(np.float32)
 
     # DP and backpointer tables; (N+1)x(M+1)
@@ -187,10 +204,10 @@ def dp_align(
         back[0, j] = 3  # 0-1
 
     # Fill DP
-    print("Running DP (this may take a bit, that's normal for a full book)...")
+    log("dp_start", src_count=N, tgt_count=M)
     for i in range(1, N + 1):
         if i % 500 == 0:
-            print(f"  DP row {i}/{N}")
+            log("dp_progress", row=i, total=N)
         for j in range(1, M + 1):
             best = dp[i - 1, j - 1] + S[i - 1, j - 1]  # 1-1
             op = 1
@@ -227,7 +244,7 @@ def dp_align(
             back[i, j] = op
 
     # Backtrack
-    print("Backtracking...")
+    log("dp_backtrack_start")
     pairs: List[Tuple[int, int, float]] = []
     i, j = N, M
 
@@ -269,7 +286,7 @@ def dp_align(
                 break
 
     pairs.reverse()
-    print(f"DP produced {len(pairs)} raw alignments (before score filtering).")
+    log("dp_pairs_raw", count=len(pairs))
     return pairs
 
 
@@ -285,7 +302,7 @@ def write_alignments(
         pairs: List[Tuple[int, int, float]],
         method_name: str,
         min_score: float,
-):
+) -> int:
     """
     Insert / upsert alignments into the existing alignment table:
 
@@ -334,7 +351,8 @@ def write_alignments(
             )
             kept += 1
     conn.commit()
-    print(f"Wrote/updated {kept} alignments with score >= {min_score}.")
+    log("align_write_done", kept=kept, min_score=min_score)
+    return kept
 
 
 # -------------------------
@@ -378,16 +396,22 @@ def main():
     conn = get_conn()
     try:
         work_id, src_ed, tgt_ed, src_body, tgt_body = fetch_edition_ids_and_body_start(conn, args.work, args.src, args.tgt)
-        print(
-            f"Aligning work='{args.work}' (id={work_id}) "
-            f"{args.src} edition {src_ed} → {args.tgt} edition {tgt_ed} "
-            f"(body starts: src={src_body}, tgt={tgt_body})"
+        log(
+            "align_start",
+            work=args.work,
+            work_id=work_id,
+            src=args.src,
+            tgt=args.tgt,
+            src_edition_id=src_ed,
+            tgt_edition_id=tgt_ed,
+            src_body_start=src_body,
+            tgt_body_start=tgt_body
         )
 
         src_ids, src_vecs = fetch_sentences_with_vecs(conn, src_ed, src_body)
         tgt_ids, tgt_vecs = fetch_sentences_with_vecs(conn, tgt_ed, tgt_body)
 
-        print(f"Loaded {len(src_ids)} source sentences, {len(tgt_ids)} target sentences (post body_start filter)")
+        log("align_sentences_loaded", src_count=len(src_ids), tgt_count=len(tgt_ids))
 
         pairs = dp_align(
             src_ids,
@@ -399,11 +423,11 @@ def main():
         )
 
         method_name = f"{args.method}-{args.src}-{args.tgt}"
-        write_alignments(conn, work_id, src_ed, tgt_ed, pairs, method_name, args.min_score)
-        print("Done.")
+        kept = write_alignments(conn, work_id, src_ed, tgt_ed, pairs, method_name, args.min_score)
+        log("align_done", kept=kept, method=method_name)
     finally:
         conn.close()
-        print("Connection closed.")
+        log("align_connection_closed")
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@ package com.example.reader.translate.providers;
 
 import com.example.reader.translate.properties.GoogleTranslateProperties;
 import com.example.reader.translate.properties.PromptProperties;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -17,16 +18,19 @@ public class GoogleProviderClient implements ProviderClient {
     private static final Logger log = LoggerFactory.getLogger(GoogleProviderClient.class);
 
     private final WebClient webClient;
+    private final MeterRegistry registry;
     private final String model;
     private final int timeoutSeconds;
     private final String literalSystem;
     private final String explainSystem;
     private final String apiKey;
+    private final String providerName = "google";
 
     public GoogleProviderClient(
             GoogleTranslateProperties props,
             PromptProperties prompts,
-            WebClient.Builder builder
+            WebClient.Builder builder,
+            MeterRegistry registry
     ) {
         if (props.getApiKey() == null || props.getApiKey().isBlank()) {
             throw new IllegalStateException("translate.google.apiKey must be set");
@@ -39,6 +43,7 @@ public class GoogleProviderClient implements ProviderClient {
         this.webClient = builder
                 .baseUrl(props.getBaseUrl())
                 .build();
+        this.registry = registry;
 
         this.literalSystem = prompts.getLiteralSystem();
         this.explainSystem = prompts.getExplainSystem();
@@ -51,7 +56,15 @@ public class GoogleProviderClient implements ProviderClient {
         String prompt = "Source language: " + source +
                 "\nTarget language: " + target +
                 "\nText:\n" + text;
-        return callGenerateContent(literalSystem, prompt);
+        return ProviderMetrics.record(
+                registry,
+                providerName,
+                model,
+                "literal",
+                source,
+                target,
+                () -> callGenerateContent(literalSystem, prompt)
+        );
     }
 
     @Override
@@ -60,7 +73,15 @@ public class GoogleProviderClient implements ProviderClient {
                 "\nTarget language (for explanation): " + target +
                 "\nContext: " + bookContext +
                 "\nText:\n" + text;
-        return callGenerateContent(explainSystem, prompt);
+        return ProviderMetrics.record(
+                registry,
+                providerName,
+                model,
+                "explain",
+                source,
+                target,
+                () -> callGenerateContent(explainSystem, prompt)
+        );
     }
 
     private String callGenerateContent(String system, String user) {

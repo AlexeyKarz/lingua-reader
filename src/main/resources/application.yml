@@ -27,6 +27,8 @@ management:
     distribution:
       percentiles-histogram:
         http.server.requests: true
+        translate.provider.latency: true
+        reader.page.fetch: true
     tags:
       application: ${spring.application.name}
 
@@ -62,4 +64,3 @@ translate:
   - Output in the user’s target language, but reference key source words where helpful.
   - Be concise and clear; avoid markdown symbols, bullet points, and headings.
   - Do not translate the whole sentence unless needed for clarity; focus on explanation and key phrases."
-

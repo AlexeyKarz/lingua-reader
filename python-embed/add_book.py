@@ -28,6 +28,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, Any
 
 import psycopg
@@ -36,6 +37,22 @@ from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = Path(__file__).resolve().parent
+
+
+def log(event: str, level: str = "INFO", **fields: Any) -> None:
+    ts = datetime.now(timezone.utc).isoformat()
+    parts = [f"ts={ts}", f"level={level}", f"event={event}"]
+    for k, v in fields.items():
+        if v is None:
+            continue
+        if isinstance(v, bool):
+            val = "true" if v else "false"
+        else:
+            val = str(v)
+        if re.search(r"[\\s=]", val):
+            val = "\"" + val.replace("\"", "\\\"") + "\""
+        parts.append(f"{k}={val}")
+    print(" ".join(parts))
 
 
 def parse_kv_list(s: str) -> Dict[str, str]:
@@ -116,24 +133,22 @@ def gradle_ingest(work: str, year: Optional[int], author: Optional[str],
         f"--args={args_str}"
     ]
 
-    print("\n>>> Running ingestion:")
-    print(" ".join(cmd))
+    log("ingest_start", work=work, lang=lang, file=file_arg, year=year, author=author, original_lang=original_lang, translator=translator)
+    log("ingest_cmd", cmd=" ".join(cmd))
 
     # Important: This will start Spring Boot per edition.
     # If port 8080 is in use, stop the running app first.
     res = subprocess.run(cmd, cwd=ROOT)
 
     if res.returncode != 0:
-        print("\n--- Ingestion failed ---")
-        print(res.stdout)
-        print(res.stderr)
+        log("ingest_failed", level="ERROR", work=work, lang=lang, returncode=res.returncode)
         raise RuntimeError("Gradle ingestion failed")
 
     # Optional: print a trimmed success tail
     if res.stdout:
         tail = "\n".join(res.stdout.splitlines()[-20:])
-        print("\n--- Ingestion output tail ---")
-        print(tail)
+        log("ingest_output_tail", work=work, lang=lang, tail=tail)
+    log("ingest_ok", work=work, lang=lang)
 
 
 def get_conn():
@@ -186,7 +201,7 @@ def set_body_start(work: str, specs: List[Dict[str, str]]) -> None:
                 lang = spec.get("lang")
                 text = spec.get("text")
                 if not lang or not text:
-                    print(f"Skipping body-start spec (needs lang and text): {spec}")
+                    log("body_start_skip", level="WARN", work=work, lang=lang, reason="missing_lang_or_text")
                     continue
 
                 ed = fetch_one(
@@ -195,7 +210,7 @@ def set_body_start(work: str, specs: List[Dict[str, str]]) -> None:
                     (work_id, lang),
                 )
                 if not ed:
-                    print(f" No edition found for lang '{lang}' when setting body_start.")
+                    log("body_start_no_edition", level="WARN", work=work, lang=lang)
                     continue
                 ed_id = ed["id"]
 
@@ -215,7 +230,7 @@ def set_body_start(work: str, specs: List[Dict[str, str]]) -> None:
                     (ed_id, f"%{norm_fragment}%"),
                 )
                 if not seg:
-                    print(f" No sentence matched body-start text for lang '{lang}': '{text}'")
+                    log("body_start_not_found", level="WARN", work=work, lang=lang, text=text)
                     continue
 
                 seg_id = seg["id"]
@@ -223,7 +238,7 @@ def set_body_start(work: str, specs: List[Dict[str, str]]) -> None:
                     "update edition set body_start_segment_id = %s where id = %s",
                     (seg_id, ed_id),
                 )
-                print(f" Set body_start_segment_id for lang '{lang}' to segment {seg_id} (matched '{text}')")
+                log("body_start_set", work=work, lang=lang, segment_id=seg_id)
 
         conn.commit()
     finally:
@@ -245,7 +260,7 @@ def verify_work_and_editions(work: str, editions: List[Dict[str, str]]) -> None:
                 raise AssertionError(f"Work not found in DB after ingestion: '{work}'")
             work_id = w["id"]
 
-            print(f"\n>>> Work OK: id={work_id}, title={w['title']}, year={w.get('pub_year')}")
+            log("verify_work", work_id=work_id, title=w["title"], year=w.get("pub_year"))
 
             for ed in editions:
                 lang = ed.get("lang")
@@ -269,7 +284,7 @@ def verify_work_and_editions(work: str, editions: List[Dict[str, str]]) -> None:
                     raise AssertionError(f"Edition not found for work='{work}', lang='{lang}'")
 
                 edition_id = e["id"]
-                print(f">>> Edition OK: id={edition_id}, lang={e['lang']}, translator={e.get('translator')}")
+                log("verify_edition", edition_id=edition_id, lang=e["lang"], translator=e.get("translator"))
 
                 levels = fetch_all(
                     cur,
@@ -287,7 +302,7 @@ def verify_work_and_editions(work: str, editions: List[Dict[str, str]]) -> None:
                 pa = level_map.get("paragraph", 0)
                 se = level_map.get("sentence", 0)
 
-                print(f"    Segments: chapters={ch}, paragraphs={pa}, sentences={se}")
+                log("verify_segments", edition_id=edition_id, chapters=ch, paragraphs=pa, sentences=se)
 
                 # Basic sanity assertions
                 if ch == 0:
@@ -297,7 +312,7 @@ def verify_work_and_editions(work: str, editions: List[Dict[str, str]]) -> None:
                 if se == 0:
                     raise AssertionError(f"No sentences ingested for edition {edition_id}")
 
-            print("\n✅ DB verification passed.")
+            log("verify_ok", work=work)
 
     finally:
         conn.close()
@@ -316,7 +331,7 @@ def reset_existing(work: str, langs: List[str]) -> None:
         with conn.cursor() as cur:
             w = fetch_one(cur, "select id from work where title = %s", (work,))
             if not w:
-                print(f"No existing work found for '{work}', nothing to reset.")
+                log("reset_skip", work=work, reason="work_not_found")
                 return
             work_id = w["id"]
 
@@ -330,7 +345,7 @@ def reset_existing(work: str, langs: List[str]) -> None:
             )
             editions = cur.fetchall()
             if not editions:
-                print(f"No editions found for langs {langs} on '{work}', nothing to reset.")
+                log("reset_skip", work=work, langs=",".join(langs), reason="editions_not_found")
                 return
 
             ed_ids = [e["id"] for e in editions]
@@ -365,7 +380,7 @@ def reset_existing(work: str, langs: List[str]) -> None:
             )
 
             conn.commit()
-            print(f"Reset editions for langs {langs} on '{work}' (removed segments/embeddings/alignments, cleared body_start).")
+            log("reset_done", work=work, langs=",".join(langs))
     finally:
         conn.close()
 
@@ -375,12 +390,11 @@ def run_embed() -> None:
     Runs embed_sentences.py to fill in missing embeddings.
     """
     cmd = [sys.executable, str(SCRIPTS_DIR / "embed_sentences.py")]
-    print("\n>>> Running embeddings:")
-    print(" ".join(cmd))
+    log("embed_start", cmd=" ".join(cmd))
     res = subprocess.run(cmd, cwd=SCRIPTS_DIR)
     if res.returncode != 0:
         raise RuntimeError("Embedding step failed")
-    print("Embedding step completed.")
+    log("embed_ok")
 
 
 def run_align(work: str, src: str, tgt: str, method: Optional[str],
@@ -419,8 +433,7 @@ def run_align(work: str, src: str, tgt: str, method: Optional[str],
         if method:
             cmd.extend(["--method", method])
 
-    print("\n>>> Running alignment:")
-    print(" ".join(cmd))
+    log("align_start", cmd=" ".join(cmd), work=work, src=src, tgt=tgt, method=method, aligner=aligner)
     res = subprocess.run(cmd, cwd=SCRIPTS_DIR)
     if res.returncode != 0:
         raise RuntimeError("Alignment step failed")
@@ -473,14 +486,18 @@ def main():
     align_tgt = args.align_tgt or editions[1]["lang"]
     method = args.method or f"{args.aligner}-mlMiniLM-v1-{align_src}-{align_tgt}"
 
-    print(f"\n=== Add book: '{args.work}' ===")
-    print(f"Author: {args.author or 'n/a'}")
-    print(f"Editions: {', '.join([e['lang'] for e in editions])}")
-    print(f"Alignment: {align_src} -> {align_tgt} (method={method}, aligner={args.aligner})")
+    log("add_book_start",
+        work=args.work,
+        author=args.author or "n/a",
+        editions=",".join([e["lang"] for e in editions]),
+        align_src=align_src,
+        align_tgt=align_tgt,
+        method=method,
+        aligner=args.aligner)
 
     # Ingest each edition
     if args.reset_existing:
-        print(f"Resetting existing editions...")
+        log("reset_start", work=args.work)
         reset_existing(args.work, [e["lang"] for e in editions])
 
     for ed in editions:

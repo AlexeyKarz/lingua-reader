@@ -10,6 +10,7 @@ import com.example.reader.translate.providers.OpenAIProviderClient;
 import com.example.reader.translate.providers.ProviderClient;
 import com.example.reader.translate.providers.StubProviderClient;
 import com.example.reader.translate.providers.OllamaProviderClient;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -34,13 +35,14 @@ public class ProviderConfiguration {
             GoogleTranslateProperties googleProps,
             OllamaTranslateProperties ollamaProps,
             PromptProperties promptProps,
-            WebClient.Builder builder
+            WebClient.Builder builder,
+            MeterRegistry registry
     ) {
         String which = props.getProvider() == null ? "stub" : props.getProvider().toLowerCase();
         return switch (which) {
-            case "openai" -> new OpenAIProviderClient(openAIProps, promptProps, builder);
-            case "google", "gemini" -> new GoogleProviderClient(googleProps, promptProps, builder);
-            case "ollama" -> new OllamaProviderClient(ollamaProps, builder);
+            case "openai" -> new OpenAIProviderClient(openAIProps, promptProps, builder, registry);
+            case "google", "gemini" -> new GoogleProviderClient(googleProps, promptProps, builder, registry);
+            case "ollama" -> new OllamaProviderClient(ollamaProps, builder, registry);
             default -> new StubProviderClient();
         };
     }
