@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 type CatalogEntry = {
-    id: string
+    workId: number
     title: string
     author: string | null
     year: number | null
@@ -39,7 +39,7 @@ export default function CatalogPage() {
 
             <div className="space-y-4">
                 {books.map(book => (
-                    <div key={book.id} className="card p-4 flex flex-col gap-1">
+                    <div key={book.workId} className="card p-4 flex flex-col gap-1">
                         <div className="flex items-baseline justify-between">
                             <h3 className="text-lg font-medium">{book.title}</h3>
                             {book.year && (
@@ -73,11 +73,11 @@ export default function CatalogPage() {
                                         : book.langs[0]
                                     const tgts = book.langs.filter(l => l !== src)
                                     return tgts.map(tgt => (
-                                        <a
-                                            key={`${src}-${tgt}`}
-                                            href={`/reader?bookId=${encodeURIComponent(book.id)}&src=${src}&tgt=${tgt}`}
-                                            className="btn"
-                                        >
+                                            <a
+                                                key={`${src}-${tgt}`}
+                                                href={`/reader?bookId=${encodeURIComponent(String(book.workId))}&src=${src}&tgt=${tgt}`}
+                                                className="btn"
+                                            >
                                             Read {src.toUpperCase()} → {tgt.toUpperCase()}
                                         </a>
                                     ))

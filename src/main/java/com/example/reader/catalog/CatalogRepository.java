@@ -28,7 +28,7 @@ public class CatalogRepository {
                 ) ma on ma.work_id = a.work_id and ma.max_created = a.created_at
             )
             select
-                w.title as id,
+                w.id as work_id,
                 w.title,
                 w.author,
                 w.pub_year,
@@ -58,7 +58,7 @@ public class CatalogRepository {
             """;
 
         return jdbc.getJdbcTemplate().query(sql, (rs, rowNum) -> {
-            String id = rs.getString("id");          // using title as id for now
+            long workId = rs.getLong("work_id");
             String title = rs.getString("title");
             String author = rs.getString("author");
             Integer year = (Integer) rs.getObject("pub_year");
@@ -67,7 +67,7 @@ public class CatalogRepository {
             String[] langs = arr != null ? (String[]) arr.getArray() : new String[0];
 
             return new CatalogEntry(
-                    id,
+                    workId,
                     title,
                     author,
                     year,

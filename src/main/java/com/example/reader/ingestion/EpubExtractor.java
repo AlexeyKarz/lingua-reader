@@ -35,7 +35,7 @@ public class EpubExtractor {
         try (InputStream is = epub.getInputStream()) {
             parser.parse(is, handler, md);
         } catch (Exception e) {
-            log.error("Failed to parse EPUB {}: {}", epub.getFilename(), e.getMessage());
+            log.error("Failed to parse EPUB {}", epub.getFilename(), e);
             throw e;
         }
 

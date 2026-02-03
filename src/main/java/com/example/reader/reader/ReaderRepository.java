@@ -20,7 +20,15 @@ public class ReaderRepository {
     public record EditionIds(long workId, long srcEditionId, long tgtEditionId) {}
     public record WorkMeta(String title, String author, String originalLang) {}
 
-    public EditionIds findEditionIds(String workTitle, String srcLang, String tgtLang) {
+    public EditionIds findEditionIds(String bookId, String srcLang, String tgtLang) {
+        Long workId = parseWorkId(bookId);
+        if (workId != null) {
+            return findEditionIdsByWorkId(workId, srcLang, tgtLang);
+        }
+        return findEditionIdsByTitle(bookId, srcLang, tgtLang);
+    }
+
+    private EditionIds findEditionIdsByTitle(String workTitle, String srcLang, String tgtLang) {
         String sql = """
             select w.id as work_id,
                    max(case when e.lang = :src then e.id end) as src_id,
@@ -48,6 +56,34 @@ public class ReaderRepository {
         });
     }
 
+    private EditionIds findEditionIdsByWorkId(long workId, String srcLang, String tgtLang) {
+        String sql = """
+            select w.id as work_id,
+                   max(case when e.lang = :src then e.id end) as src_id,
+                   max(case when e.lang = :tgt then e.id end) as tgt_id
+            from work w
+            join edition e on e.work_id = w.id
+            where w.id = :id
+            group by w.id
+            """;
+
+        var params = new MapSqlParameterSource()
+                .addValue("id", workId)
+                .addValue("src", srcLang)
+                .addValue("tgt", tgtLang);
+
+        return jdbc.query(sql, params, rs -> {
+            if (!rs.next()) return null;
+            long wid = rs.getLong("work_id");
+            Long srcId  = (Long) rs.getObject("src_id");
+            Long tgtId  = (Long) rs.getObject("tgt_id");
+            if (srcId == null || tgtId == null) {
+                return null;
+            }
+            return new EditionIds(wid, srcId, tgtId);
+        });
+    }
+
     public WorkMeta fetchWorkMeta(long workId) {
         String sql = "select title, author, original_lang from work where id = :id";
         var params = new MapSqlParameterSource().addValue("id", workId);
@@ -72,6 +108,23 @@ public class ReaderRepository {
                     rs.getString("original_lang")
             );
         });
+    }
+
+    public WorkMeta fetchWorkMetaByBookId(String bookId) {
+        Long workId = parseWorkId(bookId);
+        if (workId != null) {
+            return fetchWorkMeta(workId);
+        }
+        return fetchWorkMetaByTitle(bookId);
+    }
+
+    private Long parseWorkId(String bookId) {
+        if (bookId == null) return null;
+        try {
+            return Long.parseLong(bookId);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     public int countSentences(long editionId) {

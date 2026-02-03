@@ -3,7 +3,7 @@ package com.example.reader.catalog;
 import java.util.List;
 
 public record CatalogEntry(
-        String id,           // used as bookId in API; for now == title
+        long workId,         // stable numeric ID
         String title,        // human-readable
         String author,       // nullable
         Integer year,        // nullable

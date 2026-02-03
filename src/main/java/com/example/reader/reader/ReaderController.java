@@ -67,7 +67,7 @@ public class ReaderController {
         // Resolve src if missing: prefer original_lang
         String resolvedSrc = src;
         if (resolvedSrc == null || resolvedSrc.isBlank()) {
-            var meta = repo.fetchWorkMetaByTitle(bookId);
+            var meta = repo.fetchWorkMetaByBookId(bookId);
             if (meta != null && meta.originalLang() != null && !meta.originalLang().isBlank()) {
                 resolvedSrc = meta.originalLang();
             } else {
@@ -149,8 +149,8 @@ public class ReaderController {
                         .sorted()
                         .toList();
 
-                long minRightId = rightIds.get(0);
-                long maxRightId = rightIds.get(rightIds.size() - 1);
+                long minRightId = rightIds.getFirst();
+                long maxRightId = rightIds.getLast();
 
                 // 4) fetch *all* sentences in that contiguous range: aligned + unaligned
                 right = repo.fetchSentencesInRange(tgtEd, minRightId, maxRightId);
@@ -174,6 +174,9 @@ public class ReaderController {
             resp.put("alignments", links);
             hasAlignments = links.isEmpty() ? "false" : "true";
             return resp;
+        } catch (Exception e) {
+            outcome = "error";
+            throw e;
         } finally {
             recordReaderMetrics(sample, outcome, hasAlignments, workIdTag, srcEditionTag, tgtEditionTag, resolvedSrc, tgt, method, size);
         }
