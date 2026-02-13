@@ -13,6 +13,8 @@ public class IngestCommand implements CommandLineRunner {
     private final EpubExtractor extractor;
     private final SegmentWriter writer;
 
+    // TODO make ingestion possible without stopping the application.
+
     public IngestCommand(ResourceLoader loader, EpubExtractor extractor, SegmentWriter writer) {
         this.loader = loader;
         this.extractor = extractor;
