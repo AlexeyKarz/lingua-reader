@@ -23,6 +23,7 @@ import org.springframework.web.reactive.function.client.WebClient;
         ProviderProperties.class,
         OpenAITranslateProperties.class,
         GoogleTranslateProperties.class,
+        OllamaTranslateProperties.class,
         PromptProperties.class
 })
 public class ProviderConfiguration {

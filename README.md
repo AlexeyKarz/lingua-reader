@@ -218,6 +218,9 @@ CREATE TABLE IF NOT EXISTS alignment (
 
 ## Adding books to catalogue 
 Example on how to add a book using `add_book.py` script. Call from python-embed/
+
+Note: `add_book.py` now submits ingestion jobs to the running backend (`POST /api/admin/ingest/jobs`), so start the app first (`./gradlew bootRun`).
+
 ```
 python add_book.py \
     --work "A Christmas Carol" --year 1843 --author "Charles Dickens" --original-lang en \
@@ -231,11 +234,40 @@ python add_book.py \
 
 **Embedding & alignment:**
 - Embeddings are computed with sentence-transformers (`paraphrase-multilingual-MiniLM-L12-v2`) via `embed_sentences.py` (reads `DATABASE_URL`). The model name is logged when embedding runs.
+- Embedding step is idempotent: it only fills missing rows, so existing sentence embeddings are not recomputed.
 - Aligners:
   - `dp` (default): dynamic programming, supports 1–1, 1–0, 0–1, 2–1, 1–2. Better coverage, slower (O(N*M)).
   - `greedy`: windowed greedy (default threshold 0.6, window 10), much faster but only 1–1; lowers coverage on long/uneven texts. Lower threshold (e.g., 0.35–0.45) for more matches.
+- If you pass 3+ editions, `add_book.py` aligns `source -> each other language` in one run.
+  - Source is chosen by `--align-src`, otherwise `--original-lang`.
+  - For 3+ editions, specify source explicitly (`--original-lang` or `--align-src`) to avoid ambiguity.
 - `--body-start 'lang=xx,text="first sentence fragment"'` lets the script set `body_start_segment_id` by matching the first sentence containing the fragment per language, so front matter is skipped in alignment/paging.
 - Catalog language order follows edition insertion order (array_agg ordered by edition id), so pass editions to `add_book.py` in your preferred source→target order (first = source/left, second = target/right).
+
+## Async ingestion API (app keeps running)
+
+You can ingest while the backend is running (no restart/stop required):
+
+1. Submit job:
+```bash
+curl -X POST http://localhost:8080/api/admin/ingest/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workTitle":"A Christmas Carol",
+    "lang":"en",
+    "fileSpec":"classpath:books/navidad_en.epub",
+    "year":1843,
+    "author":"Charles Dickens",
+    "originalLang":"en"
+  }'
+```
+
+2. Poll status:
+```bash
+curl http://localhost:8080/api/admin/ingest/jobs/1
+```
+
+Statuses: `PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`.
 
 
 ### TODO ???
@@ -277,3 +309,36 @@ python align_sentences_dp.py \
 pandoc sandman_en.txt -o sandman_en.epub --metadata title="The Sand-Man"
 pandoc sandman_de.txt -o sandman_de.epub --metadata title="Der Sandmann"
 
+
+pandoc rumpelstilzchen_en.txt \
+-o rumpelstilzchen_en.epub \
+--metadata title="Rumpelstilzchen" \
+--metadata creator="Jacob Grimm and Wilhelm Grimm" \
+--metadata language="en" \
+--metadata date="1812"
+
+
+pandoc rumpelstilzchen_de.txt \
+-o rumpelstilzchen_de.epub \
+--metadata title="Rumpelstilzchen" \
+--metadata creator="Jacob Grimm and Wilhelm Grimm" \
+--metadata language="de" \
+--metadata date="1812"
+
+pandoc rumpelstilzchen_ru.txt \
+-o rumpelstilzchen_ru.epub \
+--metadata title="Румпельштильцхен" \
+--metadata creator="Jacob Grimm and Wilhelm Grimm" \
+--metadata language="ru" \
+--metadata date="1812"
+
+python python-embed/add_book.py \
+--work "Rumpelstilzchen" \
+--author "Jacob Grimm and Wilhelm Grimm" \
+--year 1812 \
+--original-lang de \
+--edition "lang=de,file=classpath:books/rumpelstilzchen_de.epub" \
+--edition "lang=en,file=classpath:books/rumpelstilzchen_en.epub" \
+--edition "lang=ru,file=classpath:books/rumpelstilzchen_ru.epub" \
+--aligner dp \
+--reset-existing

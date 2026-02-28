@@ -1,65 +1,48 @@
 package com.example.reader.ingestion;
 
 import org.springframework.boot.CommandLineRunner;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
 
 @Component
 public class IngestCommand implements CommandLineRunner {
-    private final ResourceLoader loader;
-    private final EpubExtractor extractor;
-    private final SegmentWriter writer;
+    private final IngestionFacade ingestionFacade;
 
-    // TODO make ingestion possible without stopping the application.
-
-    public IngestCommand(ResourceLoader loader, EpubExtractor extractor, SegmentWriter writer) {
-        this.loader = loader;
-        this.extractor = extractor;
-        this.writer = writer;
+    public IngestCommand(IngestionFacade ingestionFacade) {
+        this.ingestionFacade = ingestionFacade;
     }
 
     @Override public void run(String... args) throws Exception {
         if (args.length == 0 || !"ingest".equals(args[0])) return;
 
         Map<String,String> flags = parseFlags(Arrays.copyOfRange(args, 1, args.length));
-        String workTitle = flags.getOrDefault("--work", "Untitled");
-        String lang      = flags.getOrDefault("--lang", "en");
-        String fileSpec  = flags.getOrDefault("--file", "classpath:books/faust_en.epub");
-        Integer year     = Integer.valueOf(flags.getOrDefault("--year", "0"));
-        String publisher = flags.getOrDefault("--publisher", null);
-        String translator= flags.getOrDefault("--translator", null);
-        String author = flags.getOrDefault("--author", null);
-        String originalLang = flags.getOrDefault("--original-lang", null);
+        String work = flags.get("--work");
+        String lang = flags.get("--lang");
+        String file = flags.get("--file");
+        Integer year = flags.containsKey("--year") ? Integer.valueOf(flags.get("--year")) : null;
 
-        Resource res = loader.getResource(fileSpec);
-        if (!res.exists()) throw new IllegalArgumentException("EPUB not found: " + fileSpec);
+        IngestionRequest request = new IngestionRequest(
+                work,
+                lang,
+                file,
+                year,
+                flags.getOrDefault("--publisher", null),
+                flags.getOrDefault("--translator", null),
+                flags.getOrDefault("--author", null),
+                flags.getOrDefault("--original-lang", null)
+        ).withDefaults();
 
-        // Extract chapters + paragraphs into a normalized structure
-        var doc = extractor.extract(res);
+        IngestionResult result = ingestionFacade.ingest(request, null);
+        System.out.println(
+                "Ingested " + request.workTitle() + " [" + request.lang() + "] from " + request.fileSpec()
+                        + " (workId=" + result.workId()
+                        + ", editionId=" + result.editionId()
+                        + ", chapters=" + result.chapters()
+                        + ", paragraphs=" + result.paragraphs()
+                        + ", sentences=" + result.sentences() + ")"
+        );
 
-        // Upsert work/edition -> returns IDs
-        long workId = writer.ensureWork(workTitle, author, year, originalLang);
-        long editionId = writer.ensureEdition(workId, lang, publisher, translator, year, fileSpec, "epub3");
-
-        // Write hierarchy: chapters -> paragraphs -> sentences
-        int chOrd = 0;
-        for (var ch : doc.chapters()) {
-            long chapterId = writer.insertSegment(editionId, "chapter", ++chOrd, null, ch.title(), ch.cfi());
-            int pOrd = 0;
-            for (var para : ch.paragraphs()) {
-                long paraId = writer.insertSegment(editionId, "paragraph", ++pOrd, chapterId, para.text(), para.cfi());
-                // sentence split per paragraph (OpenNLP)
-                for (var s : extractor.splitSentences(lang, para.text())) {
-                    writer.insertSegment(editionId, "sentence", s.ord(), paraId, s.text(), s.cfi());
-                    // (Optional next step) compute embeddings and writer.insertEmbedding(segmentId, model, vector)
-                }
-            }
-        }
-
-        System.out.println("Ingested " + workTitle + " [" + lang + "] from " + fileSpec);
         // If running headless (non-web), exit after ingest; otherwise leave the server running.
         if (isHeadless(flags)) {
             System.exit(0);

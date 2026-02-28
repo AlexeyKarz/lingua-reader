@@ -1,16 +1,11 @@
 """
-Add-book helper for multilang-reader-mono.
+Add-book pipeline script for multilang-reader-mono.
 
 Pipeline:
-1) Ingest EPUB(s) through Spring Boot CLI (`./gradlew bootRun --args="ingest ..."`)
+1) Ingest EPUB(s) through running app ingestion jobs API (`POST /api/admin/ingest/jobs`)
 2) Embed any new sentences (`embed_sentences.py` reads DATABASE_URL / .env)
 3) Align between two langs using DP aligner (`align_sentences_dp.py`)
 4) Verify the work/editions are present in Postgres.
-
-Assumptions:
-- You already have the ingest CLI in the app
-- DATABASE_URL is set (or present in .env) for the Python scripts
-- Pgvector extension is available (embed script will CREATE EXTENSION if needed)
 
 Examples:
 
@@ -23,10 +18,14 @@ python python-embed/add_book.py \
 """
 
 import argparse
+import json
 import os
 import re
 import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, Any
@@ -61,7 +60,6 @@ def parse_kv_list(s: str) -> Dict[str, str]:
     """
     out: Dict[str, str] = {}
     # Allow commas inside quoted values by temporarily replacing them
-    temp = []
     current = ""
     in_quote = False
     for ch in s:
@@ -107,48 +105,124 @@ def resolve_file_arg(file_value: str) -> str:
     raise SystemExit(f"File does not exist: {file_value}")
 
 
-def gradle_ingest(work: str, year: Optional[int], author: Optional[str],
-                 lang: str, file_arg: str, translator: Optional[str],
-                 original_lang: Optional[str]) -> None:
-    """
-    Runs:
-      ./gradlew bootRun --args='ingest --headless --work "..." --lang xx --file ... --year N [--author "..."] [--translator "..."]'
-    """
-    year_part = f' --year {year}' if year else ""
-    author_part = f' --author "{author}"' if author else ""
-    original_part = f' --original-lang "{original_lang}"' if original_lang else ""
-    translator_part = f' --translator "{translator}"' if translator else ""
+def default_api_base_url() -> str:
+    # Keep API base URL loading behavior consistent with DATABASE_URL loading.
+    load_dotenv(ROOT / ".env")
+    load_dotenv(SCRIPTS_DIR / ".env")
+    return os.getenv("MLR_API_BASE_URL", "http://localhost:8080")
 
-    # Build a single --args string
-    args_str = (
-        f'ingest --headless --work "{work}" --lang {lang} --file {file_arg}'
-        f'{year_part}{author_part}{original_part}{translator_part}'
+
+def _api_json(method: str, url: str, timeout_sec: float, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    data = None
+    headers = {"Accept": "application/json"}
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    req = urllib.request.Request(url=url, method=method, headers=headers, data=data)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+            body = resp.read().decode("utf-8") if resp else ""
+            if not body:
+                return {}
+            return json.loads(body)
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace") if e.fp else ""
+        raise RuntimeError(f"HTTP {e.code} from {url}: {body}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"Cannot reach API {url}: {e.reason}") from e
+
+
+def ingest_via_api(
+    api_base_url: str,
+    work: str,
+    year: Optional[int],
+    author: Optional[str],
+    lang: str,
+    file_arg: str,
+    publisher: Optional[str],
+    translator: Optional[str],
+    original_lang: Optional[str],
+    poll_interval_sec: float,
+    timeout_sec: int,
+) -> None:
+    base = api_base_url.rstrip("/")
+    submit_url = f"{base}/api/admin/ingest/jobs"
+    payload = {
+        "workTitle": work,
+        "lang": lang,
+        "fileSpec": file_arg,
+        "year": year,
+        "author": author,
+        "publisher": publisher,
+        "translator": translator,
+        "originalLang": original_lang,
+    }
+    payload = {k: v for k, v in payload.items() if v is not None}
+
+    log(
+        "ingest_start",
+        mode="api",
+        api_base_url=base,
+        work=work,
+        lang=lang,
+        file=file_arg,
+        year=year,
+        author=author,
+        publisher=publisher,
+        original_lang=original_lang,
+        translator=translator,
     )
 
-    cmd = [
-        str(ROOT / "gradlew"),
-        "--no-daemon",
-        "--console=plain",
-        "bootRun",
-        f"--args={args_str}"
-    ]
+    submitted = _api_json("POST", submit_url, timeout_sec=30, payload=payload)
+    job_id = submitted.get("jobId")
+    if not isinstance(job_id, int):
+        raise RuntimeError(f"Ingestion API response missing jobId: {submitted}")
+    status_url = f"{base}/api/admin/ingest/jobs/{job_id}"
+    log("ingest_job_submitted", work=work, lang=lang, job_id=job_id, status_url=status_url)
 
-    log("ingest_start", work=work, lang=lang, file=file_arg, year=year, author=author, original_lang=original_lang, translator=translator)
-    log("ingest_cmd", cmd=" ".join(cmd))
+    started = time.monotonic()
+    last_marker: Optional[Tuple[Any, ...]] = None
 
-    # Important: This will start Spring Boot per edition.
-    # If port 8080 is in use, stop the running app first.
-    res = subprocess.run(cmd, cwd=ROOT)
+    while True:
+        job = _api_json("GET", status_url, timeout_sec=30)
+        status = job.get("status", "UNKNOWN")
+        step = job.get("step")
+        msg = job.get("message")
+        chapters = job.get("chapters")
+        paragraphs = job.get("paragraphs")
+        sentences = job.get("sentences")
+        error = job.get("error")
+        marker = (status, step, msg, chapters, paragraphs, sentences, error)
+        if marker != last_marker:
+            log(
+                "ingest_job_progress",
+                work=work,
+                lang=lang,
+                job_id=job_id,
+                status=status,
+                step=step,
+                message=msg,
+                chapters=chapters,
+                paragraphs=paragraphs,
+                sentences=sentences,
+                error=error,
+            )
+            last_marker = marker
 
-    if res.returncode != 0:
-        log("ingest_failed", level="ERROR", work=work, lang=lang, returncode=res.returncode)
-        raise RuntimeError("Gradle ingestion failed")
+        if status == "SUCCEEDED":
+            log("ingest_ok", mode="api", work=work, lang=lang, job_id=job_id)
+            return
+        if status == "FAILED":
+            raise RuntimeError(f"Ingestion job {job_id} failed for {work} [{lang}]: {error or msg}")
 
-    # Optional: print a trimmed success tail
-    if res.stdout:
-        tail = "\n".join(res.stdout.splitlines()[-20:])
-        log("ingest_output_tail", work=work, lang=lang, tail=tail)
-    log("ingest_ok", work=work, lang=lang)
+        elapsed = time.monotonic() - started
+        if elapsed > timeout_sec:
+            raise RuntimeError(
+                f"Ingestion job {job_id} timed out after {timeout_sec}s "
+                f"for {work} [{lang}] (last status={status}, step={step})"
+            )
+        time.sleep(max(0.2, poll_interval_sec))
 
 
 def get_conn():
@@ -439,15 +513,100 @@ def run_align(work: str, src: str, tgt: str, method: Optional[str],
         raise RuntimeError("Alignment step failed")
 
 
+def build_alignment_plan(
+    editions: List[Dict[str, str]],
+    align_src_arg: Optional[str],
+    align_tgt_arg: Optional[str],
+    original_lang_arg: Optional[str],
+    aligner: str,
+    method_arg: Optional[str],
+) -> List[Tuple[str, str, str]]:
+    langs = [e["lang"] for e in editions]
+    unique_langs_in_order = list(dict.fromkeys(langs))
+
+    # Aligners currently resolve editions by (work, lang), so duplicate langs in one run are ambiguous.
+    if len(unique_langs_in_order) != len(langs):
+        raise SystemExit(
+            "Duplicate language entries in --edition are not supported in one run. "
+            "Use one edition per language."
+        )
+
+    src = (align_src_arg or original_lang_arg or "").strip().lower()
+    if not src:
+        if len(unique_langs_in_order) > 2:
+            raise SystemExit(
+                "For 3+ editions, specify source language explicitly via --original-lang or --align-src."
+            )
+        src = unique_langs_in_order[0]
+
+    if src not in unique_langs_in_order:
+        raise SystemExit(f"Source language '{src}' is not present in --edition list: {','.join(unique_langs_in_order)}")
+
+    if align_tgt_arg:
+        tgt = align_tgt_arg.strip().lower()
+        if tgt == src:
+            raise SystemExit("--align-tgt cannot be the same as source language")
+        if tgt not in unique_langs_in_order:
+            raise SystemExit(f"Target language '{tgt}' is not present in --edition list: {','.join(unique_langs_in_order)}")
+        targets = [tgt]
+    else:
+        targets = [lang for lang in unique_langs_in_order if lang != src]
+
+    if not targets:
+        raise SystemExit("No target languages available for alignment.")
+
+    plan: List[Tuple[str, str, str]] = []
+    for tgt in targets:
+        if method_arg:
+            if len(targets) > 1 and ("{src}" in method_arg or "{tgt}" in method_arg):
+                method = method_arg.format(src=src, tgt=tgt)
+            elif len(targets) > 1:
+                raise SystemExit(
+                    "When aligning multiple targets, --method must contain {src} and {tgt}, "
+                    "or omit --method to auto-generate method names."
+                )
+            else:
+                method = method_arg
+        else:
+            method = f"{aligner}-mlMiniLM-v1-{src}-{tgt}"
+        plan.append((src, tgt, method))
+
+    return plan
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--work", required=True)
     p.add_argument("--year", type=int, default=None)
     p.add_argument("--author", default=None, help="Author name for the work (applied to all editions)")
     p.add_argument("--original-lang", default=None, help="Preferred/original language code for the work")
-    p.add_argument("--method", default=None, help="Alignment method tag (stored in alignment.method)")
+    p.add_argument(
+        "--api-base-url",
+        default=default_api_base_url(),
+        help="Running monolith base URL for ingestion API (default: http://localhost:8080 or MLR_API_BASE_URL)",
+    )
+    p.add_argument(
+        "--poll-interval-sec",
+        type=float,
+        default=2.0,
+        help="Polling interval for ingestion job status",
+    )
+    p.add_argument(
+        "--ingest-timeout-sec",
+        type=int,
+        default=3600,
+        help="Per-edition ingestion timeout in seconds",
+    )
+    p.add_argument(
+        "--method",
+        default=None,
+        help="Alignment method tag. For multi-target runs, use placeholders {src} and {tgt}, e.g. dp-mlMiniLM-v1-{src}-{tgt}",
+    )
     p.add_argument("--align-src", help="Lang code for source edition (default: first --edition)")
-    p.add_argument("--align-tgt", help="Lang code for target edition (default: second --edition)")
+    p.add_argument(
+        "--align-tgt",
+        help="Lang code for a single target edition. If omitted, aligns source -> all other languages",
+    )
     p.add_argument("--aligner", choices=["dp", "greedy"], default="dp", help="Alignment algorithm to use")
     p.add_argument("--threshold", type=float, default=0.6, help="Greedy aligner similarity threshold")
     p.add_argument("--window", type=int, default=10, help="Greedy aligner window size")
@@ -477,35 +636,58 @@ def main():
         ed = parse_kv_list(ed_str)
         if "lang" not in ed or "file" not in ed:
             raise SystemExit("Each --edition must include lang= and file=")
+        ed["lang"] = ed["lang"].strip().lower()
         editions.append(ed)
 
     if len(editions) < 2:
         raise SystemExit("Provide at least two --edition entries so we can align.")
 
-    align_src = args.align_src or editions[0]["lang"]
-    align_tgt = args.align_tgt or editions[1]["lang"]
-    method = args.method or f"{args.aligner}-mlMiniLM-v1-{align_src}-{align_tgt}"
+    align_plan = build_alignment_plan(
+        editions=editions,
+        align_src_arg=args.align_src,
+        align_tgt_arg=args.align_tgt,
+        original_lang_arg=args.original_lang,
+        aligner=args.aligner,
+        method_arg=args.method,
+    )
+    align_src = align_plan[0][0]
+    align_tgts = [t for (_, t, _) in align_plan]
 
     log("add_book_start",
         work=args.work,
         author=args.author or "n/a",
         editions=",".join([e["lang"] for e in editions]),
+        api_base_url=args.api_base_url,
         align_src=align_src,
-        align_tgt=align_tgt,
-        method=method,
+        align_tgts=",".join(align_tgts),
+        align_pairs=",".join([f"{s}->{t}" for (s, t, _) in align_plan]),
+        methods=",".join([m for (_, _, m) in align_plan]),
         aligner=args.aligner)
 
     # Ingest each edition
     if args.reset_existing:
         log("reset_start", work=args.work)
-        reset_existing(args.work, [e["lang"] for e in editions])
+        reset_existing(args.work, list(dict.fromkeys([e["lang"] for e in editions])))
 
     for ed in editions:
         lang = ed["lang"]
         file_arg = resolve_file_arg(ed["file"])
+        publisher = ed.get("publisher")
         translator = ed.get("translator")
 
-        gradle_ingest(args.work, args.year, args.author, lang, file_arg, translator, args.original_lang)
+        ingest_via_api(
+            api_base_url=args.api_base_url,
+            work=args.work,
+            year=args.year,
+            author=args.author,
+            lang=lang,
+            file_arg=file_arg,
+            publisher=publisher,
+            translator=translator,
+            original_lang=args.original_lang,
+            poll_interval_sec=args.poll_interval_sec,
+            timeout_sec=args.ingest_timeout_sec,
+        )
 
     # Optionally set body_start_segment_id based on provided text fragments
     body_specs: List[Dict[str, str]] = []
@@ -519,8 +701,9 @@ def main():
     # Embed any new sentences (idempotent)
     run_embed()
 
-    # Align between the two langs of interest
-    run_align(args.work, align_src, align_tgt, method, args.aligner, args.threshold, args.window)
+    # Align source -> each target from plan
+    for src, tgt, method in align_plan:
+        run_align(args.work, src, tgt, method, args.aligner, args.threshold, args.window)
 
     # Verify in DB
     verify_work_and_editions(args.work, editions)
