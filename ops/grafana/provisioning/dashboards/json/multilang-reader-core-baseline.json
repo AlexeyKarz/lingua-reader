@@ -1,0 +1,233 @@
+{
+  "id": null,
+  "uid": "mlr-core-baseline",
+  "title": "Multilang Reader \u2014 Core Comparable Baseline",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "External API RPS (catalog/reader/translate)",
+      "targets": [
+        {
+          "expr": "sum by (job, method, uri) (rate(http_server_requests_seconds_count{job=\"multilang_reader_mono\", uri=~\"/api/(catalog|reader|translate)/.*\"}[1m]))",
+          "legendFormat": "{{job}} {{method}} {{uri}}"
+        },
+        {
+          "expr": "sum by (job, routeId, outcome) (rate(spring_cloud_gateway_requests_seconds_count{job=\"gateway\", routeId=~\"catalog|reader|translate\"}[1m]))",
+          "legendFormat": "{{job}} route={{routeId}} {{outcome}}"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "External API p95 latency (s)",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, job, method, uri) (rate(http_server_requests_seconds_bucket{job=\"multilang_reader_mono\", uri=~\"/api/(catalog|reader|translate)/.*\"}[5m])))",
+          "legendFormat": "{{job}} {{method}} {{uri}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, job, routeId) (rate(spring_cloud_gateway_requests_seconds_bucket{job=\"gateway\", routeId=~\"catalog|reader|translate\"}[5m])))",
+          "legendFormat": "{{job}} route={{routeId}}"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 24,
+        "h": 8
+      }
+    },
+    {
+      "type": "stat",
+      "title": "External API 5xx rate %",
+      "targets": [
+        {
+          "expr": "100 * ((sum(rate(http_server_requests_seconds_count{job=\"multilang_reader_mono\", uri=~\"/api/(catalog|reader|translate)/.*\", status=~\"5..\"}[5m])) or on() vector(0)) / clamp_min(sum(rate(http_server_requests_seconds_count{job=\"multilang_reader_mono\", uri=~\"/api/(catalog|reader|translate)/.*\"}[5m])), 1e-9))"
+        },
+        {
+          "expr": "100 * ((sum(rate(spring_cloud_gateway_requests_seconds_count{job=\"gateway\", routeId=~\"catalog|reader|translate\", status=~\"5..\"}[5m])) or on() vector(0)) / clamp_min(sum(rate(spring_cloud_gateway_requests_seconds_count{job=\"gateway\", routeId=~\"catalog|reader|translate\"}[5m])), 1e-9))"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 6,
+        "h": 6
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Reader requests (RPS)",
+      "targets": [
+        {
+          "expr": "sum by (job, method, src, tgt, outcome) (rate(reader_page_requests_total{job=~\"multilang_reader_mono|reader-service\"}[1m]))",
+          "legendFormat": "{{job}} {{src}}->{{tgt}} {{method}} {{outcome}}"
+        }
+      ],
+      "gridPos": {
+        "x": 6,
+        "y": 16,
+        "w": 18,
+        "h": 6
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Reader p95 latency (s)",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, job, method, src, tgt) (rate(reader_page_fetch_seconds_bucket{job=~\"multilang_reader_mono|reader-service\"}[5m])))",
+          "legendFormat": "{{job}} {{src}}->{{tgt}} {{method}}"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 12,
+        "h": 6
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Reader fallback (RPS)",
+      "targets": [
+        {
+          "expr": "sum(rate(reader_page_fallback_total{job=~\"multilang_reader_mono|reader-service\"}[5m])) or on() vector(0)",
+          "legendFormat": "fallback_rps"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 22,
+        "w": 12,
+        "h": 6
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Translate provider calls (RPS)",
+      "targets": [
+        {
+          "expr": "sum by (job, provider, operation, outcome) (rate(translate_provider_calls_total{job=~\"multilang_reader_mono|translate-service\"}[1m]))",
+          "legendFormat": "{{job}} {{provider}} {{operation}} {{outcome}}"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 12,
+        "h": 6
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Translate provider p95 latency (s)",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, job, provider, operation) (rate(translate_provider_latency_seconds_bucket{job=~\"multilang_reader_mono|translate-service\"}[5m])))",
+          "legendFormat": "{{job}} {{provider}} {{operation}}"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 12,
+        "h": 6
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Translate provider error rate %",
+      "targets": [
+        {
+          "expr": "100 * (((sum by (job, provider) (rate(translate_provider_calls_total{job=~\"multilang_reader_mono|translate-service\", outcome=\"fail\"}[5m]))) or on(job,provider) (0 * (sum by (job, provider) (rate(translate_provider_calls_total{job=~\"multilang_reader_mono|translate-service\"}[5m]))))) / clamp_min((sum by (job, provider) (rate(translate_provider_calls_total{job=~\"multilang_reader_mono|translate-service\"}[5m]))), 1e-9))",
+          "legendFormat": "{{job}} {{provider}}"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 34,
+        "w": 12,
+        "h": 6
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "JVM heap used vs max (bytes)",
+      "targets": [
+        {
+          "expr": "sum by (job) (jvm_memory_used_bytes{job=~\"multilang_reader_mono|gateway|catalog-service|reader-service|translate-service|ingestion-service\", area=\"heap\"})",
+          "legendFormat": "{{job}} heap used"
+        },
+        {
+          "expr": "sum by (job) (jvm_memory_max_bytes{job=~\"multilang_reader_mono|gateway|catalog-service|reader-service|translate-service|ingestion-service\", area=\"heap\"})",
+          "legendFormat": "{{job}} heap max"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 34,
+        "w": 12,
+        "h": 6
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Hikari active vs idle connections",
+      "targets": [
+        {
+          "expr": "sum by (job, pool) (hikaricp_connections_active{job=~\"multilang_reader_mono|catalog-service|reader-service|ingestion-service\"})",
+          "legendFormat": "{{job}} {{pool}} active"
+        },
+        {
+          "expr": "sum by (job, pool) (hikaricp_connections_idle{job=~\"multilang_reader_mono|catalog-service|reader-service|ingestion-service\"})",
+          "legendFormat": "{{job}} {{pool}} idle"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 12,
+        "h": 6
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Process CPU usage (%)",
+      "targets": [
+        {
+          "expr": "avg by (job) (process_cpu_usage{job=~\"multilang_reader_mono|gateway|catalog-service|reader-service|translate-service|ingestion-service\"}) * 100",
+          "legendFormat": "{{job}}"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 40,
+        "w": 12,
+        "h": 6
+      }
+    }
+  ]
+}

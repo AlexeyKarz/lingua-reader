@@ -18,7 +18,22 @@ public class SegmentWriter {
                 ps -> ps.setString(1, title),
                 rs -> rs.next() ? rs.getLong(1) : null
         );
-        if (id != null) return id;
+        if (id != null) {
+            jdbc.update("""
+                    update work
+                    set author = coalesce(:author, author),
+                        pub_year = coalesce(:year, pub_year),
+                        original_lang = coalesce(:originalLang, original_lang)
+                    where id = :id
+                    """,
+                    new MapSqlParameterSource()
+                            .addValue("id", id)
+                            .addValue("author", author)
+                            .addValue("year", year)
+                            .addValue("originalLang", originalLang)
+            );
+            return id;
+        }
 
         var key = new org.springframework.jdbc.support.GeneratedKeyHolder();
 

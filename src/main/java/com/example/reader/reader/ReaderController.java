@@ -54,7 +54,7 @@ public class ReaderController {
             @RequestParam String tgt,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam(defaultValue = "dp-mlMiniLM-v1-de-en") String method
+            @RequestParam(required = false) String method
     ) {
         Timer.Sample sample = Timer.start(registry);
         String outcome = "ok";
@@ -76,9 +76,14 @@ public class ReaderController {
             }
         }
 
+        String resolvedMethod = method;
+        if (resolvedMethod == null || resolvedMethod.isBlank()) {
+            resolvedMethod = "dp-mlMiniLM-v1-" + resolvedSrc + "-" + tgt;
+        }
+
         try {
             log.info("Reader page requested: bookId='{}' {} -> {} page={} size={} method={}",
-                    bookId, resolvedSrc, tgt, page, size, method);
+                    bookId, resolvedSrc, tgt, page, size, resolvedMethod);
 
             ReaderRepository.EditionIds ids = repo.findEditionIds(bookId, resolvedSrc, tgt);
             if (ids == null) {
@@ -118,19 +123,19 @@ public class ReaderController {
 
             // 2) fetch alignments for just these left IDs
             List<AlignmentLinkDto> links = repo.fetchAlignmentsForLeftIds(
-                    workId, srcEd, tgtEd, method, leftIds
+                    workId, srcEd, tgtEd, resolvedMethod, leftIds
             );
 
             // Fallback: if no alignments for requested method, try any method for this pair
             if (links.isEmpty()) {
                 log.warn("No alignments found for method {} on bookId='{}' {}->{}, falling back to any method",
-                        method, bookId, src, tgt);
+                        resolvedMethod, bookId, resolvedSrc, tgt);
                 registry.counter(
                         "reader.page.fallback",
                         "workId", workIdTag,
                         "src", resolvedSrc,
                         "tgt", tgt,
-                        "method", method
+                        "method", resolvedMethod
                 ).increment();
                 links = repo.fetchAlignmentsForLeftIdsAnyMethod(workId, srcEd, tgtEd, leftIds);
             }
@@ -178,7 +183,7 @@ public class ReaderController {
             outcome = "error";
             throw e;
         } finally {
-            recordReaderMetrics(sample, outcome, hasAlignments, workIdTag, srcEditionTag, tgtEditionTag, resolvedSrc, tgt, method, size);
+            recordReaderMetrics(sample, outcome, hasAlignments, workIdTag, srcEditionTag, tgtEditionTag, resolvedSrc, tgt, resolvedMethod, size);
         }
     }
 

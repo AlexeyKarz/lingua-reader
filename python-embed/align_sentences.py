@@ -306,7 +306,8 @@ def main():
         print(f"Aligned {len(pairs)} sentence pairs (score >= {args.threshold})")
 
         # Method name includes langs for clarity if you want
-        method_name = f"{args.method}-{args.src}-{args.tgt}"
+        suffix = f"-{args.src}-{args.tgt}"
+        method_name = args.method if args.method.endswith(suffix) else f"{args.method}{suffix}"
         write_alignments(conn, work_id, src_ed, tgt_ed, pairs, method_name)
         print("Alignments written to DB.")
     finally:

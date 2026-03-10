@@ -422,7 +422,8 @@ def main():
             merge_penalty=args.merge_penalty,
         )
 
-        method_name = f"{args.method}-{args.src}-{args.tgt}"
+        suffix = f"-{args.src}-{args.tgt}"
+        method_name = args.method if args.method.endswith(suffix) else f"{args.method}{suffix}"
         kept = write_alignments(conn, work_id, src_ed, tgt_ed, pairs, method_name, args.min_score)
         log("align_done", kept=kept, method=method_name)
     finally:
