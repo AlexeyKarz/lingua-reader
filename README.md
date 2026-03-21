@@ -269,6 +269,92 @@ curl http://localhost:8080/api/admin/ingest/jobs/1
 
 Statuses: `PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`.
 
+## Benchmark plan
+
+For monolith vs microservices comparison, use automated API workload rather than manual UI interaction.
+
+Primary workload script:
+- `perf/k6/benchmark.ts`
+
+Helper runner for the planned matrix:
+- `perf/k6/run-matrix.sh`
+
+General rules:
+- run only one stack at a time
+- keep the same DB contents for both runs
+- keep the same provider mode for both runs
+- keep the same `BOOK_ID`, `SRC_LANG`, `TGT_LANG` to get strict reproducibility
+- prefer a first comparison pass with `translate.provider=stub`
+
+Recommended baseline matrix:
+
+| Scenario | Mode | VUs | Duration | Purpose |
+|---|---|---:|---:|---|
+| Catalog | `catalog` | 4 | 2m | metadata-only path |
+| Reader | `reader` | 4 | 2m | core reading/alignment path |
+| Translate | `translate` | 2 | 2m | provider-heavy path |
+| Mixed | `mixed` | 4 | 3m | realistic combined workload |
+
+Recommended process:
+1. Start monolith stack only.
+2. Run the same matrix against monolith.
+3. Save `k6` summaries and Grafana screenshots/notes.
+4. Stop monolith stack.
+5. Start microservices stack only.
+6. Run the exact same matrix against microservices.
+7. Repeat each full matrix at least 3 times before drawing conclusions.
+
+Example manual run:
+
+```bash
+BASE_URL=http://localhost:8080 \
+MODE=mixed \
+VUS=4 \
+DURATION=3m \
+k6 run perf/k6/benchmark.ts
+```
+
+Example matrix run:
+
+```bash
+chmod +x perf/k6/run-matrix.sh
+BASE_URL=http://localhost:8080 \
+BOOK_ID=4 \
+SRC_LANG=en \
+TGT_LANG=de \
+./perf/k6/run-matrix.sh monolith
+```
+
+Then run the same command against the microservices gateway:
+
+```bash
+BASE_URL=http://localhost:8080 \
+BOOK_ID=4 \
+SRC_LANG=en \
+TGT_LANG=de \
+./perf/k6/run-matrix.sh microservices
+```
+
+What to record for each run:
+- architecture (`monolith` or `microservices`)
+- provider mode (`stub`, `openai`, `google`, `ollama`)
+- scenario / mode
+- VUs and duration
+- `k6` summary JSON
+- Grafana values for:
+  - external API p95 latency
+  - external API RPS
+  - external API 5xx rate
+  - reader p95 latency
+  - reader fallback rate
+  - translate provider p95 latency
+  - translate provider error rate
+  - CPU
+  - JVM heap
+  - Hikari active/idle connections
+
+Notes:
+- When a real provider is used instead of `stub`, interpret tail latency carefully because provider/network variance can dominate architecture overhead.
 
 ### TODO ???
 

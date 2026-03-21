@@ -3,6 +3,8 @@ out/
 !**/src/main/**/out/
 !**/src/test/**/out/
 .idea
+/.gradle/
+/build/
 
 ### Environmental Variables ###
 .env
@@ -35,3 +37,7 @@ bin/
 ### Python environmental variables and virtual environment ###
 /python-embed/.env
 /python-embed/.venv/
+
+### Benchmark outputs ###
+/perf/k6/k6-summary.json
+/perf/k6/results/
