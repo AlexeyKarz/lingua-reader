@@ -22,16 +22,26 @@ Current focus: **data pipeline** (EPUB ingestion → segmentation → embeddings
 **Offline/batch**
 - Python (embeddings + alignment scripts)
 
-**Sentence detecting models:**
-- opennlp-de-ud-gsd-sentence-1.3-2.5.4.bin
-- opennlp-en-ud-ewt-sentence-1.3-2.5.4.bin
-- opennlp-ru-ud-gsd-sentence-1.3-2.5.4.bin
-- opennlp-es-ud-gsd-sentence-1.3-2.5.4.bin
-- opennlp-fr-ud-gsd-sentence-1.3-2.5.4.bin
+**Sentence detection models**
+- `src/main/resources/models/de-sent.bin`
+- `src/main/resources/models/en-sent.bin`
+- `src/main/resources/models/ru-sent.bin`
+- `src/main/resources/models/es-sent.bin`
+- `src/main/resources/models/fr-sent.bin`
 
-Stored in `src/main/resources/models` as `de-sent.bin`, `en-sent.bin`
-Used for splitting sentences (in `EpubExtractor`). 
-Models are taken from: https://opennlp.apache.org/models.html 
+These OpenNLP sentence models are used by `EpubExtractor` during ingestion to split paragraph text into sentence segments.
+
+They are committed to the repository on purpose so ingestion stays reproducible across environments and benchmark runs, without requiring an extra model download step.
+
+Model source:
+- Apache OpenNLP models: https://opennlp.apache.org/models.html
+
+Upstream model names currently used:
+- `opennlp-de-ud-gsd-sentence-1.3-2.5.4.bin`
+- `opennlp-en-ud-ewt-sentence-1.3-2.5.4.bin`
+- `opennlp-ru-ud-gsd-sentence-1.3-2.5.4.bin`
+- `opennlp-es-ud-gsd-sentence-1.3-2.5.4.bin`
+- `opennlp-fr-ud-gsd-sentence-1.3-2.5.4.bin`
 
 
 **Frontend**
