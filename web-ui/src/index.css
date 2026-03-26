@@ -1,22 +1,201 @@
 @import "tailwindcss";
 
-/* soft beige theme + tiny utilities */
 :root {
-  --bg: #f7f2e9;         /* page background */
-  --text: #1f2937;       /* near-black */
-  --peach: #f7bfa0;      /* buttons / accents */
-  --peach-700: #f49f7b;
+  --bg: #f6efe4;
+  --bg-wash: #fbf6ef;
+  --surface: rgba(255, 252, 246, 0.9);
+  --surface-strong: #fffdf8;
+  --surface-tint: rgba(255, 247, 235, 0.95);
+  --text: #1f2937;
+  --muted: #6b7280;
+  --border: rgba(120, 97, 75, 0.16);
+  --shadow-soft: 0 18px 40px rgba(78, 51, 28, 0.08);
+  --shadow-lift: 0 22px 55px rgba(78, 51, 28, 0.14);
+  --accent: #e6a57a;
+  --accent-strong: #d98d5e;
+  --accent-soft: #f6d9c3;
+  --accent-ink: #7b4a26;
+  --success-soft: #eef5ea;
+  --danger-soft: #fdf0eb;
+  --warn-soft: #fff6de;
 }
 
-html, body, #root { height: 100%; }
-body { background: var(--bg); color: var(--text); }
+html, body, #root {
+  height: 100%;
+}
 
-.btn { @apply px-3 py-1.5 rounded; background: var(--peach); color: black; }
-.btn:hover { background: var(--peach-700); }
+html {
+  background:
+    radial-gradient(circle at top left, rgba(243, 193, 147, 0.18), transparent 28rem),
+    radial-gradient(circle at 85% 12%, rgba(245, 222, 198, 0.8), transparent 24rem),
+    linear-gradient(180deg, var(--bg-wash), var(--bg));
+}
+
+body {
+  color: var(--text);
+  font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+  background: transparent;
+}
+
+h1, h2, h3, h4 {
+  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  letter-spacing: -0.02em;
+}
+
+a {
+  color: inherit;
+}
+
+::selection {
+  background: rgba(230, 165, 122, 0.28);
+}
+
+.page-shell {
+  position: relative;
+  min-height: 100%;
+}
+
+.page-shell::before,
+.page-shell::after {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  border-radius: 9999px;
+  filter: blur(10px);
+  pointer-events: none;
+}
+
+.page-shell::before {
+  width: 22rem;
+  height: 22rem;
+  left: -6rem;
+  top: 5rem;
+  background: rgba(244, 191, 155, 0.18);
+}
+
+.page-shell::after {
+  width: 18rem;
+  height: 18rem;
+  right: -4rem;
+  top: 16rem;
+  background: rgba(244, 224, 195, 0.45);
+}
+
+.surface-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(10px);
+}
+
+.surface-panel-strong {
+  background: var(--surface-strong);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-soft);
+}
+
+.card {
+  @apply rounded-[28px] border transition-transform duration-200 ease-out;
+  background: var(--surface-strong);
+  border-color: var(--border);
+  box-shadow: var(--shadow-soft);
+}
+
+.card:hover {
+  transform: translateY(-1px);
+}
+
+.btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition duration-200;
+  background: linear-gradient(180deg, #efb892, var(--accent));
+  color: #1d130d;
+  box-shadow: 0 10px 22px rgba(217, 141, 94, 0.2);
+}
+
+.btn:hover {
+  background: linear-gradient(180deg, #edb08a, var(--accent-strong));
+  transform: translateY(-1px);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
 
 .btn-secondary {
-  @apply px-3 py-1.5 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 transition;
+  @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition duration-200;
+  background: rgba(255, 250, 244, 0.9);
+  border: 1px solid rgba(205, 158, 114, 0.38);
+  color: var(--accent-ink);
 }
 
-.card { @apply rounded shadow border border-gray-300; background: #fffef9; }
-.input { @apply px-3 py-1.5 rounded border border-gray-300 bg-white; }
+.btn-secondary:hover {
+  background: #fff8ef;
+  transform: translateY(-1px);
+}
+
+.input {
+  @apply rounded-full border px-3 py-2 text-sm outline-none transition;
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(120, 97, 75, 0.18);
+}
+
+.input:focus {
+  border-color: rgba(217, 141, 94, 0.65);
+  box-shadow: 0 0 0 4px rgba(230, 165, 122, 0.14);
+}
+
+.nav-pill {
+  @apply inline-flex items-center rounded-full px-4 py-2 text-sm font-medium transition duration-200;
+  color: #5a4637;
+}
+
+.nav-pill:hover {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.nav-pill-active {
+  background: rgba(255, 252, 246, 0.96);
+  box-shadow: 0 10px 24px rgba(76, 54, 34, 0.12);
+  color: #1f2937;
+}
+
+.soft-badge {
+  @apply inline-flex items-center rounded-full px-3 py-1 text-xs font-medium;
+  background: rgba(247, 220, 195, 0.65);
+  color: var(--accent-ink);
+  border: 1px solid rgba(205, 158, 114, 0.25);
+}
+
+.reader-pane {
+  @apply rounded-[30px] border p-5 md:p-6;
+  min-height: 34rem;
+  background:
+    linear-gradient(180deg, rgba(255, 253, 248, 0.98), rgba(255, 249, 240, 0.96));
+  border-color: var(--border);
+  box-shadow: var(--shadow-soft);
+}
+
+.reader-pane-header {
+  @apply mb-5 flex items-start justify-between gap-3;
+}
+
+.page-dock {
+  @apply mt-5 rounded-[28px] border px-4 py-4 md:px-5;
+  background: rgba(255, 251, 245, 0.84);
+  border-color: var(--border);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(8px);
+}
+
+.popover-surface {
+  @apply rounded-[24px] border p-4;
+  background: rgba(255, 252, 247, 0.98);
+  border-color: rgba(120, 97, 75, 0.16);
+  box-shadow: var(--shadow-lift);
+}
+
+.muted-copy {
+  color: var(--muted);
+}

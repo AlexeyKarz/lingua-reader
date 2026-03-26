@@ -1,4 +1,4 @@
-import {useEffect, useLayoutEffect, useRef, useState, useMemo, type JSX} from 'react'
+import {useCallback, useEffect, useLayoutEffect, useRef, useState, useMemo, type JSX} from 'react'
 
 // type Aligned = { left: string[]; right: string[]; bookId: string; src: string; tgt: string }
 
@@ -6,6 +6,8 @@ type PopState =
     | { kind: 'hidden' }
     | {
     kind: 'ready' | 'loading' | 'result' | 'error'
+    pane: 'left' | 'right'
+    sentenceId?: number
     text: string
     rect: DOMRect
     sourceLang: string
@@ -78,6 +80,26 @@ export default function Reader() {
         return set
     }, [data])
 
+    const leftById = useMemo(
+        () => new Map((data?.left ?? []).map(sentence => [sentence.id, sentence])),
+        [data?.left]
+    )
+
+    const rightById = useMemo(
+        () => new Map((data?.right ?? []).map(sentence => [sentence.id, sentence])),
+        [data?.right]
+    )
+
+    const rightToLeftMap = useMemo(() => {
+        const map = new Map<number, number>()
+        data?.alignments?.forEach(link => {
+            if (!map.has(link.rightId)) {
+                map.set(link.rightId, link.leftId)
+            }
+        })
+        return map
+    }, [data?.alignments])
+
     const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set())
 
     // Query params (example: ?bookId=faust&src=de&tgt=en)
@@ -109,6 +131,8 @@ export default function Reader() {
     // Panes — LEFT (original/src), RIGHT (translation/tgt)
     const leftRef = useRef<HTMLDivElement>(null)
     const rightRef = useRef<HTMLDivElement>(null)
+    const leftContentRef = useRef<HTMLDivElement>(null)
+    const rightContentRef = useRef<HTMLDivElement>(null)
 
     // Jump handler
     function handleJump() {
@@ -186,15 +210,19 @@ export default function Reader() {
         }
     }, [notice])
 
-    // prefetch the front matter
-    useEffect(() => {
-        if (page !== 0) return
-        // fire and forget; we don't care about the result here
-        void ensureFrontMatterLoaded()
-    }, [page, bookId, src, tgt])
-
     // Utility: clamp number into [min, max]
     const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(n, max))
+
+    function findSentenceIdFromSelectionNode(node: Node | null): number | undefined {
+        if (!(node instanceof Element) && !(node instanceof Text)) return undefined
+        const element = node instanceof Text ? node.parentElement : node
+        const sentenceNode = element?.closest<HTMLElement>('[data-sentence-id]')
+        if (!sentenceNode) return undefined
+        const raw = sentenceNode.dataset.sentenceId
+        if (!raw) return undefined
+        const id = Number(raw)
+        return Number.isFinite(id) ? id : undefined
+    }
 
     type ChapterState = { current: number | null }
 
@@ -224,6 +252,7 @@ export default function Reader() {
             nodes.push(
                 <p
                     key={s.id}
+                    data-sentence-id={s.id}
                     ref={el => {
                         if (side === 'right') {
                             rightRefs.current[s.id] = el
@@ -307,20 +336,6 @@ export default function Reader() {
     }, [pop.kind])
 
 
-    // close when the text is not selected anymore
-    useEffect(() => {
-        const onSelChange = () => {
-            const sel = document.getSelection(); // or window.getSelection()
-            // If selection is empty/collapsed -> close
-            if (!sel || sel.isCollapsed || !sel.toString().trim()) {
-                rangeRef.current = null
-                setPop({ kind: 'hidden' })
-            }
-        };
-        document.addEventListener('selectionchange', onSelChange);
-        return () => document.removeEventListener('selectionchange', onSelChange);
-    }, []);
-
     function toggleGroup(idx: number) {
         setExpandedGroups(prev => {
             const next = new Set(prev)
@@ -352,7 +367,7 @@ export default function Reader() {
 
     // Selection handler for each pane
     function handleMouseUp(which: 'left' | 'right') {
-        const host = which === 'left' ? leftRef.current : rightRef.current
+        const host = which === 'left' ? leftContentRef.current : rightContentRef.current
         if (!host) return
 
         const sel = window.getSelection()
@@ -362,6 +377,13 @@ export default function Reader() {
 
         const text = sel.toString().trim()
         if (!text) return
+
+        const anchorSentenceId = findSentenceIdFromSelectionNode(sel.anchorNode)
+        const focusSentenceId = findSentenceIdFromSelectionNode(sel.focusNode)
+        const sentenceId =
+            anchorSentenceId !== undefined && anchorSentenceId === focusSentenceId
+                ? anchorSentenceId
+                : undefined
 
         const range = sel.getRangeAt(0).cloneRange()
         rangeRef.current = range
@@ -373,7 +395,7 @@ export default function Reader() {
         const targetLang = which === 'left' ? tgt : src
 
         // Show the popover in "ready" state (only a button for now)
-        setPop({ kind: 'ready', text, rect, sourceLang, targetLang })
+        setPop({ kind: 'ready', pane: which, sentenceId, text, rect, sourceLang, targetLang })
     }
 
     async function doAction(action: 'translate' | 'explain') {
@@ -410,8 +432,32 @@ export default function Reader() {
                     resultText = j.translated ?? ''
                 }
             } else {
-                // Explain for both word/sentence via one endpoint
-                const context = `${bookId} | ${src.toUpperCase()}→${tgt.toUpperCase()}`
+                let alignedContext = ''
+                if (pop.sentenceId !== undefined) {
+                    if (pop.pane === 'left') {
+                        const oppositeId = alignMap.get(pop.sentenceId)
+                        const oppositeSentence = oppositeId ? rightById.get(oppositeId) : undefined
+                        if (oppositeSentence?.text) {
+                            alignedContext = `Aligned translation sentence: ${oppositeSentence.text}`
+                        }
+                    } else {
+                        const oppositeId = rightToLeftMap.get(pop.sentenceId)
+                        const oppositeSentence = oppositeId ? leftById.get(oppositeId) : undefined
+                        if (oppositeSentence?.text) {
+                            alignedContext = `Aligned original sentence: ${oppositeSentence.text}`
+                        }
+                    }
+                }
+
+                const contextParts = [
+                    `Work: ${data?.title || bookId}`,
+                    data?.author ? `Author: ${data.author}` : '',
+                    `Selected side: ${pop.pane === 'left' ? 'original' : 'translation'}`,
+                    `Reader pair: ${src.toUpperCase()} → ${tgt.toUpperCase()}`,
+                    `Current page: ${page + 1}`,
+                    alignedContext,
+                ].filter(Boolean)
+                const context = contextParts.join(' | ')
                 const translation = pop.result ?? ''
                 const r = await fetch('/api/translate/explain', {
                     method: 'POST',
@@ -438,7 +484,7 @@ export default function Reader() {
     }
 
 
-    async function ensureFrontMatterLoaded() {
+    const ensureFrontMatterLoaded = useCallback(async () => {
         if (frontMatter !== null) return
 
         try {
@@ -459,7 +505,18 @@ export default function Reader() {
             console.error(e)
             setFrontInfo('Error loading front matter')
         }
-    }
+    }, [frontMatter, bookId, src, tgt])
+
+    // prefetch the front matter
+    useEffect(() => {
+        if (page !== 0) return
+        void ensureFrontMatterLoaded()
+    }, [page, ensureFrontMatterLoaded])
+
+    useEffect(() => {
+        rangeRef.current = null
+        setPop({ kind: 'hidden' })
+    }, [page, size, bookId, src, tgt])
 
     async function toggleFrontLeft() {
         await ensureFrontMatterLoaded()
@@ -479,7 +536,6 @@ export default function Reader() {
             const target = e.target as Node
             if (pop.kind === 'hidden') return
             if (popRef.current && popRef.current.contains(target)) return
-            if (leftRef.current?.contains(target) || rightRef.current?.contains(target)) return
             rangeRef.current = null
             setPop({ kind: 'hidden' })
         }
@@ -490,197 +546,233 @@ export default function Reader() {
 
     return (
         <div>
-            <div className="mb-3 flex items-baseline gap-4">
-                <h3 className="text-xl font-medium">Reader</h3>
-                <span className="text-sm opacity-70">{info}</span>
-            </div>
+            <section className="surface-panel rounded-[32px] px-5 py-5 md:px-7 md:py-6">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                    <div>
+                        <h3 className="text-3xl font-semibold text-slate-900 md:text-[2.2rem]">
+                            {data?.title || bookId}
+                        </h3>
+                        <p className="mt-2 max-w-3xl text-sm leading-6 muted-copy md:text-[15px]">
+                            Compare aligned passages, select words or sentences for literal translation,
+                            and open short explanations without leaving the page.
+                        </p>
+                    </div>
+
+                    <div className="grid gap-3 text-sm sm:grid-cols-3">
+                        <div className="surface-panel-strong rounded-[24px] px-4 py-3">
+                            <div className="text-xs uppercase tracking-[0.18em] muted-copy">Reading pair</div>
+                            <div className="mt-2 font-medium text-slate-900">{src.toUpperCase()} → {tgt.toUpperCase()}</div>
+                        </div>
+                        <div className="surface-panel-strong rounded-[24px] px-4 py-3">
+                            <div className="text-xs uppercase tracking-[0.18em] muted-copy">Author</div>
+                            <div className="mt-2 font-medium text-slate-900">{data?.author || '—'}</div>
+                        </div>
+                        <div className="surface-panel-strong rounded-[24px] px-4 py-3">
+                            <div className="text-xs uppercase tracking-[0.18em] muted-copy">Page</div>
+                            <div className="mt-2 font-medium text-slate-900">
+                                {page + 1}{data?.totalSrc ? ` / ${Math.max(1, Math.ceil(data.totalSrc / size))}` : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
 
             {status === 'error' && (
-                <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
+                <div className="mt-4 rounded-[24px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                     {errorMsg || 'Could not load this page. Check the language pair or try again.'}
                 </div>
             )}
             {isEmptyPair && (
-                <div className="mb-3 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                <div className="mt-4 rounded-[24px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                     No aligned data for this book/language pair. Try another pair or ingest alignments.
                 </div>
             )}
 
-            {/* Titles */}
-            <div className="grid grid-cols-2 gap-4 mb-2">
-                <div className="text-sm opacity-70">
-                    <div className="font-semibold">Original ({src.toUpperCase()})</div>
-                    <div className="opacity-70">Author(s): {data?.author || '—'}</div>
-                </div>
-                <div className="text-right text-sm opacity-70">
-                    <div className="font-semibold">Publisher Translation ({tgt.toUpperCase()})</div>
-                    <div className="opacity-70">Translator: (add manually)</div>
-                </div>
-            </div>
-
-            {/* Split panes: LEFT original (src), RIGHT translation (tgt) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 relative">
+            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div
                     ref={leftRef}
-                    onMouseUp={() => handleMouseUp('left')}
-                    className="card p-4 leading-7 select-text"
+                    className="reader-pane leading-8"
                 >
-                    {page === 0 && (
-                        <>
-                    {/* Front matter toggle, only on the first page */}
-                    <div className="mb-3 flex items-center justify-between gap-2">
-                        <button
-                            type="button"
-                            className="text-xs px-2 py-1 rounded border border-amber-300/70 text-amber-800 bg-amber-50 hover:bg-amber-100 transition-colors"
-                            onClick={toggleFrontLeft}
-                        >
-                            {showFrontLeft
-                                ? `Hide front matter`
-                                : `Show front matter${
-                                    frontMatter && frontMatter.left.length
-                                        ? ` (${frontMatter.left.length} sentences)`
-                                        : ''
-                                }`}
-                        </button>
-                        {frontInfo && <span className="text-[10px] opacity-60">{frontInfo}</span>}
+                    <div className="reader-pane-header">
+                        <div className="select-none">
+                            <div className="soft-badge">Original ({src.toUpperCase()})</div>
+                            <div className="mt-2 text-sm muted-copy">
+                                Click a sentence to reveal the aligned translation on the opposite side.
+                            </div>
+                        </div>
                     </div>
 
-                    {/* Expanded front matter */}
-                    {showFrontLeft && frontMatter && frontMatter.left.length > 0 && (
-                        <div className="mb-3 border-l border-amber-200 pl-3 text-sm opacity-80">
-                            {frontMatter.left.map(s => (
-                                <p key={s.id} className="mb-2 italic">
-                                    {s.text}
-                                </p>
-                            ))}
-                            <hr className="border-amber-200/70 my-2" />
-                        </div>
-                    )}
-                </>
-                )}
+                    {page === 0 && (
+                        <>
+                            <div className="mb-4 flex items-center justify-between gap-2 select-none">
+                                <button
+                                    type="button"
+                                    className="btn-secondary text-xs"
+                                    onClick={toggleFrontLeft}
+                                >
+                                    {showFrontLeft
+                                        ? 'Hide front matter'
+                                        : `Show front matter${
+                                            frontMatter && frontMatter.left.length
+                                                ? ` (${frontMatter.left.length})`
+                                                : ''
+                                        }`}
+                                </button>
+                                {frontInfo && <span className="text-[11px] muted-copy">{frontInfo}</span>}
+                            </div>
 
-                    {/* Main body sentences */}
-                    {renderSentencesWithChapters(data?.left, 'left', handleLeftSentenceClick)}
+                            {showFrontLeft && frontMatter && frontMatter.left.length > 0 && (
+                                <div className="mb-4 rounded-[22px] border border-amber-200/80 bg-[color:var(--surface-tint)] px-4 py-4 text-sm text-slate-700">
+                                    {frontMatter.left.map(s => (
+                                        <p key={s.id} className="mb-2 italic last:mb-0">
+                                            {s.text}
+                                        </p>
+                                    ))}
+                                </div>
+                            )}
+                        </>
+                    )}
+
+                    <div
+                        ref={leftContentRef}
+                        onMouseUp={() => handleMouseUp('left')}
+                        className="select-text"
+                    >
+                        {renderSentencesWithChapters(data?.left, 'left', handleLeftSentenceClick)}
+                    </div>
                 </div>
 
                 <div
                     ref={rightRef}
-                    onMouseUp={() => handleMouseUp('right')}
-                    className="card p-4 leading-7 select-text"
+                    className="reader-pane leading-8"
                 >
-                    {page === 0 && (
-                        <>
-                    {/* Front matter toggle */}
-                    <div className="mb-3 flex items-center justify-between gap-2">
-                        <button
-                            type="button"
-                            className="text-xs px-2 py-1 rounded border border-amber-300/70 text-amber-800 bg-amber-50 hover:bg-amber-100 transition-colors"
-                            onClick={toggleFrontRight}
-                        >
-                            {showFrontRight
-                                ? `Hide front matter`
-                                : `Show front matter${
-                                    frontMatter && frontMatter.right.length
-                                        ? ` (${frontMatter.right.length} sentences)`
-                                        : ''
-                                }`}
-                        </button>
-                        {frontInfo && <span className="text-[10px] opacity-60">{frontInfo}</span>}
+                    <div className="reader-pane-header">
+                        <div className="select-none">
+                            <div className="soft-badge">Translation ({tgt.toUpperCase()})</div>
+                            <div className="mt-2 text-sm muted-copy">
+                                Select text here to translate back or request a short explanation.
+                            </div>
+                        </div>
                     </div>
 
-                    {showFrontRight && frontMatter && frontMatter.right.length > 0 && (
-                        <div className="mb-3 border-l border-amber-200 pl-3 text-sm opacity-80">
-                            {frontMatter.right.map(s => (
-                                <p
-                                    key={s.id}
-                                    ref={el => {
-                                        rightRefs.current[s.id] = el
-                                    }}
-                                    className="mb-2 italic"
+                    {page === 0 && (
+                        <>
+                            <div className="mb-4 flex items-center justify-between gap-2 select-none">
+                                <button
+                                    type="button"
+                                    className="btn-secondary text-xs"
+                                    onClick={toggleFrontRight}
                                 >
-                                    {s.text}
-                                </p>
-                            ))}
-                            <hr className="border-amber-200/70 my-2" />
-                        </div>
-                    )}
+                                    {showFrontRight
+                                        ? 'Hide front matter'
+                                        : `Show front matter${
+                                            frontMatter && frontMatter.right.length
+                                                ? ` (${frontMatter.right.length})`
+                                                : ''
+                                        }`}
+                                </button>
+                                {frontInfo && <span className="text-[11px] muted-copy">{frontInfo}</span>}
+                            </div>
+
+                            {showFrontRight && frontMatter && frontMatter.right.length > 0 && (
+                                <div className="mb-4 rounded-[22px] border border-amber-200/80 bg-[color:var(--surface-tint)] px-4 py-4 text-sm text-slate-700">
+                                    {frontMatter.right.map(s => (
+                                        <p
+                                            key={s.id}
+                                            ref={el => {
+                                                rightRefs.current[s.id] = el
+                                            }}
+                                            className="mb-2 italic last:mb-0"
+                                        >
+                                            {s.text}
+                                        </p>
+                                    ))}
+                                </div>
+                            )}
                         </>
                     )}
 
-                    {/* aligned sentences + buttons for unaligned sentences*/}
-                    {(() => {
-                        if (!data?.right) return null
+                    <div
+                        ref={rightContentRef}
+                        onMouseUp={() => handleMouseUp('right')}
+                        className="select-text"
+                    >
+                        {(() => {
+                            if (!data?.right) return null
 
-                        const nodes: JSX.Element[] = []
-                        let buffer: typeof data.right = []
-                        let groupIndex = 0
-                        const rightChapterState: { current: number | null } = { current: null }
+                            const nodes: JSX.Element[] = []
+                            let buffer: typeof data.right = []
+                            let groupIndex = 0
+                            const rightChapterState: { current: number | null } = { current: null }
 
-                        const flushGroup = () => {
-                            if (buffer.length === 0) return
-                            const idx = groupIndex++
-                            const expanded = expandedGroups.has(idx)
-
-                            nodes.push(
-                                <div key={`grp-${idx}`} className="mb-2">
-                                    <button
-                                        type="button"
-                                        className="text-xs px-2 py-1 rounded border border-amber-300/70 text-amber-800 bg-amber-50 hover:bg-amber-100 transition-colors"
-                                        onClick={() => toggleGroup(idx)}
-                                    >
-                                        {expanded
-                                            ? `Hide ${buffer.length} unaligned sentence${buffer.length > 1 ? 's' : ''}`
-                                            : `Show ${buffer.length} unaligned sentence${buffer.length > 1 ? 's' : ''}`}
-                                    </button>
-                                    {expanded && (
-                                        <div className="mt-1 pl-3 border-l border-amber-200">
-                                            {renderSentencesWithChapters(buffer, 'right', undefined, rightChapterState)}
-                                        </div>
-                                    )}
-                                </div>
-                            )
-
-                            buffer = []
-                        }
-
-                        data.right.forEach(s => {
-                            const isAligned = alignedRightIds.has(s.id)
-
-                            if (isAligned) {
-                                // Finish any buffered unaligned group before this aligned sentence
-                                flushGroup()
+                            const flushGroup = () => {
+                                if (buffer.length === 0) return
+                                const idx = groupIndex++
+                                const expanded = expandedGroups.has(idx)
 
                                 nodes.push(
-                                    <div key={s.id}>
-                                        {renderSentencesWithChapters([s], 'right', undefined, rightChapterState)}
+                                    <div key={`grp-${idx}`} className="mb-2">
+                                        <button
+                                            type="button"
+                                            className="btn-secondary text-xs select-none"
+                                            onClick={() => toggleGroup(idx)}
+                                        >
+                                            {expanded
+                                                ? `Hide ${buffer.length} unaligned sentence${buffer.length > 1 ? 's' : ''}`
+                                                : `Show ${buffer.length} unaligned sentence${buffer.length > 1 ? 's' : ''}`}
+                                        </button>
+                                        {expanded && (
+                                            <div className="mt-1 pl-3 border-l border-amber-200">
+                                                {renderSentencesWithChapters(buffer, 'right', undefined, rightChapterState)}
+                                            </div>
+                                        )}
                                     </div>
                                 )
-                            } else {
-                                buffer.push(s)
+
+                                buffer = []
                             }
-                        })
 
-                        // Flush trailing group if any
-                        flushGroup()
+                            data.right.forEach(s => {
+                                const isAligned = alignedRightIds.has(s.id)
 
-                        return nodes
-                    })()}
+                                if (isAligned) {
+                                    flushGroup()
+
+                                    nodes.push(
+                                        <div key={s.id}>
+                                            {renderSentencesWithChapters([s], 'right', undefined, rightChapterState)}
+                                        </div>
+                                    )
+                                } else {
+                                    buffer.push(s)
+                                }
+                            })
+
+                            flushGroup()
+
+                            return nodes
+                        })()}
+                    </div>
                 </div>
+            </div>
 
-
-
-                {/* pager controls */}
-                <div className="mb-4 flex flex-wrap items-center gap-3">
-                    <div className="flex items-center gap-3">
-                        <button className="btn" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page <= 0}>Prev</button>
-                        <div className="text-sm whitespace-nowrap">
+            <div className="page-dock">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="flex flex-wrap items-center gap-3">
+                        <button className="btn" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page <= 0}>
+                            Prev
+                        </button>
+                        <div className="surface-panel-strong rounded-full px-4 py-2 text-sm font-medium text-slate-900">
                             Page {page + 1}{data?.totalSrc ? ` / ${Math.max(1, Math.ceil(data.totalSrc / size))}` : ''}
                         </div>
-                        <button className="btn" onClick={() => setPage(p => p + 1)}>Next</button>
+                        <button className="btn" onClick={() => setPage(p => p + 1)}>
+                            Next
+                        </button>
                     </div>
-                    <div className="flex items-center gap-2 text-sm flex-nowrap">
-                        <label className="text-xs opacity-70">Jump to</label>
-                        <div className="flex items-center gap-2">
+
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                        <div className="flex flex-wrap items-center gap-2 text-sm">
+                            <label className="text-xs uppercase tracking-[0.18em] muted-copy">Jump to</label>
                             <input
                                 type="text"
                                 inputMode="numeric"
@@ -690,7 +782,7 @@ export default function Reader() {
                                     setJumpInput(e.target.value)
                                     setJumpError(null)
                                 }}
-                                className="w-16 border rounded px-2 py-1 text-sm"
+                                className="input w-[4.5rem] text-center"
                                 onKeyDown={e => {
                                     if (e.key === 'Enter') {
                                         e.preventDefault()
@@ -698,69 +790,77 @@ export default function Reader() {
                                     }
                                 }}
                             />
-                            <button
-                                className="btn"
-                                onClick={handleJump}
-                            >
+                            <button className="btn-secondary" onClick={handleJump}>
                                 Go
                             </button>
+                            {data?.totalSrc && (
+                                <span className="text-xs muted-copy">
+                                    of {Math.max(1, Math.ceil(data.totalSrc / size))}
+                                </span>
+                            )}
                         </div>
-                        {jumpError && <span className="text-xs text-red-700">{jumpError}</span>}
-                        {data?.totalSrc && (
-                            <span className="text-xs opacity-60">of {Math.max(1, Math.ceil(data.totalSrc / size))}</span>
-                        )}
+
+                        <div className="flex flex-wrap items-center gap-2 text-sm">
+                            <label className="text-xs uppercase tracking-[0.18em] muted-copy">Sentences / page</label>
+                            <select
+                                value={size}
+                                onChange={e => {
+                                    const val = Number(e.target.value)
+                                    if (!Number.isFinite(val)) return
+                                    const currentOffset = page * size
+                                    const newPage = Math.floor(currentOffset / val)
+                                    setPage(newPage)
+                                    setSize(val)
+                                    setJumpInput('1')
+                                }}
+                                className="input pr-8"
+                            >
+                                {[5, 10, 15, 20, 30, 40, 50].map(n => (
+                                    <option key={n} value={n}>{n}</option>
+                                ))}
+                            </select>
+                            <span className="text-xs muted-copy">Approx. {size} source sentences</span>
+                        </div>
                     </div>
-                    <div className="flex items-center gap-2 text-sm flex-nowrap">
-                        <label className="text-xs opacity-70">Sentences/page</label>
-                        <select
-                            value={size}
-                            onChange={e => {
-                                const val = Number(e.target.value)
-                                if (!Number.isFinite(val)) return
-                                // Recompute page to keep the current left-offset approximately stable
-                                const currentOffset = page * size
-                                const newPage = Math.floor(currentOffset / val)
-                                setPage(newPage)
-                                setSize(val)
-                                setJumpInput('1')
-                            }}
-                            className="border rounded px-2 py-1 text-sm"
-                        >
-                            {[5, 10, 15, 20, 30, 40, 50].map(n => (
-                                <option key={n} value={n}>{n}</option>
-                            ))}
-                        </select>
-                    </div>
-                    <span className="text-xs opacity-70">(~{size} sentences per original language)</span>
                 </div>
 
+                <div className="mt-4 flex flex-col gap-2 border-t border-[color:var(--border)] pt-4 text-sm muted-copy md:flex-row md:items-center md:justify-between">
+                    <div>
+                        Tip: select a word or sentence for a literal translation. On translated text, request an explanation for grammar or nuance.
+                    </div>
+                    <div className="flex flex-col items-start gap-1 md:items-end">
+                        <div>{info}</div>
+                        {jumpError && <div className="text-red-700">{jumpError}</div>}
+                    </div>
+                </div>
+            </div>
 
-                {/* Edge-aware popover */}
-                {pop.kind !== 'hidden' && (
-                    <div
-                        ref={popRef}
-                        className="fixed z-50"
-                        style={{ top: `${coords.top}px`, left: `${coords.left}px` }}
-                    >
-                        <div className="card p-3 max-w-md relative">
-                            {/* top-right close */}
-                            <button
-                                aria-label="Close"
-                                onClick={() => setPop({ kind: 'hidden' })}
-                                className="absolute -right-2 -top-2 h-6 w-6 rounded-full bg-red-600 text-white text-sm leading-6 text-center
-                   hover:bg-red-700 active:bg-red-800 transition-colors"
-                                title="Close"
-                            >
-                                ×
-                            </button>
+            {pop.kind !== 'hidden' && (
+                <div
+                    ref={popRef}
+                    className="fixed z-50"
+                    style={{ top: `${coords.top}px`, left: `${coords.left}px` }}
+                >
+                    <div className="popover-surface relative max-w-md">
+                        <button
+                            aria-label="Close"
+                            onClick={() => setPop({ kind: 'hidden' })}
+                            className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-700"
+                            title="Close"
+                        >
+                            ×
+                        </button>
 
-                            <div className="text-xs mb-1 opacity-70">
+                        <div className="pr-10">
+                            <div className="text-xs uppercase tracking-[0.18em] muted-copy">
                                 {pop.sourceLang.toUpperCase()} → {pop.targetLang.toUpperCase()}
                             </div>
 
                             {pop.kind === 'ready' && (
-                                <div className="flex items-center gap-2 flex-wrap">
-                                    <div className="text-sm font-semibold truncate max-w-[16rem]">“{pop.text}”</div>
+                                <div className="mt-3 flex flex-wrap items-center gap-3">
+                                    <div className="max-w-[16rem] text-sm font-semibold text-slate-900">
+                                        “{pop.text}”
+                                    </div>
                                     <button className="btn" onClick={() => doAction('translate')}>
                                         Translate
                                     </button>
@@ -768,29 +868,25 @@ export default function Reader() {
                             )}
 
                             {pop.kind === 'loading' && (
-                                <div className="text-sm">
+                                <div className="mt-3 text-sm text-slate-700">
                                     {pop.action === 'explain' ? 'Explaining…' : 'Translating…'}
                                 </div>
                             )}
 
                             {pop.kind === 'result' && (
-                                <div className="max-h-[50vh] overflow-y-auto pr-1">
-                                    <div className="text-xs mb-1 opacity-70">
+                                <div className="mt-3 max-h-[50vh] overflow-y-auto pr-1">
+                                    <div className="text-xs uppercase tracking-[0.18em] muted-copy">
                                         {pop.action === 'explain' ? 'Explanation' : 'Translation'}
                                     </div>
 
-                                    <div className="text-sm font-semibold mb-1">“{pop.text}”</div>
-                                    <div className="text-sm whitespace-pre-wrap mb-3">
+                                    <div className="mt-2 text-sm font-semibold text-slate-900">“{pop.text}”</div>
+                                    <div className="mt-2 whitespace-pre-wrap text-sm text-slate-700">
                                         {pop.result ?? '—'}
                                     </div>
 
-                                    {/* Only show Explain button when we currently display a translation */}
                                     {pop.action !== 'explain' && (
-                                        <div className="flex items-center gap-2">
-                                            <button
-                                                className="btn-secondary"
-                                                onClick={() => doAction('explain')}
-                                            >
+                                        <div className="mt-4 flex items-center gap-2">
+                                            <button className="btn-secondary" onClick={() => doAction('explain')}>
                                                 Explain
                                             </button>
                                         </div>
@@ -799,33 +895,25 @@ export default function Reader() {
                             )}
 
                             {pop.kind === 'error' && (
-                                <div className="text-sm text-red-700">Error. Please try again.</div>
+                                <div className="mt-3 text-sm text-red-700">Error. Please try again.</div>
                             )}
                         </div>
                     </div>
-                )}
-
-            </div>
-
-            <p className="mt-3 text-xs opacity-70">
-                Tip: select a word or sentence. Use <b>Translate</b> for literal output. On the translation use <b>Explain</b> for grammar/nuance insights.
-            </p>
+                </div>
+            )}
 
             {notice && (
                 <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
-                    <div className="card px-4 py-3 shadow-lg border border-amber-200 bg-amber-50 max-w-lg flex items-start gap-3">
+                    <div className="surface-panel flex max-w-lg items-start gap-3 rounded-[24px] border border-amber-200 bg-amber-50 px-4 py-3 shadow-lg">
                         <div className="mt-1 text-amber-700">
-                            {/* small info dot */}
                             <span className="inline-block h-2 w-2 rounded-full bg-amber-500" />
                         </div>
-                        <div className="text-sm text-amber-900">
-                            {notice}
-                        </div>
+                        <div className="text-sm text-amber-900">{notice}</div>
                         <button
                             type="button"
                             aria-label="Close"
                             onClick={() => setNotice(null)}
-                            className="ml-2 text-xs text-amber-700 hover:text-amber-900 px-1 rounded hover:bg-amber-100"
+                            className="ml-2 rounded-full px-2 py-1 text-xs text-amber-700 transition hover:bg-amber-100 hover:text-amber-900"
                         >
                             ✕
                         </button>
