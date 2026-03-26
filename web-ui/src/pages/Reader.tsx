@@ -39,14 +39,76 @@ type PageData = {
     alignments: AlignmentLink[]
 }
 
+type SavedReaderState = {
+    page: number
+    size: number
+    savedAt: number
+}
+
+const DEFAULT_PAGE_SIZE = 20
+const LAST_READER_SESSION_KEY = 'mlr:last-reader-session'
+
+function getReaderProgressKey(bookId: string, src: string, tgt: string) {
+    return `mlr:reader-progress:${bookId}:${src}:${tgt}`
+}
+
+function readSavedReaderState(bookId: string, src: string, tgt: string): SavedReaderState | null {
+    try {
+        const raw = window.localStorage.getItem(getReaderProgressKey(bookId, src, tgt))
+        if (!raw) return null
+        const parsed = JSON.parse(raw) as Partial<SavedReaderState>
+        if (
+            typeof parsed.page !== 'number' ||
+            !Number.isFinite(parsed.page) ||
+            parsed.page < 0 ||
+            typeof parsed.size !== 'number' ||
+            !Number.isFinite(parsed.size) ||
+            parsed.size < 1
+        ) {
+            return null
+        }
+        return {
+            page: Math.floor(parsed.page),
+            size: Math.floor(parsed.size),
+            savedAt: typeof parsed.savedAt === 'number' ? parsed.savedAt : Date.now(),
+        }
+    } catch {
+        return null
+    }
+}
+
+function writeSavedReaderState(bookId: string, src: string, tgt: string, state: SavedReaderState) {
+    try {
+        window.localStorage.setItem(getReaderProgressKey(bookId, src, tgt), JSON.stringify(state))
+        window.localStorage.setItem(
+            LAST_READER_SESSION_KEY,
+            JSON.stringify({ bookId, src, tgt, ...state })
+        )
+    } catch {
+        // Ignore quota/storage failures; reader should still work without persistence.
+    }
+}
 
 export default function Reader() {
+    const params = new URLSearchParams(location.search)
+
+    const bookId =
+        params.get('bookId') ?? 'Faust (Part I)' // fallback, but ideally always provided
+
+    const src = params.get('src') ?? 'de'
+    const tgt = params.get('tgt') ?? 'en'
+
+    const readerStorageKey = useMemo(
+        () => getReaderProgressKey(bookId, src, tgt),
+        [bookId, src, tgt]
+    )
 
     const [page, setPage] = useState(0)
-    const [size, setSize] = useState(20) // sentences per page
+    const [size, setSize] = useState(DEFAULT_PAGE_SIZE) // sentences per page
     const [jumpInput, setJumpInput] = useState('1')
     const [jumpError, setJumpError] = useState<string | null>(null)
     const [errorMsg, setErrorMsg] = useState<string | null>(null)
+    const [progressReady, setProgressReady] = useState(false)
 
     const rangeRef = useRef<Range | null>(null)
 
@@ -102,15 +164,6 @@ export default function Reader() {
 
     const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set())
 
-    // Query params (example: ?bookId=faust&src=de&tgt=en)
-    const params = new URLSearchParams(location.search)
-
-    const bookId =
-        params.get('bookId') ?? 'Faust (Part I)' // fallback, but ideally always provided
-
-    const src = params.get('src') ?? 'de'
-    const tgt = params.get('tgt') ?? 'en'
-
     // Front matter states
     const [frontMatter, setFrontMatter] = useState<{
         left: Sentence[]
@@ -150,6 +203,20 @@ export default function Reader() {
     }
 
     useEffect(() => {
+        const saved = readSavedReaderState(bookId, src, tgt)
+        const nextPage = saved?.page ?? 0
+        const nextSize = saved?.size ?? DEFAULT_PAGE_SIZE
+
+        setProgressReady(false)
+        setPage(nextPage)
+        setSize(nextSize)
+        setJumpInput(String(nextPage + 1))
+        setJumpError(null)
+        setProgressReady(true)
+    }, [readerStorageKey, bookId, src, tgt])
+
+    useEffect(() => {
+        if (!progressReady) return
         ;(async () => {
             setStatus('loading')
             setErrorMsg(null)
@@ -195,7 +262,7 @@ export default function Reader() {
                 setStatus('error')
             }
         })()
-    }, [bookId, src, tgt, page, size])
+    }, [bookId, src, tgt, page, size, progressReady])
 
     // close notice (no alignment) automatically
     useEffect(() => {
@@ -209,6 +276,15 @@ export default function Reader() {
             window.clearTimeout(id)
         }
     }, [notice])
+
+    useEffect(() => {
+        if (!progressReady) return
+        writeSavedReaderState(bookId, src, tgt, {
+            page,
+            size,
+            savedAt: Date.now(),
+        })
+    }, [bookId, src, tgt, page, size, progressReady])
 
     // Utility: clamp number into [min, max]
     const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(n, max))

@@ -10,11 +10,23 @@ type CatalogEntry = {
     originalLang?: string | null
 }
 
+type LastReaderSession = {
+    bookId: string
+    src: string
+    tgt: string
+    page: number
+    size: number
+    savedAt: number
+}
+
+const LAST_READER_SESSION_KEY = 'mlr:last-reader-session'
+
 export default function CatalogPage() {
     const [books, setBooks] = useState<CatalogEntry[]>([])
     const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle')
     const [sourceFilter, setSourceFilter] = useState('all')
     const [targetFilter, setTargetFilter] = useState('all')
+    const [lastSession, setLastSession] = useState<LastReaderSession | null>(null)
 
     const getSourceLang = useCallback((book: CatalogEntry) =>
         book.originalLang && book.langs.includes(book.originalLang)
@@ -44,6 +56,32 @@ export default function CatalogPage() {
                 setStatus('error')
             }
         })()
+    }, [])
+
+    useEffect(() => {
+        try {
+            const raw = window.localStorage.getItem(LAST_READER_SESSION_KEY)
+            if (!raw) return
+            const parsed = JSON.parse(raw) as Partial<LastReaderSession>
+            if (
+                typeof parsed.bookId !== 'string' ||
+                typeof parsed.src !== 'string' ||
+                typeof parsed.tgt !== 'string' ||
+                typeof parsed.page !== 'number'
+            ) {
+                return
+            }
+            setLastSession({
+                bookId: parsed.bookId,
+                src: parsed.src,
+                tgt: parsed.tgt,
+                page: parsed.page,
+                size: typeof parsed.size === 'number' ? parsed.size : 20,
+                savedAt: typeof parsed.savedAt === 'number' ? parsed.savedAt : Date.now(),
+            })
+        } catch {
+            // Ignore malformed storage; the catalog can render without it.
+        }
     }, [])
 
     const sourceOptions = useMemo(() => {
@@ -79,6 +117,14 @@ export default function CatalogPage() {
         [books, sourceFilter, targetFilter, matchesFilters]
     )
 
+    const continueBook = useMemo(
+        () =>
+            lastSession
+                ? books.find(book => String(book.workId) === lastSession.bookId) ?? null
+                : null,
+        [books, lastSession]
+    )
+
     useEffect(() => {
         if (sourceFilter !== 'all' && !sourceOptions.some(option => option.lang === sourceFilter)) {
             setSourceFilter('all')
@@ -111,6 +157,30 @@ export default function CatalogPage() {
                             : 'Catalog ready'}
                     </div>
                 </div>
+
+                {continueBook && lastSession && (
+                    <div className="mt-4 rounded-[24px] border border-[color:var(--border)] bg-white/50 px-4 py-4">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                            <div>
+                                <div className="text-xs uppercase tracking-[0.18em] muted-copy">
+                                    Continue reading
+                                </div>
+                                <div className="mt-1 text-base font-medium text-slate-900">
+                                    {continueBook.title}
+                                </div>
+                                <div className="mt-1 text-sm muted-copy">
+                                    {lastSession.src.toUpperCase()} → {lastSession.tgt.toUpperCase()} · page {lastSession.page + 1}
+                                </div>
+                            </div>
+                            <Link
+                                to={`/reader?bookId=${encodeURIComponent(lastSession.bookId)}&src=${lastSession.src}&tgt=${lastSession.tgt}`}
+                                className="btn"
+                            >
+                                Resume
+                            </Link>
+                        </div>
+                    </div>
+                )}
 
                 <div className="mt-5 flex flex-col gap-3 border-t border-[color:var(--border)] pt-4 lg:flex-row lg:items-end lg:justify-between">
                     <div className="grid gap-3 sm:grid-cols-2">
