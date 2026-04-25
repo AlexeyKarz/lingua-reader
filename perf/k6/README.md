@@ -1,6 +1,6 @@
 # k6 Workloads
 
-This directory contains a small TypeScript `k6` script for comparing the monolith and the microservices gateway under the same API workload.
+This directory contains a TypeScript `k6` script for comparing the monolith and the microservices gateway under the same API workload.
 
 The script targets:
 
@@ -12,7 +12,7 @@ The script targets:
 
 It auto-discovers a valid multilingual book from the catalog unless the dataset is overriden through environment variables.
 
-The script is simple:
+The script contains:
 
 - `setup()` discovers one valid multilingual book and language pair
 - `default()` runs one action per iteration
@@ -68,5 +68,3 @@ Examples:
 ```bash
 BASE_URL=http://localhost:8080 MODE=mixed VUS=4 DURATION=3m k6 run perf/k6/benchmark.ts
 ```
-
-When comparing architectures, keep the `k6` profile and dataset identical and read results from Prometheus/Grafana rather than from `k6` latency alone.

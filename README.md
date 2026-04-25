@@ -324,6 +324,59 @@ DURATION=3m \
 k6 run perf/k6/benchmark.ts
 ```
 
+## Benchmark deployment budget
+
+For the final comparison on Google Cloud, the intended target is:
+
+- **VM type:** `e2-standard-2`
+- **Machine budget:** `2 vCPU`, `8 GB RAM`
+- **one stack at a time only** (never run monolith and microservices together)
+
+Important scope rules:
+
+- the **frontend is shared** and runs outside the benchmark target budget
+- the **database is external/host Postgres** and is not counted inside the app budget
+- Prometheus and Grafana run on the same VM, but with fixed sidecar limits in both architectures
+
+### Budget used for comparison
+
+| Budget slice | CPU | Memory | Notes |
+|---|---:|---:|---|
+| Backend under test | `1.25` | `2560m` | Must be identical between monolith and microservices |
+| Prometheus | `0.20` | `256m` | Same in both stacks |
+| Grafana | `0.15` | `256m` | Same in both stacks |
+| Remaining VM headroom | `0.40` | ~`5 GB` | OS, Docker, filesystem cache, background overhead |
+
+### Monolith container budget
+
+| Container | CPU | Memory |
+|---|---:|---:|
+| `app` | `1.25` | `2560m` |
+| `prometheus` | `0.20` | `256m` |
+| `grafana` | `0.15` | `256m` |
+
+If using the optional compose Postgres profile locally:
+
+| Container | CPU | Memory |
+|---|---:|---:|
+| `postgres` | `0.50` | `1024m` |
+
+That DB profile is for convenience only. For fair monolith vs microservices runs, keep DB mode the same in both architectures.
+
+### JVM runtime policy
+
+The monolith app container uses:
+
+```text
+-XX:+UseContainerSupport -XX:InitialRAMPercentage=25.0 -XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError
+```
+
+This keeps heap sizing tied to the container memory limit instead of the host machine memory and makes the runtime behavior comparable to the Java services in the microservices stack.
+
+### Why this budget
+
+The goal is not to maximize raw throughput. The goal is to compare the two architectures under the **same constrained backend budget** on a modest VM shape. That makes the experiment reproducible and keeps the architecture overhead visible instead of hiding it behind excess headroom.
+
 Example matrix run:
 
 ```bash

@@ -3,6 +3,8 @@ services:
     image: postgres:16
     container_name: multilang-reader-postgres
     profiles: ["db"]
+    cpus: "0.50"
+    mem_limit: "1024m"
     environment:
       - POSTGRES_DB=mlr
       - POSTGRES_USER=mlr
@@ -16,10 +18,12 @@ services:
     build: .
     container_name: multilang-reader-mono
     image: multilang-reader-mono:dev
+    cpus: "1.25"
+    mem_limit: "2560m"
     ports:
       - "8080:8080"
     environment:
-      - JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75.0
+      - JAVA_TOOL_OPTIONS=-XX:+UseContainerSupport -XX:InitialRAMPercentage=25.0 -XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError
       - SPRING_DATASOURCE_URL=jdbc:postgresql://${DB_HOST:-host.docker.internal}:${DB_PORT:-5432}/${DB_NAME:-mlr}
       - SPRING_DATASOURCE_USERNAME=${DB_USER:-mlr}
       - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD:-mlr_password}
@@ -27,8 +31,10 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.55.1
     container_name: prometheus
+    cpus: "0.20"
+    mem_limit: "256m"
     command: ["--config.file=/etc/prometheus/prometheus.yml"]
     volumes:
       - ./ops/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -38,8 +44,10 @@ services:
       - app
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.1.0
     container_name: grafana
+    cpus: "0.15"
+    mem_limit: "256m"
     ports:
       - "3000:3000"
     environment:
