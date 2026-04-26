@@ -170,6 +170,7 @@ public class ReaderController {
             resp.put("tgt", tgt);
             resp.put("title", meta.title());
             resp.put("author", meta.author() == null ? "" : meta.author());
+            resp.put("description", meta.description() == null ? "" : meta.description());
             resp.put("page", page);
             resp.put("size", size);
             resp.put("totalSrc", totalSrc);

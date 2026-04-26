@@ -8,6 +8,7 @@ public record IngestionRequest(
         String publisher,
         String translator,
         String author,
+        String description,
         String originalLang
 ) {
     public IngestionRequest withDefaults() {
@@ -21,6 +22,7 @@ public record IngestionRequest(
         String normalizedPublisher = trimToNull(publisher);
         String normalizedTranslator = trimToNull(translator);
         String normalizedAuthor = trimToNull(author);
+        String normalizedDescription = trimToNull(description);
         String normalizedOriginalLang = trimToNull(originalLang);
         if (normalizedOriginalLang != null) {
             normalizedOriginalLang = normalizedOriginalLang.toLowerCase();
@@ -33,6 +35,7 @@ public record IngestionRequest(
                 normalizedPublisher,
                 normalizedTranslator,
                 normalizedAuthor,
+                normalizedDescription,
                 normalizedOriginalLang
         );
     }

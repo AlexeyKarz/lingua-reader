@@ -1,0 +1,9 @@
+.git
+.idea
+.gradle
+build
+web-ui/node_modules
+web-ui/dist
+perf/k6/results
+perf/k6/k6-summary.json
+perf/parity/snapshots

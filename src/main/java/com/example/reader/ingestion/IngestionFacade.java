@@ -44,6 +44,7 @@ public class IngestionFacade {
                 request.workTitle(),
                 request.author(),
                 request.year(),
+                request.description(),
                 request.originalLang()
         );
         long editionId = writer.ensureEdition(

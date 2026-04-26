@@ -1,11 +1,14 @@
-# ---- extractor stage (needs 'java -jar' layertools) ----
+FROM gradle:8.10.2-jdk23 AS build
+WORKDIR /workspace
+COPY . .
+RUN gradle bootJar --no-daemon
+
+# Extract Spring Boot layers from the freshly built jar.
 FROM eclipse-temurin:23-jdk AS extractor
 WORKDIR /app
-ARG JAR=build/libs/multilang-reader-mono-0.0.1-SNAPSHOT.jar
-COPY ${JAR} app.jar
+COPY --from=build /workspace/build/libs/*.jar app.jar
 RUN java -Djarmode=layertools -jar app.jar extract
 
-# ---- runtime stage ----
 FROM eclipse-temurin:23-jre
 WORKDIR /app
 COPY --from=extractor /app/dependencies/ ./

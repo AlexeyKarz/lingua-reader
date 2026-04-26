@@ -30,6 +30,7 @@ public class IngestCommand implements CommandLineRunner {
                 flags.getOrDefault("--publisher", null),
                 flags.getOrDefault("--translator", null),
                 flags.getOrDefault("--author", null),
+                flags.getOrDefault("--description", null),
                 flags.getOrDefault("--original-lang", null)
         ).withDefaults();
 

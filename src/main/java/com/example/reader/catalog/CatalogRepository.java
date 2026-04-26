@@ -1,5 +1,6 @@
 package com.example.reader.catalog;
 
+import jakarta.annotation.PostConstruct;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -14,6 +15,11 @@ public class CatalogRepository {
 
     public CatalogRepository(NamedParameterJdbcTemplate jdbc) {
         this.jdbc = jdbc;
+    }
+
+    @PostConstruct
+    void ensureDescriptionColumn() {
+        jdbc.getJdbcTemplate().execute("alter table work add column if not exists description text");
     }
 
     public List<CatalogEntry> listBooks() {
@@ -31,6 +37,7 @@ public class CatalogRepository {
                 w.id as work_id,
                 w.title,
                 w.author,
+                w.description,
                 w.pub_year,
                 w.original_lang,
                 (
@@ -53,7 +60,7 @@ public class CatalogRepository {
                   ) lo
                 ) as langs
             from work w
-            group by w.id, w.title, w.author, w.pub_year
+            group by w.id, w.title, w.author, w.description, w.pub_year, w.original_lang
             order by w.title
             """;
 
@@ -61,6 +68,7 @@ public class CatalogRepository {
             long workId = rs.getLong("work_id");
             String title = rs.getString("title");
             String author = rs.getString("author");
+            String description = rs.getString("description");
             Integer year = (Integer) rs.getObject("pub_year");
 
             Array arr = rs.getArray("langs");
@@ -70,6 +78,7 @@ public class CatalogRepository {
                     workId,
                     title,
                     author,
+                    description,
                     year,
                     Arrays.asList(langs),
                     rs.getString("original_lang")

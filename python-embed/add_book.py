@@ -138,6 +138,7 @@ def ingest_via_api(
     work: str,
     year: Optional[int],
     author: Optional[str],
+    description: Optional[str],
     lang: str,
     file_arg: str,
     publisher: Optional[str],
@@ -154,6 +155,7 @@ def ingest_via_api(
         "fileSpec": file_arg,
         "year": year,
         "author": author,
+        "description": description,
         "publisher": publisher,
         "translator": translator,
         "originalLang": original_lang,
@@ -169,6 +171,7 @@ def ingest_via_api(
         file=file_arg,
         year=year,
         author=author,
+        description=description,
         publisher=publisher,
         original_lang=original_lang,
         translator=translator,
@@ -579,6 +582,7 @@ def main():
     p.add_argument("--work", required=True)
     p.add_argument("--year", type=int, default=None)
     p.add_argument("--author", default=None, help="Author name for the work (applied to all editions)")
+    p.add_argument("--description", default=None, help="Short catalog description for the work")
     p.add_argument("--original-lang", default=None, help="Preferred/original language code for the work")
     p.add_argument(
         "--api-base-url",
@@ -656,6 +660,7 @@ def main():
     log("add_book_start",
         work=args.work,
         author=args.author or "n/a",
+        description=args.description or "n/a",
         editions=",".join([e["lang"] for e in editions]),
         api_base_url=args.api_base_url,
         align_src=align_src,
@@ -680,6 +685,7 @@ def main():
             work=args.work,
             year=args.year,
             author=args.author,
+            description=args.description,
             lang=lang,
             file_arg=file_arg,
             publisher=publisher,

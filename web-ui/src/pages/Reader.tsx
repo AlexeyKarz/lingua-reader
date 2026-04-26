@@ -30,6 +30,7 @@ type PageData = {
     tgt: string
     title?: string
     author?: string | null
+    description?: string | null
     page: number
     size: number
     totalSrc: number
@@ -632,6 +633,11 @@ export default function Reader() {
                             Compare aligned passages, select words or sentences for literal translation,
                             and open short explanations without leaving the page.
                         </p>
+                        {data?.description && (
+                            <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-700">
+                                {data.description}
+                            </p>
+                        )}
                     </div>
 
                     <div className="grid gap-3 text-sm sm:grid-cols-3">

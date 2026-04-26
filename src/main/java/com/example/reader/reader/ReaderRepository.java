@@ -18,7 +18,7 @@ public class ReaderRepository {
 
     // Small holder for IDs
     public record EditionIds(long workId, long srcEditionId, long tgtEditionId) {}
-    public record WorkMeta(String title, String author, String originalLang) {}
+    public record WorkMeta(String title, String author, String description, String originalLang) {}
 
     public EditionIds findEditionIds(String bookId, String srcLang, String tgtLang) {
         Long workId = parseWorkId(bookId);
@@ -85,26 +85,28 @@ public class ReaderRepository {
     }
 
     public WorkMeta fetchWorkMeta(long workId) {
-        String sql = "select title, author, original_lang from work where id = :id";
+        String sql = "select title, author, description, original_lang from work where id = :id";
         var params = new MapSqlParameterSource().addValue("id", workId);
         return jdbc.query(sql, params, rs -> {
-            if (!rs.next()) return new WorkMeta("", null, null);
+            if (!rs.next()) return new WorkMeta("", null, null, null);
             return new WorkMeta(
                     rs.getString("title"),
                     rs.getString("author"),
+                    rs.getString("description"),
                     rs.getString("original_lang")
             );
         });
     }
 
     public WorkMeta fetchWorkMetaByTitle(String title) {
-        String sql = "select title, author, original_lang from work where title = :t limit 1";
+        String sql = "select title, author, description, original_lang from work where title = :t limit 1";
         var params = new MapSqlParameterSource().addValue("t", title);
         return jdbc.query(sql, params, rs -> {
             if (!rs.next()) return null;
             return new WorkMeta(
                     rs.getString("title"),
                     rs.getString("author"),
+                    rs.getString("description"),
                     rs.getString("original_lang")
             );
         });

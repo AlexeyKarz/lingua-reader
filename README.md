@@ -162,6 +162,7 @@ CREATE TABLE IF NOT EXISTS work (
   id BIGSERIAL PRIMARY KEY,
   title TEXT NOT NULL UNIQUE,
   author TEXT,
+  description TEXT,
   pub_year INT,
   public_domain BOOLEAN DEFAULT TRUE
 );
@@ -234,12 +235,27 @@ Note: `add_book.py` now submits ingestion jobs to the running backend (`POST /ap
 ```
 python add_book.py \
     --work "A Christmas Carol" --year 1843 --author "Charles Dickens" --original-lang en \
+    --description "A Christmas ghost story about Ebenezer Scrooge, redemption, and social conscience." \
     --edition "lang=en,file=classpath:books/navidad_en.epub" \
     --edition "lang=es,file=classpath:books/navidad_es.epub" \
     --aligner dp \
     --reset-existing \
     --body-start 'lang=en,text="Marley was dead, to begin with"' \
     --body-start 'lang=es,text="Marley estaba muerto; eso para empezar"'
+```
+
+If the `work` table already exists in your local database, add the new optional catalog field once:
+
+```sql
+ALTER TABLE work ADD COLUMN IF NOT EXISTS description TEXT;
+```
+
+Existing books can then be backfilled manually, for example:
+
+```sql
+UPDATE work
+SET description = 'A dramatic poem about ambition, knowledge, temptation, and redemption.'
+WHERE title = 'Faust (Part I)';
 ```
 
 **Embedding & alignment:**
@@ -512,4 +528,28 @@ python python-embed/add_book.py \
 --edition "lang=en,file=classpath:books/rumpelstilzchen_en.epub" \
 --edition "lang=ru,file=classpath:books/rumpelstilzchen_ru.epub" \
 --aligner dp \
+--reset-existing
+
+python add_book.py \
+--work "From the Earth to the Moon, Direct in Ninety-Seven Hours and Twenty Minutes" --year 1865 --author "Jules Verne" --original-lang fr \
+--description "A science fiction novel written in the late 19th century. The story revolves around the ambitious plans of the Baltimore Gun Club, led by President Impey Barbicane, as they aim to launch a projectile to the moon. The book explores themes of ingenuity, the spirit of American enterprise, and the interplay between science and public enthusiasm." \
+--edition "lang=fr,file=classpath:books/earthtomoon_fr.epub" \
+--edition "lang=en,file=classpath:books/earthtomoon_en.epub" \
+--edition "lang=ru,file=classpath:books/earthtomoon_ru.epub" \
+--aligner dp \
+--reset-existing 
+
+
+python add_book.py \
+--work "Imensee" \
+--author "Theodor Storm" \
+--original-lang de \
+--description "This enduring love story follows Reinhard as an old man remembering his childhood bond with Elisabeth and their dreams of a life together. When education takes him away, distance and time begin to alter their connection." \
+--edition "lang=de,file=classpath:books/immensee_de.epub" \
+--edition "lang=en,file=classpath:books/immensee_en.epub" \
+--align-src de \
+--align-tgt en \
+--aligner dp \
+--body-start 'lang=de,text="An einem Sp"' \
+--body-start 'lang=en,text="One afternoon in the late autumn a well-dressed old man was walking"' \
 --reset-existing

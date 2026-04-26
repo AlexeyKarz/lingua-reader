@@ -5,6 +5,7 @@ type CatalogEntry = {
     workId: number
     title: string
     author: string | null
+    description: string | null
     year: number | null
     langs: string[]
     originalLang?: string | null
@@ -263,6 +264,19 @@ export default function CatalogPage() {
                                 <div className="mt-2 text-[15px] muted-copy">
                                     {book.author ? `by ${book.author}` : 'Author unavailable'}
                                 </div>
+                                {book.description && (
+                                    <p
+                                        className="mt-3 max-w-3xl text-sm leading-6 muted-copy"
+                                        style={{
+                                            display: '-webkit-box',
+                                            WebkitLineClamp: 3,
+                                            WebkitBoxOrient: 'vertical',
+                                            overflow: 'hidden',
+                                        }}
+                                    >
+                                        {book.description}
+                                    </p>
+                                )}
                             </div>
 
                             <div className="surface-panel rounded-[24px] px-4 py-3 md:min-w-56">
