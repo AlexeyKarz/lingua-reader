@@ -309,8 +309,14 @@ General rules:
 - run only one stack at a time
 - keep the same DB contents for both runs
 - keep the same provider mode for both runs
-- keep the same `BOOK_ID`, `SRC_LANG`, `TGT_LANG` to get strict reproducibility
+- keep the same fixed book set for both runs
 - prefer a first comparison pass with `translate.provider=stub`
+
+Recommended book-selection strategy:
+- use a small fixed set of 2-4 books, not random selection
+- either pin them explicitly with `BOOK_SPECS="4:en:de;7:de:en;9:fr:en"`
+- or let the script use the first `BOOK_COUNT` multilingual books from the catalog
+- use the same set in both architectures and across repetitions
 
 Recommended baseline matrix:
 
@@ -323,12 +329,14 @@ Recommended baseline matrix:
 
 Recommended process:
 1. Start monolith stack only.
-2. Run the same matrix against monolith.
-3. Save `k6` summaries and Grafana screenshots/notes.
-4. Stop monolith stack.
-5. Start microservices stack only.
-6. Run the exact same matrix against microservices.
-7. Repeat each full matrix at least 3 times before drawing conclusions.
+2. Run one short warmup manually and do not record it.
+3. Run the measured matrix against monolith with a run label such as `mono_r1`.
+4. Save `k6` summaries and Grafana screenshots/notes.
+5. Stop monolith stack.
+6. Start microservices stack only.
+7. Run one short warmup manually and do not record it.
+8. Run the exact same measured matrix against microservices with a label such as `micro_r1`.
+9. Repeat each full measured matrix at least 3 times before drawing conclusions.
 
 Example manual run:
 
@@ -337,6 +345,28 @@ BASE_URL=http://localhost:8080 \
 MODE=mixed \
 VUS=4 \
 DURATION=3m \
+k6 run perf/k6/benchmark.ts
+```
+
+Example fixed multi-book run:
+
+```bash
+BASE_URL=http://localhost:8080 \
+BOOK_SPECS="4:en:de;7:de:en;9:fr:en" \
+MODE=mixed \
+VUS=4 \
+DURATION=3m \
+k6 run perf/k6/benchmark.ts
+```
+
+Example warmup run:
+
+```bash
+BASE_URL=http://localhost:8080 \
+BOOK_SPECS="4:en:de;7:de:en;9:fr:en" \
+MODE=mixed \
+VUS=2 \
+DURATION=1m \
 k6 run perf/k6/benchmark.ts
 ```
 
@@ -398,9 +428,7 @@ Example matrix run:
 ```bash
 chmod +x perf/k6/run-matrix.sh
 BASE_URL=http://localhost:8080 \
-BOOK_ID=4 \
-SRC_LANG=en \
-TGT_LANG=de \
+BOOK_SPECS="4:en:de;7:de:en;9:fr:en" \
 ./perf/k6/run-matrix.sh monolith
 ```
 
@@ -408,9 +436,7 @@ Then run the same command against the microservices gateway:
 
 ```bash
 BASE_URL=http://localhost:8080 \
-BOOK_ID=4 \
-SRC_LANG=en \
-TGT_LANG=de \
+BOOK_SPECS="4:en:de;7:de:en;9:fr:en" \
 ./perf/k6/run-matrix.sh microservices
 ```
 
@@ -420,6 +446,7 @@ What to record for each run:
 - scenario / mode
 - VUs and duration
 - `k6` summary JSON
+- `k6` CSV row from `perf/k6/results/<architecture>/results.csv`
 - Grafana values for:
   - external API p95 latency
   - external API RPS
@@ -434,6 +461,7 @@ What to record for each run:
 
 Notes:
 - When a real provider is used instead of `stub`, interpret tail latency carefully because provider/network variance can dominate architecture overhead.
+- To merge the two architecture CSVs into one `k6` comparison file and skip labels containing `warmup`, run `node perf/k6/merge-results.mjs`.
 
 ## Parity API checks
 
