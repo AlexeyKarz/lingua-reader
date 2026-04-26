@@ -419,6 +419,28 @@ What to record for each run:
 Notes:
 - When a real provider is used instead of `stub`, interpret tail latency carefully because provider/network variance can dominate architecture overhead.
 
+## Parity API checks
+
+Before final benchmark runs, use the parity harness in [perf/parity/README.md](/Users/alexeyka/IdeaProjects/multilang-reader/perf/parity/README.md) to confirm that monolith and microservices return equivalent results for the main runtime API flows.
+
+Workflow:
+- start monolith with `translate.provider=stub`
+- record snapshots:
+  - `BASE_URL=http://localhost:8080 node perf/parity/parity.mjs record`
+- stop monolith and start microservices on the same port
+- verify against the recorded baseline:
+  - `BASE_URL=http://localhost:8080 node perf/parity/parity.mjs verify`
+
+Current parity scope:
+- `catalog`
+- `reader/pages`
+- `reader/front-matter`
+- `translate/word`
+- `translate/sentence`
+- `translate/explain`
+
+The parity harness is intentionally black-box and lightweight. It exists to show that both backend architectures expose the same observable API behavior before latency and resource results are interpreted.
+
 ### TODO ???
 
 -  Add Loki + Promtail to capture the Python logfmt output.

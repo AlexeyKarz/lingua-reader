@@ -1,0 +1,16 @@
+services:
+  postgres:
+    cpus: "0.50"
+    mem_limit: "1024m"
+
+  app:
+    cpus: "1.25"
+    mem_limit: "2560m"
+
+  prometheus:
+    cpus: "0.20"
+    mem_limit: "256m"
+
+  grafana:
+    cpus: "0.15"
+    mem_limit: "256m"
