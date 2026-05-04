@@ -1,9 +1,9 @@
 # Multilang-reader-mono (a draft)
 
-Monolith MVP for a multilingual reading assistant built to support a future **monolith vs microservices** comparison.
+Monolith implementation of the multilingual reading assistant used in the **monolith vs microservices** comparison.
 
 Goal: enable parallel reading (original + publisher translation), word/sentence translation, optional AI explanation, and research-friendly observability (metrics, logs).  
-Current focus: **data pipeline** (EPUB ingestion → segmentation → embeddings → alignment) + basic web UI.
+Current focus: **runtime parity + observability + benchmarkability** with a shared frontend, ingestion workflow, and private deployment path.
 
 ---
 
@@ -58,17 +58,15 @@ Upstream model names currently used:
 
 ---
 
-
----
-
 ## Running the app (dev)
 
 ### 1) DB
-Start Postgres (docker or local). Ensure pgvector is installed in your DB.
+Start Postgres (docker or local). Ensure `pgvector` is installed in your DB.
 
 If using docker-compose:
-- Default uses your local Postgres (`host.docker.internal`).
-- To run containerized Postgres, enable the `db` profile and point app to it.
+- Default app config targets a DB on `host.docker.internal`.
+- The optional compose DB profile uses `pgvector/pgvector:pg17`.
+- To run containerized Postgres, enable the `db` profile and point the app to `postgres`.
 - For API keys and DB overrides, use a local `.env` file (see `.env.example`).
 
 Examples:
@@ -85,11 +83,16 @@ docker compose --env-file .env up --build
 
 ### 2) Backend
 
-```./gradlew bootRun```
+```bash
+./gradlew bootRun
+```
 
-Set the environmental variables:
-```export OPENAI_API_KEY=your_key``` or / and
-```export GOOGLE_API_KEY=your_key```
+Set environment variables as needed:
+
+```bash
+export OPENAI_API_KEY=your_key
+export GOOGLE_API_KEY=your_key
+```
 
 Prometheus metrics:
 - http://localhost:8080/actuator/prometheus
@@ -164,6 +167,7 @@ CREATE TABLE IF NOT EXISTS work (
   author TEXT,
   description TEXT,
   pub_year INT,
+  original_lang TEXT,
   public_domain BOOLEAN DEFAULT TRUE
 );
 
@@ -227,10 +231,10 @@ CREATE TABLE IF NOT EXISTS alignment (
 
 ```
 
-## Adding books to catalogue 
+## Adding books to the catalogue 
 Example on how to add a book using `add_book.py` script. Call from python-embed/
 
-Note: `add_book.py` now submits ingestion jobs to the running backend (`POST /api/admin/ingest/jobs`), so start the app first (`./gradlew bootRun`).
+Note: `add_book.py` submits ingestion jobs to the running backend (`POST /api/admin/ingest/jobs`), so start the app first (`./gradlew bootRun` or `docker compose up`).
 
 ```
 python add_book.py \
@@ -465,7 +469,7 @@ Notes:
 
 ## Parity API checks
 
-Before final benchmark runs, use the parity harness in [perf/parity/README.md](/Users/alexeyka/IdeaProjects/multilang-reader/perf/parity/README.md) to confirm that monolith and microservices return equivalent results for the main runtime API flows.
+Before the final benchmark runs, use the parity harness in [perf/parity/README.md](perf/parity/README.md) to confirm that monolith and microservices return equivalent results for the main runtime API flows.
 
 Workflow:
 - start monolith with `translate.provider=stub`
@@ -485,99 +489,13 @@ Current parity scope:
 
 The parity harness is intentionally black-box and lightweight. It exists to show that both backend architectures expose the same observable API behavior before latency and resource results are interpreted.
 
-### TODO ???
+## Deployment note
 
--  Add Loki + Promtail to capture the Python logfmt output.
+For the first private cloud deployment workflow, see:
 
+- [ops/deployment/README.md](ops/deployment/README.md)
 
+Supporting benchmark docs:
 
-# copy paste section
-python add_book.py \
---work "Trafalgar" --year 1873 --author "Benito Pérez Galdós" \
---edition "lang=es,file=classpath:books/trafalgar_es.epub" \
---edition "lang=en,file=classpath:books/trafalgar_en.epub" \
---aligner dp \
---reset-existing \
---body-start 'lang=es,text="Se me permitirá que antes de referir el gran suceso de que fui testigo"' \
---body-start 'lang=en,text="I trust that, before relating the important events of which"' 
-
-
-python add_book.py \
---work "The Last Day of a Condemned Man" --year 1829 --original-lang "fr" --author "Victor-Marie Hugo" \
---edition "lang=fr,file=classpath:books/hugo_fr.epub" \
---edition "lang=en,file=classpath:books/hugo_en.epub" \
---edition "lang=ru,file=classpath:books/hugo_ru.epub" \
---aligner dp \
---reset-existing \
---body-start 'lang=fr,text="Condamné à mort"' \
---body-start 'lang=en,text="SENTENCED to death!"'
---body-start 'lang=ru,text="Приговорен к смерти!"'
-
-python align_sentences_dp.py \
---work "The Last Day of a Condemned Man" --src fr --tgt en --method dp-mlMiniLM-v1-fr-en
-
-python align_sentences_dp.py \
---work "The Last Day of a Condemned Man" --src fr --tgt ru --method dp-mlMiniLM-v1-fr-ru
-
-
-
-pandoc sandman_en.txt -o sandman_en.epub --metadata title="The Sand-Man"
-pandoc sandman_de.txt -o sandman_de.epub --metadata title="Der Sandmann"
-
-
-pandoc rumpelstilzchen_en.txt \
--o rumpelstilzchen_en.epub \
---metadata title="Rumpelstilzchen" \
---metadata creator="Jacob Grimm and Wilhelm Grimm" \
---metadata language="en" \
---metadata date="1812"
-
-
-pandoc rumpelstilzchen_de.txt \
--o rumpelstilzchen_de.epub \
---metadata title="Rumpelstilzchen" \
---metadata creator="Jacob Grimm and Wilhelm Grimm" \
---metadata language="de" \
---metadata date="1812"
-
-pandoc rumpelstilzchen_ru.txt \
--o rumpelstilzchen_ru.epub \
---metadata title="Румпельштильцхен" \
---metadata creator="Jacob Grimm and Wilhelm Grimm" \
---metadata language="ru" \
---metadata date="1812"
-
-python python-embed/add_book.py \
---work "Rumpelstilzchen" \
---author "Jacob Grimm and Wilhelm Grimm" \
---year 1812 \
---original-lang de \
---edition "lang=de,file=classpath:books/rumpelstilzchen_de.epub" \
---edition "lang=en,file=classpath:books/rumpelstilzchen_en.epub" \
---edition "lang=ru,file=classpath:books/rumpelstilzchen_ru.epub" \
---aligner dp \
---reset-existing
-
-python add_book.py \
---work "From the Earth to the Moon, Direct in Ninety-Seven Hours and Twenty Minutes" --year 1865 --author "Jules Verne" --original-lang fr \
---description "A science fiction novel written in the late 19th century. The story revolves around the ambitious plans of the Baltimore Gun Club, led by President Impey Barbicane, as they aim to launch a projectile to the moon. The book explores themes of ingenuity, the spirit of American enterprise, and the interplay between science and public enthusiasm." \
---edition "lang=fr,file=classpath:books/earthtomoon_fr.epub" \
---edition "lang=en,file=classpath:books/earthtomoon_en.epub" \
---edition "lang=ru,file=classpath:books/earthtomoon_ru.epub" \
---aligner dp \
---reset-existing 
-
-
-python add_book.py \
---work "Imensee" \
---author "Theodor Storm" \
---original-lang de \
---description "This enduring love story follows Reinhard as an old man remembering his childhood bond with Elisabeth and their dreams of a life together. When education takes him away, distance and time begin to alter their connection." \
---edition "lang=de,file=classpath:books/immensee_de.epub" \
---edition "lang=en,file=classpath:books/immensee_en.epub" \
---align-src de \
---align-tgt en \
---aligner dp \
---body-start 'lang=de,text="An einem Sp"' \
---body-start 'lang=en,text="One afternoon in the late autumn a well-dressed old man was walking"' \
---reset-existing
+- [perf/k6/README.md](perf/k6/README.md)
+- [perf/parity/README.md](perf/parity/README.md)

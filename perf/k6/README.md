@@ -10,7 +10,7 @@ The script targets:
 - `POST /api/translate/sentence`
 - `POST /api/translate/explain`
 
-It uses a deterministic fixed book set unless overriden through environment variables.
+It uses a deterministic fixed book set unless overridden through environment variables.
 
 The script contains:
 
@@ -124,8 +124,28 @@ To merge monolith and microservices `k6` rows into one comparison file and skip 
 node perf/k6/merge-results.mjs
 ```
 
-Examples:
+## Analysis
+
+Recommended path:
+
+- use the merged CSV as the raw `k6` result source
+- aggregate it with Python
+- keep Grafana / Prometheus metrics separate
+
+Install analysis dependencies:
 
 ```bash
-BASE_URL=http://localhost:8080 MODE=mixed VUS=4 DURATION=3m k6 run perf/k6/benchmark.ts
+python3 -m pip install -r perf/k6/requirements-analysis.txt
 ```
+
+Generate a simple summary CSV plus two charts per provider:
+
+```bash
+python3 perf/k6/analyze_results.py
+```
+
+Outputs:
+
+- `perf/k6/results/analysis/summary_by_mode.csv`
+- `perf/k6/results/analysis/http_req_p95_<provider>.png`
+- `perf/k6/results/analysis/http_req_median_<provider>.png`
