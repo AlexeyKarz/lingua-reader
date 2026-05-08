@@ -5,7 +5,7 @@ services:
 
   app:
     cpus: "1.25"
-    mem_limit: "2560m"
+    mem_limit: "3584m"
 
   prometheus:
     cpus: "0.20"
