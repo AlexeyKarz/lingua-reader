@@ -144,7 +144,7 @@ export default function CatalogPage() {
                 <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
                     <div>
                         <div className="soft-badge mb-2">Library</div>
-                        <h2 className="text-2xl font-semibold text-slate-900 md:text-[1.85rem]">
+                        <h2 className="theme-heading text-2xl font-semibold md:text-[1.85rem]">
                             Pick a work and open a language pair
                         </h2>
                         <p className="mt-2 max-w-2xl text-sm leading-6 muted-copy">
@@ -160,13 +160,13 @@ export default function CatalogPage() {
                 </div>
 
                 {continueBook && lastSession && (
-                    <div className="mt-4 rounded-[24px] border border-[color:var(--border)] bg-white/50 px-4 py-4">
+                    <div className="subtle-card mt-4 rounded-[24px] border border-[color:var(--border)] px-4 py-4">
                         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                             <div>
                                 <div className="text-xs uppercase tracking-[0.18em] muted-copy">
                                     Continue reading
                                 </div>
-                                <div className="mt-1 text-base font-medium text-slate-900">
+                                <div className="theme-heading mt-1 text-base font-medium">
                                     {continueBook.title}
                                 </div>
                                 <div className="mt-1 text-sm muted-copy">
@@ -238,7 +238,7 @@ export default function CatalogPage() {
 
             {status === 'loading' && <p className="mt-4 text-sm muted-copy">Loading…</p>}
             {status === 'error' && (
-                <p className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                <p className="theme-danger mt-4 rounded-2xl border px-4 py-3 text-sm">
                     Could not load catalog.
                 </p>
             )}
@@ -258,7 +258,7 @@ export default function CatalogPage() {
                                         <span className="soft-badge">{book.year}</span>
                                     )}
                                 </div>
-                                <h3 className="text-2xl font-semibold text-slate-900 md:text-[1.9rem]">
+                                <h3 className="theme-heading text-2xl font-semibold md:text-[1.9rem]">
                                     {book.title}
                                 </h3>
                                 <div className="mt-2 text-[15px] muted-copy">

@@ -13,6 +13,7 @@ type PopState =
     sourceLang: string
     targetLang: string
     result?: string
+    errorMessage?: string
     action?: 'translate' | 'explain'
 }
 
@@ -319,7 +320,7 @@ export default function Reader() {
                 state.current = s.chapterId as number
                 if (s.chapterTitle) {
                     nodes.push(
-                        <div key={`chap-${side}-${s.chapterId}`} className="mt-2 mb-1 text-sm font-semibold text-amber-800">
+                        <div key={`chap-${side}-${s.chapterId}`} className="chapter-label mt-2 mb-1 text-sm font-semibold">
                             {s.chapterTitle}
                         </div>
                     )
@@ -337,8 +338,8 @@ export default function Reader() {
                     }}
                     className={
                         'mb-3 transition-colors ' +
-                        (side === 'left' ? 'cursor-pointer hover:bg-amber-100/60 ' : '') +
-                        (highlightRightId === s.id && side === 'right' ? 'bg-amber-200/80' : '')
+                        (side === 'left' ? 'left-sentence cursor-pointer ' : '') +
+                        (highlightRightId === s.id && side === 'right' ? 'right-sentence-highlight' : '')
                     }
                     onClick={onSentenceClick ? () => onSentenceClick(s.id) : undefined}
                 >
@@ -492,12 +493,41 @@ export default function Reader() {
 
         try {
             let resultText = ''
+            const parseJson = async (r: Response) => {
+                let body: unknown = null
+                try {
+                    body = await r.json()
+                } catch {
+                    if (!r.ok) {
+                        throw new Error(`Request failed with status ${r.status}`)
+                    }
+                    throw new Error('Response was not valid JSON')
+                }
+
+                if (!r.ok) {
+                    const message =
+                        typeof body === 'object' &&
+                        body !== null &&
+                        'message' in body &&
+                        typeof (body as { message?: unknown }).message === 'string'
+                            ? (body as { message: string }).message
+                            : typeof body === 'object' &&
+                                body !== null &&
+                                'error' in body &&
+                                typeof (body as { error?: unknown }).error === 'string'
+                                ? (body as { error: string }).error
+                                : `Request failed with status ${r.status}`
+                    throw new Error(message)
+                }
+
+                return body
+            }
 
             if (action === 'translate') {
                 if (isWord) {
                     const qs = new URLSearchParams({ text, source: sourceLang, target: targetLang })
                     const r = await fetch(`/api/translate/word?${qs}`)
-                    const j = await r.json()
+                    const j = (await parseJson(r)) as { translated?: string }
                     resultText = j.translated ?? ''
                 } else {
                     const r = await fetch('/api/translate/sentence', {
@@ -505,7 +535,7 @@ export default function Reader() {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ text, source: sourceLang, target: targetLang })
                     })
-                    const j = await r.json()
+                    const j = (await parseJson(r)) as { translated?: string }
                     resultText = j.translated ?? ''
                 }
             } else {
@@ -547,16 +577,21 @@ export default function Reader() {
                         translation
                     })
                 })
-                const j = await r.json()
+                const j = (await parseJson(r)) as { explanation?: string }
                 resultText = j.explanation ?? ''
+            }
+
+            if (!resultText.trim()) {
+                throw new Error('Backend returned an empty result')
             }
 
             setPop(p => (p.kind === 'loading'
                     ? { ...p, kind: 'result', result: resultText, action }
                     : p
             ))
-        } catch {
-            setPop(p => (p.kind === 'loading' ? { ...p, kind: 'error', action } : p))
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Request failed'
+            setPop(p => (p.kind === 'loading' ? { ...p, kind: 'error', action, errorMessage: message } : p))
         }
     }
 
@@ -626,7 +661,7 @@ export default function Reader() {
             <section className="surface-panel rounded-[32px] px-5 py-5 md:px-7 md:py-6">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                     <div>
-                        <h3 className="text-3xl font-semibold text-slate-900 md:text-[2.2rem]">
+                        <h3 className="theme-heading text-3xl font-semibold md:text-[2.2rem]">
                             {data?.title || bookId}
                         </h3>
                         <p className="mt-2 max-w-3xl text-sm leading-6 muted-copy md:text-[15px]">
@@ -634,7 +669,7 @@ export default function Reader() {
                             and open short explanations without leaving the page.
                         </p>
                         {data?.description && (
-                            <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-700">
+                            <p className="theme-copy mt-3 max-w-3xl text-sm leading-7">
                                 {data.description}
                             </p>
                         )}
@@ -643,15 +678,15 @@ export default function Reader() {
                     <div className="grid gap-3 text-sm sm:grid-cols-3">
                         <div className="surface-panel-strong rounded-[24px] px-4 py-3">
                             <div className="text-xs uppercase tracking-[0.18em] muted-copy">Reading pair</div>
-                            <div className="mt-2 font-medium text-slate-900">{src.toUpperCase()} → {tgt.toUpperCase()}</div>
+                            <div className="theme-heading mt-2 font-medium">{src.toUpperCase()} → {tgt.toUpperCase()}</div>
                         </div>
                         <div className="surface-panel-strong rounded-[24px] px-4 py-3">
                             <div className="text-xs uppercase tracking-[0.18em] muted-copy">Author</div>
-                            <div className="mt-2 font-medium text-slate-900">{data?.author || '—'}</div>
+                            <div className="theme-heading mt-2 font-medium">{data?.author || '—'}</div>
                         </div>
                         <div className="surface-panel-strong rounded-[24px] px-4 py-3">
                             <div className="text-xs uppercase tracking-[0.18em] muted-copy">Page</div>
-                            <div className="mt-2 font-medium text-slate-900">
+                            <div className="theme-heading mt-2 font-medium">
                                 {page + 1}{data?.totalSrc ? ` / ${Math.max(1, Math.ceil(data.totalSrc / size))}` : ''}
                             </div>
                         </div>
@@ -660,12 +695,12 @@ export default function Reader() {
             </section>
 
             {status === 'error' && (
-                <div className="mt-4 rounded-[24px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                <div className="theme-danger mt-4 rounded-[24px] border px-4 py-3 text-sm">
                     {errorMsg || 'Could not load this page. Check the language pair or try again.'}
                 </div>
             )}
             {isEmptyPair && (
-                <div className="mt-4 rounded-[24px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                <div className="theme-warn mt-4 rounded-[24px] border px-4 py-3 text-sm">
                     No aligned data for this book/language pair. Try another pair or ingest alignments.
                 </div>
             )}
@@ -704,7 +739,7 @@ export default function Reader() {
                             </div>
 
                             {showFrontLeft && frontMatter && frontMatter.left.length > 0 && (
-                                <div className="mb-4 rounded-[22px] border border-amber-200/80 bg-[color:var(--surface-tint)] px-4 py-4 text-sm text-slate-700">
+                                <div className="frontmatter-block mb-4 rounded-[22px] border bg-[color:var(--surface-tint)] px-4 py-4 text-sm">
                                     {frontMatter.left.map(s => (
                                         <p key={s.id} className="mb-2 italic last:mb-0">
                                             {s.text}
@@ -757,7 +792,7 @@ export default function Reader() {
                             </div>
 
                             {showFrontRight && frontMatter && frontMatter.right.length > 0 && (
-                                <div className="mb-4 rounded-[22px] border border-amber-200/80 bg-[color:var(--surface-tint)] px-4 py-4 text-sm text-slate-700">
+                                <div className="frontmatter-block mb-4 rounded-[22px] border bg-[color:var(--surface-tint)] px-4 py-4 text-sm">
                                     {frontMatter.right.map(s => (
                                         <p
                                             key={s.id}
@@ -804,7 +839,7 @@ export default function Reader() {
                                                 : `Show ${buffer.length} unaligned sentence${buffer.length > 1 ? 's' : ''}`}
                                         </button>
                                         {expanded && (
-                                            <div className="mt-1 pl-3 border-l border-amber-200">
+                                            <div className="left-rule mt-1 border-l pl-3">
                                                 {renderSentencesWithChapters(buffer, 'right', undefined, rightChapterState)}
                                             </div>
                                         )}
@@ -844,7 +879,7 @@ export default function Reader() {
                         <button className="btn" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page <= 0}>
                             Prev
                         </button>
-                        <div className="surface-panel-strong rounded-full px-4 py-2 text-sm font-medium text-slate-900">
+                        <div className="surface-panel-strong theme-heading rounded-full px-4 py-2 text-sm font-medium">
                             Page {page + 1}{data?.totalSrc ? ` / ${Math.max(1, Math.ceil(data.totalSrc / size))}` : ''}
                         </div>
                         <button className="btn" onClick={() => setPage(p => p + 1)}>
@@ -912,7 +947,7 @@ export default function Reader() {
                     </div>
                     <div className="flex flex-col items-start gap-1 md:items-end">
                         <div>{info}</div>
-                        {jumpError && <div className="text-red-700">{jumpError}</div>}
+                        {jumpError && <div className="theme-status">{jumpError}</div>}
                     </div>
                 </div>
             </div>
@@ -927,7 +962,7 @@ export default function Reader() {
                         <button
                             aria-label="Close"
                             onClick={() => setPop({ kind: 'hidden' })}
-                            className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-700"
+                            className="popover-close-btn absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full transition"
                             title="Close"
                         >
                             ×
@@ -940,7 +975,7 @@ export default function Reader() {
 
                             {pop.kind === 'ready' && (
                                 <div className="mt-3 flex flex-wrap items-center gap-3">
-                                    <div className="max-w-[16rem] text-sm font-semibold text-slate-900">
+                                    <div className="theme-heading max-w-[16rem] text-sm font-semibold">
                                         “{pop.text}”
                                     </div>
                                     <button className="btn" onClick={() => doAction('translate')}>
@@ -950,7 +985,7 @@ export default function Reader() {
                             )}
 
                             {pop.kind === 'loading' && (
-                                <div className="mt-3 text-sm text-slate-700">
+                                <div className="theme-copy mt-3 text-sm">
                                     {pop.action === 'explain' ? 'Explaining…' : 'Translating…'}
                                 </div>
                             )}
@@ -961,8 +996,8 @@ export default function Reader() {
                                         {pop.action === 'explain' ? 'Explanation' : 'Translation'}
                                     </div>
 
-                                    <div className="mt-2 text-sm font-semibold text-slate-900">“{pop.text}”</div>
-                                    <div className="mt-2 whitespace-pre-wrap text-sm text-slate-700">
+                                    <div className="theme-heading mt-2 text-sm font-semibold">“{pop.text}”</div>
+                                    <div className="theme-copy mt-2 whitespace-pre-wrap text-sm">
                                         {pop.result ?? '—'}
                                     </div>
 
@@ -977,7 +1012,9 @@ export default function Reader() {
                             )}
 
                             {pop.kind === 'error' && (
-                                <div className="mt-3 text-sm text-red-700">Error. Please try again.</div>
+                                <div className="theme-status mt-3 text-sm">
+                                    {pop.errorMessage || 'Error. Please try again.'}
+                                </div>
                             )}
                         </div>
                     </div>
@@ -986,16 +1023,16 @@ export default function Reader() {
 
             {notice && (
                 <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
-                    <div className="surface-panel flex max-w-lg items-start gap-3 rounded-[24px] border border-amber-200 bg-amber-50 px-4 py-3 shadow-lg">
-                        <div className="mt-1 text-amber-700">
-                            <span className="inline-block h-2 w-2 rounded-full bg-amber-500" />
+                    <div className="notice-banner surface-panel flex max-w-lg items-start gap-3 rounded-[24px] border px-4 py-3 shadow-lg">
+                        <div className="notice-dot-wrap mt-1">
+                            <span className="notice-dot inline-block h-2 w-2 rounded-full" />
                         </div>
-                        <div className="text-sm text-amber-900">{notice}</div>
+                        <div className="notice-text text-sm">{notice}</div>
                         <button
                             type="button"
                             aria-label="Close"
                             onClick={() => setNotice(null)}
-                            className="ml-2 rounded-full px-2 py-1 text-xs text-amber-700 transition hover:bg-amber-100 hover:text-amber-900"
+                            className="notice-dismiss ml-2 rounded-full px-2 py-1 text-xs transition"
                         >
                             ✕
                         </button>
