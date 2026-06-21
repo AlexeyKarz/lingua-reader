@@ -112,9 +112,24 @@ def default_api_base_url() -> str:
     return os.getenv("MLR_API_BASE_URL", "http://localhost:8080")
 
 
-def _api_json(method: str, url: str, timeout_sec: float, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def default_admin_token() -> Optional[str]:
+    load_dotenv(ROOT / ".env")
+    load_dotenv(SCRIPTS_DIR / ".env")
+    token = os.getenv("MLR_ADMIN_TOKEN")
+    return token if token else None
+
+
+def _api_json(
+    method: str,
+    url: str,
+    timeout_sec: float,
+    payload: Optional[Dict[str, Any]] = None,
+    admin_token: Optional[str] = None,
+) -> Dict[str, Any]:
     data = None
     headers = {"Accept": "application/json"}
+    if admin_token:
+        headers["Authorization"] = f"Bearer {admin_token}"
     if payload is not None:
         data = json.dumps(payload).encode("utf-8")
         headers["Content-Type"] = "application/json"
@@ -146,6 +161,7 @@ def ingest_via_api(
     original_lang: Optional[str],
     poll_interval_sec: float,
     timeout_sec: int,
+    admin_token: Optional[str],
 ) -> None:
     base = api_base_url.rstrip("/")
     submit_url = f"{base}/api/admin/ingest/jobs"
@@ -177,7 +193,7 @@ def ingest_via_api(
         translator=translator,
     )
 
-    submitted = _api_json("POST", submit_url, timeout_sec=30, payload=payload)
+    submitted = _api_json("POST", submit_url, timeout_sec=30, payload=payload, admin_token=admin_token)
     job_id = submitted.get("jobId")
     if not isinstance(job_id, int):
         raise RuntimeError(f"Ingestion API response missing jobId: {submitted}")
@@ -188,7 +204,7 @@ def ingest_via_api(
     last_marker: Optional[Tuple[Any, ...]] = None
 
     while True:
-        job = _api_json("GET", status_url, timeout_sec=30)
+        job = _api_json("GET", status_url, timeout_sec=30, admin_token=admin_token)
         status = job.get("status", "UNKNOWN")
         step = job.get("step")
         msg = job.get("message")
@@ -590,6 +606,11 @@ def main():
         help="Running monolith base URL for ingestion API (default: http://localhost:8080 or MLR_API_BASE_URL)",
     )
     p.add_argument(
+        "--admin-token",
+        default=default_admin_token(),
+        help="Bearer token for secured admin ingestion API (default: MLR_ADMIN_TOKEN from .env/env)",
+    )
+    p.add_argument(
         "--poll-interval-sec",
         type=float,
         default=2.0,
@@ -693,6 +714,7 @@ def main():
             original_lang=args.original_lang,
             poll_interval_sec=args.poll_interval_sec,
             timeout_sec=args.ingest_timeout_sec,
+            admin_token=args.admin_token,
         )
 
     # Optionally set body_start_segment_id based on provided text fragments

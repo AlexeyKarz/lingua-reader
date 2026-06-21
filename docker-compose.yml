@@ -23,27 +23,33 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://${DB_HOST:-host.docker.internal}:${DB_PORT:-5432}/${DB_NAME:-mlr}
       - SPRING_DATASOURCE_USERNAME=${DB_USER:-mlr}
       - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD:-mlr_password}
+      - TRANSLATE_PROVIDER=${TRANSLATE_PROVIDER:-stub}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - MLR_ADMIN_ENABLED=${MLR_ADMIN_ENABLED:-false}
+      - MLR_ADMIN_TOKEN=${MLR_ADMIN_TOKEN:-}
+      - MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=${MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:-health,info}
 
   prometheus:
     image: prom/prometheus:v2.55.1
     container_name: prometheus
+    profiles: ["observability"]
     command: ["--config.file=/etc/prometheus/prometheus.yml"]
     volumes:
       - ./ops/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     depends_on:
       - app
 
   grafana:
     image: grafana/grafana:11.1.0
     container_name: grafana
+    profiles: ["observability"]
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
     volumes:
       - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
     depends_on:

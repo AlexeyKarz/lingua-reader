@@ -1,0 +1,42 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mlr}
+      POSTGRES_USER: ${POSTGRES_USER:-mlr}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  app:
+    build: .
+    image: multilang-reader-mono:${APP_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    expose:
+      - "8080"
+    environment:
+      JAVA_TOOL_OPTIONS: "-XX:+UseContainerSupport -XX:InitialRAMPercentage=25.0 -XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError"
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-mlr}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-mlr}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      TRANSLATE_PROVIDER: ${TRANSLATE_PROVIDER:-stub}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      MLR_ADMIN_ENABLED: ${MLR_ADMIN_ENABLED:-false}
+      MLR_ADMIN_TOKEN: ${MLR_ADMIN_TOKEN:-}
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: ${MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:-health,info}
+
+  web:
+    build: ./web-ui
+    image: multilang-reader-web:${APP_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "${WEB_PORT:-8080}:80"
+
+volumes:
+  postgres_data:

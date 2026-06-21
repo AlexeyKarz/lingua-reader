@@ -1,12 +1,14 @@
 package com.example.reader;
 
 import com.example.reader.translate.properties.*;
+import com.example.reader.security.AdminAccessProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 
 @SpringBootApplication
 @EnableConfigurationProperties({
+        AdminAccessProperties.class,
         OpenAITranslateProperties.class,
         OllamaTranslateProperties.class,
         GoogleTranslateProperties.class,

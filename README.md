@@ -1,21 +1,18 @@
-
-### This repository contains the Final Year Project implementation used for comparing monolithic and microservices architectures. The maintained showcase/product version is available at: <https://github.com/AlexeyKarz/lingua-reader>.
-
-
 # Multilang-reader-mono
+
+**This project originated as a University of Nicosia Final Year Project comparing [monolithic](https://github.com/AlexeyKarz/Multilang-Reader) and [microservices](https://github.com/AlexeyKarz/multilang-reader-ms)
+architectures. The current repository contains the maintained monolith-based showcase version.**
 
 Monolith implementation of the multilingual reading assistant used in the **monolith vs microservices** comparison.
 
-Goal: enable parallel reading (original + publisher translation), word/sentence translation, optional AI explanation, and research-friendly observability (metrics, logs).  
-Current focus: **runtime parity + observability + benchmarkability** with a shared frontend, ingestion workflow, and private deployment path.
+Goal: enable parallel reading (original + publisher translation), word/sentence translation, optional AI explanation, and a small secure deployment suitable for a public CV/demo project.
 
 Security note:
-- this repository is suitable for local use, private deployment, and thesis evaluation
-- it is **not** production-ready for public exposure as-is
-- reasons include:
-  - no authentication/authorization
-  - admin ingestion endpoints
-  - provider credentials passed through environment variables
+- public runtime endpoints are catalog, reader, and translation/explanation
+- admin ingestion endpoints are disabled by default
+- if admin ingestion is enabled, `/api/admin/**` requires a bearer token
+- Prometheus/Grafana are off by default and should not be exposed publicly
+- real provider credentials must be supplied only through local/server environment variables
 
 ---
 
@@ -93,6 +90,18 @@ DB_HOST=postgres docker compose --profile db up --build
 docker compose --env-file .env up --build
 ```
 
+Prometheus and Grafana are opt-in for local development:
+
+```bash
+MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,info,prometheus \
+docker compose --profile observability up --build
+```
+
+When enabled through the local compose file, Grafana and Prometheus bind to `127.0.0.1` only:
+
+- Grafana: http://localhost:3000
+- Prometheus: http://localhost:9090
+
 ### 2) Backend
 
 ```bash
@@ -102,11 +111,19 @@ docker compose --env-file .env up --build
 Set environment variables as needed:
 
 ```bash
+export TRANSLATE_PROVIDER=stub
 export OPENAI_API_KEY=your_key
 export GOOGLE_API_KEY=your_key
 ```
 
-Prometheus metrics:
+Prometheus metrics are disabled by default. To expose them locally:
+
+```bash
+export MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,info,prometheus
+```
+
+Then:
+
 - http://localhost:8080/actuator/prometheus
 
 ### 3) Frontend
@@ -117,17 +134,101 @@ npm i
 npm run dev
 ```
 
+## Production-style Docker deployment
+
+Use `docker-compose.prod.yml` for a small public/demo deployment. It runs:
+
+- PostgreSQL + pgvector with a persistent Docker volume
+- the Spring Boot monolith on the internal Docker network
+- the built React frontend served by nginx
+- nginx proxying `/api/**` to the backend
+
+Only the frontend/proxy port is published. The backend and database are not published to the host.
+
+1. Create a server-local `.env` file:
+
+```bash
+cp .env.example .env
+```
+
+Set at least:
+
+```env
+POSTGRES_PASSWORD=<long-random-password>
+WEB_PORT=8080
+TRANSLATE_PROVIDER=stub
+MLR_ADMIN_ENABLED=false
+```
+
+2. Start the deployment:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+```
+
+3. Open:
+
+```text
+http://<server>:8080
+```
+
+For a real public deployment, put this behind HTTPS using a host-level reverse proxy such as Caddy, Nginx, or your existing server proxy.
+
+### Admin ingestion in production
+
+Keep admin ingestion disabled for normal public demo use:
+
+```env
+MLR_ADMIN_ENABLED=false
+```
+
+To ingest new books temporarily, enable it and set a long random token:
+
+```env
+MLR_ADMIN_ENABLED=true
+MLR_ADMIN_TOKEN=<long-random-token>
+```
+
+Restart the app after changing `.env`:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env up -d app
+```
+
+Admin requests must include:
+
+```http
+Authorization: Bearer <long-random-token>
+```
+
+Disable admin again after ingestion unless you actively need it.
+
 ---
 
 ## Configuration
 
+### Security-related settings
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MLR_ADMIN_ENABLED` | `false` | Enables `/api/admin/**` endpoints when set to `true`. |
+| `MLR_ADMIN_TOKEN` | empty | Required bearer token for `/api/admin/**` when admin is enabled. |
+| `TRANSLATE_PROVIDER` | `stub` | Provider mode: `stub`, `openai`, `google`, or `ollama`. |
+| `MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE` | `health,info` | Actuator endpoints exposed over HTTP. Use `health,info,prometheus` only for private/local observability. |
+
 ### Translation provider switch
 
-In `application.yml`:
+Set `TRANSLATE_PROVIDER` to choose the runtime provider:
+
+```bash
+export TRANSLATE_PROVIDER=stub # stub | openai | google | ollama
+```
+
+Provider details are configured in `application.yml`:
 
 ```yaml
 translate:
-  provider: stub  # stub | openai | google | ollama
+  provider: ${TRANSLATE_PROVIDER:stub}  # stub | openai | google | ollama
 
   openai:
     apiKey: ${OPENAI_API_KEY:}
@@ -136,7 +237,7 @@ translate:
 
   google:
     apiKey: ${GOOGLE_API_KEY:}
-    model: gemini-1.5-flash-latest
+    model: gemini-2.5-flash
     baseUrl: https://generativelanguage.googleapis.com
     timeoutSeconds: 30
 
@@ -164,7 +265,11 @@ ollama serve
 ollama pull llama3.1:8b
 ```
 
-Set translate.provider: ollama
+Set:
+
+```bash
+export TRANSLATE_PROVIDER=ollama
+```
 
 ### Database schema (current working model)
 
@@ -288,12 +393,22 @@ WHERE title = 'Faust (Part I)';
 
 ## Async ingestion API (app keeps running)
 
-You can ingest while the backend is running (no restart/stop required):
+You can ingest while the backend is running (no restart/stop required), but the admin API is disabled by default.
+
+Enable it only for trusted local/private administration:
+
+```bash
+export MLR_ADMIN_ENABLED=true
+export MLR_ADMIN_TOKEN=dev-admin-token
+```
+
+Then start/restart the backend.
 
 1. Submit job:
 ```bash
 curl -X POST http://localhost:8080/api/admin/ingest/jobs \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer dev-admin-token" \
   -d '{
     "workTitle":"A Christmas Carol",
     "lang":"en",
@@ -306,10 +421,13 @@ curl -X POST http://localhost:8080/api/admin/ingest/jobs \
 
 2. Poll status:
 ```bash
-curl http://localhost:8080/api/admin/ingest/jobs/1
+curl -H "Authorization: Bearer dev-admin-token" \
+  http://localhost:8080/api/admin/ingest/jobs/1
 ```
 
 Statuses: `PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`.
+
+`python-embed/add_book.py` also supports secured admin ingestion. It reads `MLR_ADMIN_TOKEN` from `.env`/environment or accepts `--admin-token`.
 
 ## Benchmark plan
 

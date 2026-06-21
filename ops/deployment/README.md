@@ -1,6 +1,8 @@
 # Private GCE Deployment
 
-This is the deployment path for the project:
+This is the original private VM deployment path used for the thesis benchmark work. For the maintained showcase deployment, prefer the root `docker-compose.prod.yml`, which includes the frontend container and publishes only the frontend/proxy port.
+
+This older deployment path is still useful for private benchmarking:
 
 - one private Google Compute Engine VM
 - Docker + Docker Compose
@@ -16,11 +18,11 @@ First target:
 - OS: Ubuntu LTS
 - no public app exposure
 
-Keeping the VM private for now because the app currently has:
+The VM should remain private when using this benchmark deployment shape because it may include:
 
-- no authentication/authorization
-- admin ingestion endpoints
+- admin ingestion endpoints when explicitly enabled
 - provider API keys in environment
+- Grafana/Prometheus dashboards for internal use
 
 ## 2. Install Docker
 
@@ -69,6 +71,10 @@ DB_USER=mlr
 DB_PASSWORD=mlr_password
 OPENAI_API_KEY=
 GOOGLE_API_KEY=
+TRANSLATE_PROVIDER=stub
+MLR_ADMIN_ENABLED=false
+MLR_ADMIN_TOKEN=
+MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,info,prometheus
 ```
 
 Then start the deployment profile:
@@ -108,7 +114,7 @@ gcloud compute ssh <VM_NAME> \
 
 Then access locally:
 
-- app: `http://localhost:8080`
+- app/backend: `http://localhost:8080`
 - Grafana: `http://localhost:3000`
 - Prometheus: `http://localhost:9090`
 
@@ -123,5 +129,5 @@ curl http://localhost:9090/-/ready
 
 ## Notes
 
-- The deployment is kept private (not to expose ingestion/Grafana/Prometheus publicly)
+- Keep this deployment private; do not expose ingestion/Grafana/Prometheus publicly
 - After deploying monolith, deploy microservices against the same private DB and run the capped benchmark matrix
