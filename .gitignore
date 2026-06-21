@@ -42,3 +42,6 @@ bin/
 /perf/k6/k6-summary.json
 /perf/k6/results/
 /perf/parity/snapshots/
+
+### Local deployment artifacts ###
+/ops/deployment/dumps/

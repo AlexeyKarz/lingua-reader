@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 
@@ -59,7 +60,11 @@ def summarize(df: pd.DataFrame) -> pd.DataFrame:
             http_reqs_avg=("http_reqs_count", "mean"),
             http_req_failed_rate_avg=("http_req_failed_rate", "mean"),
             http_req_duration_med_ms_median=("http_req_duration_med_ms", "median"),
+            http_req_duration_med_ms_min=("http_req_duration_med_ms", "min"),
+            http_req_duration_med_ms_max=("http_req_duration_med_ms", "max"),
             http_req_duration_p95_ms_median=("http_req_duration_p95_ms", "median"),
+            http_req_duration_p95_ms_min=("http_req_duration_p95_ms", "min"),
+            http_req_duration_p95_ms_max=("http_req_duration_p95_ms", "max"),
             iteration_duration_med_ms_median=("iteration_duration_med_ms", "median"),
             iteration_duration_p95_ms_median=("iteration_duration_p95_ms", "median"),
             checks_rate_avg=("checks_rate", "mean"),
@@ -77,17 +82,60 @@ def write_summary(summary: pd.DataFrame, output_dir: Path) -> Path:
     return target
 
 
-def plot_metric(summary: pd.DataFrame, metric: str, title: str, target: Path) -> None:
+def plot_metric(
+    summary: pd.DataFrame,
+    metric: str,
+    title: str,
+    target: Path,
+    metric_min: str | None = None,
+    metric_max: str | None = None,
+) -> None:
     modes = list(dict.fromkeys(summary["mode"].tolist()))
     architectures = list(dict.fromkeys(summary["architecture"].tolist()))
 
-    pivot = summary.pivot_table(index="mode", columns="architecture", values=metric, aggfunc="first")
-    pivot = pivot.reindex(index=modes, columns=architectures)
+    n_archs = len(architectures)
+    x = np.arange(len(modes))
+    width = 0.8 / n_archs
+    offsets = np.linspace(-(n_archs - 1) / 2, (n_archs - 1) / 2, n_archs) * width
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
-    ax = pivot.plot(kind="bar", figsize=(9, 5), rot=0)
+    fig, ax = plt.subplots(figsize=(9, 5))
+
+    for i, arch in enumerate(architectures):
+        arch_rows = summary[summary["architecture"] == arch].set_index("mode")
+        values = np.array([
+            arch_rows.loc[m, metric] if m in arch_rows.index else np.nan
+            for m in modes
+        ])
+
+        yerr = None
+        if metric_min and metric_max:
+            mins = np.array([
+                arch_rows.loc[m, metric_min] if m in arch_rows.index else np.nan
+                for m in modes
+            ])
+            maxs = np.array([
+                arch_rows.loc[m, metric_max] if m in arch_rows.index else np.nan
+                for m in modes
+            ])
+            yerr = [values - mins, maxs - values]  # asymmetric: [lower, upper]
+
+        ax.bar(
+            x + offsets[i],
+            values,
+            width,
+            label=arch,
+            color=colors[i % len(colors)],
+            yerr=yerr,
+            capsize=5,
+            error_kw=dict(ecolor="black", lw=1.2, capthick=1.2),
+        )
+
     ax.set_title(title)
     ax.set_xlabel("Scenario")
     ax.set_ylabel("Milliseconds")
+    ax.set_xticks(x)
+    ax.set_xticklabels(modes, rotation=0)
     ax.grid(axis="y", linestyle="--", alpha=0.35)
     ax.legend(title="Architecture")
     plt.tight_layout()
@@ -104,12 +152,16 @@ def build_report(summary: pd.DataFrame, output_dir: Path) -> None:
             "http_req_duration_p95_ms_median",
             f"k6 median p95 request latency by scenario ({provider})",
             output_dir / f"http_req_p95_{suffix}.png",
+            metric_min="http_req_duration_p95_ms_min",
+            metric_max="http_req_duration_p95_ms_max",
         )
         plot_metric(
             provider_summary,
             "http_req_duration_med_ms_median",
             f"k6 median request latency by scenario ({provider})",
             output_dir / f"http_req_median_{suffix}.png",
+            metric_min="http_req_duration_med_ms_min",
+            metric_max="http_req_duration_med_ms_max",
         )
 
 

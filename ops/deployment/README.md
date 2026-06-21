@@ -43,6 +43,7 @@ ops/deployment/dumps/mlr.dump
 
 The script creates a PostgreSQL custom-format dump with `pg_dump -Fc`.
 The deployment Postgres version should match the local dump tool version; this setup uses PostgreSQL 17 with `pgvector` enabled.
+The dump file itself is a local deployment artifact and is intentionally **not** committed to Git. The repository keeps the dump/restore scripts and the methodology, not the binary dump blob.
 
 ## 4. Copy the dump to the VM
 

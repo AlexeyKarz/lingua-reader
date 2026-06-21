@@ -74,6 +74,8 @@ k6 run perf/k6/benchmark.ts
 4. Prefer a fixed benchmark set, not random book selection.
 5. The same `k6` command against each target.
 
+For the final benchmark campaign used in the thesis, the compared runs should be executed against a restored PostgreSQL baseline dump rather than against a database that has drifted through additional ingestion or manual changes. In this project, that baseline is created with `ops/deployment/dump-local-db.sh` and restored on the VM with `ops/deployment/restore-into-compose-postgres.sh`.
+
 Recommended fixed-book strategy:
 
 - use the same 2–4 books for every compared run
@@ -131,6 +133,8 @@ Recommended path:
 - use the merged CSV as the raw `k6` result source
 - aggregate it with Python
 - keep Grafana / Prometheus metrics separate
+
+The analysis outputs in `perf/k6/results/analysis/` summarize only the `k6` side of the comparison. They should be interpreted together with the deployment notes, the fixed fixture set, and the restored DB baseline described above.
 
 Install analysis dependencies:
 

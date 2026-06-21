@@ -102,32 +102,36 @@
   --left-rule: rgba(96, 165, 250, 0.24);
 }
 
-html, body, #root {
-  height: 100%;
-}
-
 html {
-  background:
+  min-height: 100%;
+  background-color: var(--bg);
+  background-image:
     radial-gradient(circle at top left, rgba(147, 210, 243, 0.12), transparent 28rem),
     radial-gradient(circle at 85% 12%, rgba(190, 225, 245, 0.40), transparent 24rem),
     linear-gradient(180deg, var(--bg-wash), var(--bg));
+  background-attachment: fixed;
+  background-repeat: no-repeat;
   color-scheme: light;
 }
 
-:root[data-theme="dark"] html,
 html[data-theme="dark"] {
   color-scheme: dark;
-  background:
+  background-image:
     radial-gradient(circle at top left, rgba(79, 129, 209, 0.18), transparent 28rem),
     radial-gradient(circle at 85% 12%, rgba(42, 89, 143, 0.28), transparent 24rem),
     linear-gradient(180deg, var(--bg-wash), var(--bg));
 }
 
 body {
+  min-height: 100vh;
   color: var(--text);
   font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
   background: transparent;
   transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+#root {
+  min-height: 100vh;
 }
 
 h1, h2, h3, h4 {
@@ -144,7 +148,7 @@ a {
 
 .page-shell {
   position: relative;
-  min-height: 100%;
+  min-height: 100vh;
 }
 
 .page-shell::before,
@@ -287,14 +291,29 @@ select.input {
   color: #2d4870;
 }
 
+html[data-theme="dark"] .nav-pill {
+  color: var(--text-soft);
+}
+
 .nav-pill:hover {
   background: rgba(225, 242, 255, 0.50);
+}
+
+html[data-theme="dark"] .nav-pill:hover {
+  background: rgba(60, 103, 150, 0.34);
+  color: var(--heading);
 }
 
 .nav-pill-active {
   background: rgba(250, 254, 255, 0.97);
   box-shadow: 0 10px 24px rgba(30, 65, 120, 0.08);
   color: #1f2937;
+}
+
+html[data-theme="dark"] .nav-pill-active {
+  background: rgba(40, 75, 112, 0.95);
+  box-shadow: 0 12px 28px rgba(0, 8, 20, 0.28);
+  color: var(--heading);
 }
 
 .soft-badge {
