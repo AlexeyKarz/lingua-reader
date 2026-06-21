@@ -1,9 +1,21 @@
-# Multilang-reader-mono (a draft)
+
+### This repository contains the Final Year Project implementation used for comparing monolithic and microservices architectures. The maintained showcase/product version is available at: <https://github.com/AlexeyKarz/lingua-reader>.
+
+
+# Multilang-reader-mono
 
 Monolith implementation of the multilingual reading assistant used in the **monolith vs microservices** comparison.
 
 Goal: enable parallel reading (original + publisher translation), word/sentence translation, optional AI explanation, and research-friendly observability (metrics, logs).  
 Current focus: **runtime parity + observability + benchmarkability** with a shared frontend, ingestion workflow, and private deployment path.
+
+Security note:
+- this repository is suitable for local use, private deployment, and thesis evaluation
+- it is **not** production-ready for public exposure as-is
+- reasons include:
+  - no authentication/authorization
+  - admin ingestion endpoints
+  - provider credentials passed through environment variables
 
 ---
 
@@ -392,16 +404,16 @@ Important scope rules:
 
 | Budget slice | CPU | Memory | Notes |
 |---|---:|---:|---|
-| Backend under test | `1.25` | `2560m` | Must be identical between monolith and microservices |
+| Backend under test | `1.25` | `3584m` | Must be identical between monolith and microservices |
 | Prometheus | `0.20` | `256m` | Same in both stacks |
 | Grafana | `0.15` | `256m` | Same in both stacks |
-| Remaining VM headroom | `0.40` | ~`5 GB` | OS, Docker, filesystem cache, background overhead |
+| Remaining VM headroom | `0.40` | ~`4 GB` | OS, Docker, filesystem cache, background overhead |
 
 ### Monolith container budget
 
 | Container | CPU | Memory |
 |---|---:|---:|
-| `app` | `1.25` | `2560m` |
+| `app` | `1.25` | `3584m` |
 | `prometheus` | `0.20` | `256m` |
 | `grafana` | `0.15` | `256m` |
 
@@ -426,6 +438,37 @@ This keeps heap sizing tied to the container memory limit instead of the host ma
 ### Why this budget
 
 The goal is not to maximize raw throughput. The goal is to compare the two architectures under the **same constrained backend budget** on a modest VM shape. That makes the experiment reproducible and keeps the architecture overhead visible instead of hiding it behind excess headroom.
+
+The initial backend memory budget was lower, but pilot runs showed that the microservices deployment could not complete benchmark matrices reliably because of OOM-killed services. The final comparison therefore used a shared backend memory budget of **`3584m`** for both architectures. Earlier lower-budget runs are treated as pilot runs rather than as final comparison data.
+
+## Final benchmark snapshot
+
+The final thesis benchmark campaign used:
+
+- shared VM: `e2-standard-2`
+- shared backend budget: `1.25 CPU`, `3584m`
+- shared provider mode: `stub`
+- shared fixture set: `4:en:de;7:fr:ru;9:en:es`
+- one warmup and three measured matrix runs per architecture
+
+Aggregated scenario medians from the final campaign:
+
+| Scenario | Monolith p50 | Monolith p95 | Microservices p50 | Microservices p95 |
+|---|---:|---:|---:|---:|
+| Catalog | `100.59 ms` | `201.75 ms` | `100.82 ms` | `207.88 ms` |
+| Reader | `22.79 ms` | `40.50 ms` | `34.29 ms` | `167.09 ms` |
+| Translate | `2.86 ms` | `5.68 ms` | `7.98 ms` | `21.35 ms` |
+| Mixed | `21.23 ms` | `137.12 ms` | `29.03 ms` | `174.20 ms` |
+
+These numbers are summarized from:
+
+- `perf/k6/results/comparison.csv`
+- `perf/k6/results/analysis/summary_by_mode.csv`
+- `perf/k6/results/analysis/http_req_p95_stub.png`
+- `perf/k6/results/analysis/http_req_median_stub.png`
+
+Interpretation in one sentence:
+- under the final stable deployment budget, the monolith and microservices variants were broadly comparable in the lightweight catalog path, while the microservices deployment showed a clear tail-latency penalty in reader and translate and a moderate overall penalty in mixed workload
 
 Example matrix run:
 
@@ -499,3 +542,64 @@ Supporting benchmark docs:
 
 - [perf/k6/README.md](perf/k6/README.md)
 - [perf/parity/README.md](perf/parity/README.md)
+
+
+
+
+
+python add_book.py \
+--work "Hands Around [Reigen]: A Cycle of Ten Dialogues" --year 1897 --author "Arthur Schnitzler" --original-lang de \
+--description "Ten characters form an unwitting circle through secret sexual encounters that cross all levels of Viennese society. Each person appears in two consecutive scenes with different partners, creating an interconnected chain of relationships. The play scrutinizes sexual morality and class ideology through dialogues before or after intimate encounters." \
+--edition "lang=de,file=classpath:books/schnitzler_de.epub" \
+--edition "lang=en,file=classpath:books/schnitzler_en.epub" \
+--aligner dp \
+--reset-existing \
+--body-start 'lang=de,text="Spät Abends. An der Augartenbrücke"' \
+--body-start 'lang=en,text="Late in the evening near the Augarten Bridge"'
+
+
+
+python add_book.py \
+--work "Metamorphosis" --year 1915 --author "Franz Kafka" --original-lang de \
+--description "It tells the story of Gregor Samsa, a traveling salesman who wakes one morning to find himself inexplicably transformed into a monstrous insect. Trapped in his room and unable to work, Gregor struggles to adjust to his new body while his horrified family grapples with the burden of his existence. As Gregor adapts to his condition, the relationships within his household shift in unexpected and devastating ways." \
+--edition "lang=de,file=classpath:books/metamorphosis_de.epub" \
+--edition "lang=en,file=classpath:books/metamorphosis_en.epub" \
+--aligner dp \
+--reset-existing \
+--body-start 'lang=de,text="Gregor Samsa eines Morgens"' \
+--body-start 'lang=en,text="One morning, when Gregor Samsa"'
+
+
+python add_book.py \
+--work "Childhood" --year 1852 --author "Leo Tolstoy" --original-lang ru \
+--description "The first in a trilogy followed by "Boyhood" and "Youth," it explores the inner world of young Nikolenka through an innovative expressionistic style that blends fact, fiction, and emotion. This groundbreaking work captures childhood's fleeting innocence, joy, and intense capacity for love through the narrator's moods and reactions." \
+--edition "lang=ru,file=classpath:books/chuldhood_ru.epub" \
+--edition "lang=en,file=classpath:books/childhood_en.epub" \
+--aligner dp \
+--reset-existing \
+--body-start 'lang=ru,text="12 августа 18"' \
+--body-start 'lang=en,text="On the 12th of August, 18"'
+
+
+
+python add_book.py \
+--work "Little Zaches, nicknamed Zinnober" --year 1819 --author "Ernst Theodor Amadeus Hoffmann" --original-lang de \
+--description "The story follows a deformed dwarf named Zaches who receives a magical gift from a fairy: all achievements and talents of those around him are credited to him instead. As Zaches rises through society under his new identity "Zinnober," his victims watch helplessly while he claims their accomplishments. Through this grotesque tale, Hoffmann satirizes both Enlightenment rationalism and social hypocrisy in early 19th-century German principalities." \
+--edition "lang=de,file=classpath:books/zaches_de.epub" \
+--edition "lang=en,file=classpath:books/zaches_en.epub" \
+--aligner dp \
+--reset-existing \
+--body-start 'lang=de,text="Unfern eines anmutigen Dorfes"' \
+--body-start 'lang=en,text="Close to the road"'
+
+
+
+python add_book.py \
+--work "The Nail" --year 1853 --author "Pedro Antonio de Alarcón" --original-lang es \
+--description "Considered the first precedent of the detective genre in Spain, it follows a judge who investigates a mysterious skull pierced with a nail found in a cemetery. As he unravels the murder case, his personal life becomes entangled with the investigation when the prime suspect turns out to be someone he knows intimately. Based on a real case that circulated in nineteenth-century Spanish newspapers, this short novel blends romance with criminal mystery." \
+--edition "lang=es,file=classpath:books/nail_es.epub" \
+--edition "lang=en,file=classpath:books/nail_en.epub" \
+--aligner dp \
+--reset-existing \
+--body-start 'lang=es,text="Lo que más ardientemente desea todo"' \
+--body-start 'lang=en,text="The thing which is most"'
