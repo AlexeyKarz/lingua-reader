@@ -23,6 +23,25 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
+For production-style Docker deployments, the same scripts can be run through
+the `ingest-runner` profile in the root `docker-compose.prod.yml`. This avoids
+installing the Python/NLP dependencies on the host and reuses a Docker volume
+for downloaded model files:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env --profile ingest build ingest-runner
+
+docker compose -f docker-compose.prod.yml --env-file .env --profile ingest run --rm ingest-runner \
+  --work "Metamorphosis" \
+  --year 1915 \
+  --author "Franz Kafka" \
+  --original-lang de \
+  --edition "lang=de,file=classpath:books/metamorphosis_de.epub" \
+  --edition "lang=en,file=classpath:books/metamorphosis_en.epub" \
+  --aligner dp \
+  --reset-existing
+```
+
 ## Environment
 
 Database access for embedding/alignment:

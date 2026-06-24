@@ -1,26 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-
-type CatalogEntry = {
-    workId: number
-    title: string
-    author: string | null
-    description: string | null
-    year: number | null
-    langs: string[]
-    originalLang?: string | null
-}
-
-type LastReaderSession = {
-    bookId: string
-    src: string
-    tgt: string
-    page: number
-    size: number
-    savedAt: number
-}
-
-const LAST_READER_SESSION_KEY = 'mlr:last-reader-session'
+import {
+    buildReaderPath,
+    getSourceLang as getCatalogSourceLang,
+    readLastReaderSession,
+    type CatalogEntry,
+    type LastReaderSession,
+} from '../readerNavigation'
 
 export default function CatalogPage() {
     const [books, setBooks] = useState<CatalogEntry[]>([])
@@ -29,11 +15,7 @@ export default function CatalogPage() {
     const [targetFilter, setTargetFilter] = useState('all')
     const [lastSession, setLastSession] = useState<LastReaderSession | null>(null)
 
-    const getSourceLang = useCallback((book: CatalogEntry) =>
-        book.originalLang && book.langs.includes(book.originalLang)
-            ? book.originalLang
-            : book.langs[0]
-    , [])
+    const getSourceLang = useCallback(getCatalogSourceLang, [])
 
     const matchesFilters = useCallback((book: CatalogEntry, source: string, target: string) => {
         const resolvedSource = getSourceLang(book)
@@ -60,29 +42,7 @@ export default function CatalogPage() {
     }, [])
 
     useEffect(() => {
-        try {
-            const raw = window.localStorage.getItem(LAST_READER_SESSION_KEY)
-            if (!raw) return
-            const parsed = JSON.parse(raw) as Partial<LastReaderSession>
-            if (
-                typeof parsed.bookId !== 'string' ||
-                typeof parsed.src !== 'string' ||
-                typeof parsed.tgt !== 'string' ||
-                typeof parsed.page !== 'number'
-            ) {
-                return
-            }
-            setLastSession({
-                bookId: parsed.bookId,
-                src: parsed.src,
-                tgt: parsed.tgt,
-                page: parsed.page,
-                size: typeof parsed.size === 'number' ? parsed.size : 20,
-                savedAt: typeof parsed.savedAt === 'number' ? parsed.savedAt : Date.now(),
-            })
-        } catch {
-            // Ignore malformed storage; the catalog can render without it.
-        }
+        setLastSession(readLastReaderSession())
     }, [])
 
     const sourceOptions = useMemo(() => {
@@ -174,7 +134,7 @@ export default function CatalogPage() {
                                 </div>
                             </div>
                             <Link
-                                to={`/reader?bookId=${encodeURIComponent(lastSession.bookId)}&src=${lastSession.src}&tgt=${lastSession.tgt}`}
+                                to={buildReaderPath(lastSession)}
                                 className="btn"
                             >
                                 Resume

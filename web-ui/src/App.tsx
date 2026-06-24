@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
+import { buildReaderPath, readLastReaderSession, resolveReaderPath, type CatalogEntry } from './readerNavigation'
 
 const THEME_KEY = 'mlr:theme'
 
@@ -8,6 +9,10 @@ export default function App() {
     const [theme, setTheme] = useState<'light' | 'dark'>(() => {
         const stored = window.localStorage.getItem(THEME_KEY)
         return stored === 'dark' ? 'dark' : 'light'
+    })
+    const [readerPath, setReaderPath] = useState(() => {
+        const lastSession = readLastReaderSession()
+        return lastSession ? buildReaderPath(lastSession) : '/'
     })
 
     useEffect(() => {
@@ -19,10 +24,23 @@ export default function App() {
         window.localStorage.setItem(THEME_KEY, theme)
     }, [theme])
 
-    const NavLink = ({ to, label }: {to:string; label:string}) => (
+    useEffect(() => {
+        ;(async () => {
+            try {
+                const res = await fetch('/api/catalog/books')
+                if (!res.ok) return
+                const books = (await res.json()) as CatalogEntry[]
+                setReaderPath(resolveReaderPath(books) ?? '/')
+            } catch {
+                // Keep the saved-session fallback if the catalog cannot be loaded.
+            }
+        })()
+    }, [pathname])
+
+    const NavLink = ({ to, label, activePath }: {to:string; label:string; activePath?: string}) => (
         <Link
             to={to}
-            className={`nav-pill ${pathname === to ? 'nav-pill-active' : ''}`}
+            className={`nav-pill ${pathname === (activePath ?? to) ? 'nav-pill-active' : ''}`}
         >
             {label}
         </Link>
@@ -47,7 +65,7 @@ export default function App() {
                             <div className="flex flex-wrap items-center gap-2">
                                 <nav className="surface-panel-strong flex flex-wrap gap-2 rounded-full p-1.5">
                                     <NavLink to="/" label="Catalog" />
-                                    <NavLink to="/reader" label="Reader" />
+                                    <NavLink to={readerPath} activePath="/reader" label="Reader" />
                                 </nav>
                                 <button
                                     type="button"

@@ -1,6 +1,7 @@
 package com.example.reader.catalog;
 
 import jakarta.annotation.PostConstruct;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -9,6 +10,7 @@ import java.util.Arrays;
 import java.util.List;
 
 @Repository
+@DependsOn("databaseSchemaInitializer")
 public class CatalogRepository {
 
     private final NamedParameterJdbcTemplate jdbc;

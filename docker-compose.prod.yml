@@ -38,5 +38,24 @@ services:
     ports:
       - "${WEB_PORT:-8080}:80"
 
+  ingest-runner:
+    profiles:
+      - ingest
+    build:
+      context: ./python-embed
+    image: multilang-reader-ingest:${APP_IMAGE_TAG:-latest}
+    depends_on:
+      - app
+      - postgres
+    environment:
+      MLR_API_BASE_URL: http://app:8080
+      MLR_ADMIN_TOKEN: ${MLR_ADMIN_TOKEN:-}
+      DATABASE_URL: host=postgres port=5432 dbname=${POSTGRES_DB:-mlr} user=${POSTGRES_USER:-mlr} password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      HF_HOME: /models/huggingface
+      SENTENCE_TRANSFORMERS_HOME: /models/sentence-transformers
+    volumes:
+      - ingest_model_cache:/models
+
 volumes:
   postgres_data:
+  ingest_model_cache:

@@ -166,6 +166,10 @@ MLR_ADMIN_ENABLED=false
 docker compose -f docker-compose.prod.yml --env-file .env up -d --build
 ```
 
+On first start, the application creates the required database schema if the
+PostgreSQL volume is empty. The catalog will still be empty until demo data is
+restored from a prepared dump or ingested through the secured admin workflow.
+
 3. Open:
 
 ```text
@@ -202,6 +206,72 @@ Authorization: Bearer <long-random-token>
 ```
 
 Disable admin again after ingestion unless you actively need it.
+
+### Server-side ingestion runner
+
+For complete demo books, prefer the Compose `ingest-runner` profile instead of
+calling the ingestion API manually with `curl`. The API ingests EPUB editions,
+but the runner also performs the remaining pipeline steps: body-start selection,
+sentence embeddings, alignment, and verification.
+
+The runner uses the same internal Docker network as the app and database. Its
+Python dependencies are built into a reusable image, and model files are cached
+in the `ingest_model_cache` Docker volume so they do not need to be downloaded
+again for every book.
+
+1. Temporarily enable admin ingestion in `.env`:
+
+```env
+MLR_ADMIN_ENABLED=true
+MLR_ADMIN_TOKEN=<long-random-token>
+```
+
+2. Recreate the app so the admin settings are applied:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env up -d --force-recreate app
+```
+
+3. Build the ingestion runner image:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env --profile ingest build ingest-runner
+```
+
+4. Run ingestion for a committed EPUB pair:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env --profile ingest run --rm ingest-runner \
+  --work "Metamorphosis" \
+  --year 1915 \
+  --author "Franz Kafka" \
+  --original-lang de \
+  --description "It tells the story of Gregor Samsa, a traveling salesman who wakes one morning to find himself inexplicably transformed into a monstrous insect." \
+  --edition "lang=de,file=classpath:books/metamorphosis_de.epub" \
+  --edition "lang=en,file=classpath:books/metamorphosis_en.epub" \
+  --aligner dp \
+  --reset-existing \
+  --body-start 'lang=de,text="Gregor Samsa eines Morgens"' \
+  --body-start 'lang=en,text="One morning, when Gregor Samsa"'
+```
+
+The `file=classpath:books/...` values refer to EPUB files packaged in the app
+image from `src/main/resources/books`. If new EPUB files are added, rebuild the
+app image before running ingestion:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env up -d --build app
+```
+
+5. Disable admin ingestion again:
+
+```env
+MLR_ADMIN_ENABLED=false
+```
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env up -d --force-recreate app
+```
 
 ---
 
@@ -660,64 +730,3 @@ Supporting benchmark docs:
 
 - [perf/k6/README.md](perf/k6/README.md)
 - [perf/parity/README.md](perf/parity/README.md)
-
-
-
-
-
-python add_book.py \
---work "Hands Around [Reigen]: A Cycle of Ten Dialogues" --year 1897 --author "Arthur Schnitzler" --original-lang de \
---description "Ten characters form an unwitting circle through secret sexual encounters that cross all levels of Viennese society. Each person appears in two consecutive scenes with different partners, creating an interconnected chain of relationships. The play scrutinizes sexual morality and class ideology through dialogues before or after intimate encounters." \
---edition "lang=de,file=classpath:books/schnitzler_de.epub" \
---edition "lang=en,file=classpath:books/schnitzler_en.epub" \
---aligner dp \
---reset-existing \
---body-start 'lang=de,text="Spät Abends. An der Augartenbrücke"' \
---body-start 'lang=en,text="Late in the evening near the Augarten Bridge"'
-
-
-
-python add_book.py \
---work "Metamorphosis" --year 1915 --author "Franz Kafka" --original-lang de \
---description "It tells the story of Gregor Samsa, a traveling salesman who wakes one morning to find himself inexplicably transformed into a monstrous insect. Trapped in his room and unable to work, Gregor struggles to adjust to his new body while his horrified family grapples with the burden of his existence. As Gregor adapts to his condition, the relationships within his household shift in unexpected and devastating ways." \
---edition "lang=de,file=classpath:books/metamorphosis_de.epub" \
---edition "lang=en,file=classpath:books/metamorphosis_en.epub" \
---aligner dp \
---reset-existing \
---body-start 'lang=de,text="Gregor Samsa eines Morgens"' \
---body-start 'lang=en,text="One morning, when Gregor Samsa"'
-
-
-python add_book.py \
---work "Childhood" --year 1852 --author "Leo Tolstoy" --original-lang ru \
---description "The first in a trilogy followed by "Boyhood" and "Youth," it explores the inner world of young Nikolenka through an innovative expressionistic style that blends fact, fiction, and emotion. This groundbreaking work captures childhood's fleeting innocence, joy, and intense capacity for love through the narrator's moods and reactions." \
---edition "lang=ru,file=classpath:books/chuldhood_ru.epub" \
---edition "lang=en,file=classpath:books/childhood_en.epub" \
---aligner dp \
---reset-existing \
---body-start 'lang=ru,text="12 августа 18"' \
---body-start 'lang=en,text="On the 12th of August, 18"'
-
-
-
-python add_book.py \
---work "Little Zaches, nicknamed Zinnober" --year 1819 --author "Ernst Theodor Amadeus Hoffmann" --original-lang de \
---description "The story follows a deformed dwarf named Zaches who receives a magical gift from a fairy: all achievements and talents of those around him are credited to him instead. As Zaches rises through society under his new identity "Zinnober," his victims watch helplessly while he claims their accomplishments. Through this grotesque tale, Hoffmann satirizes both Enlightenment rationalism and social hypocrisy in early 19th-century German principalities." \
---edition "lang=de,file=classpath:books/zaches_de.epub" \
---edition "lang=en,file=classpath:books/zaches_en.epub" \
---aligner dp \
---reset-existing \
---body-start 'lang=de,text="Unfern eines anmutigen Dorfes"' \
---body-start 'lang=en,text="Close to the road"'
-
-
-
-python add_book.py \
---work "The Nail" --year 1853 --author "Pedro Antonio de Alarcón" --original-lang es \
---description "Considered the first precedent of the detective genre in Spain, it follows a judge who investigates a mysterious skull pierced with a nail found in a cemetery. As he unravels the murder case, his personal life becomes entangled with the investigation when the prime suspect turns out to be someone he knows intimately. Based on a real case that circulated in nineteenth-century Spanish newspapers, this short novel blends romance with criminal mystery." \
---edition "lang=es,file=classpath:books/nail_es.epub" \
---edition "lang=en,file=classpath:books/nail_en.epub" \
---aligner dp \
---reset-existing \
---body-start 'lang=es,text="Lo que más ardientemente desea todo"' \
---body-start 'lang=en,text="The thing which is most"'

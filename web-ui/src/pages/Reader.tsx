@@ -1,4 +1,6 @@
 import {useCallback, useEffect, useLayoutEffect, useRef, useState, useMemo, type JSX} from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { resolveReaderPath, LAST_READER_SESSION_KEY, type CatalogEntry } from '../readerNavigation'
 
 // type Aligned = { left: string[]; right: string[]; bookId: string; src: string; tgt: string }
 
@@ -48,7 +50,6 @@ type SavedReaderState = {
 }
 
 const DEFAULT_PAGE_SIZE = 20
-const LAST_READER_SESSION_KEY = 'mlr:last-reader-session'
 
 function getReaderProgressKey(bookId: string, src: string, tgt: string) {
     return `mlr:reader-progress:${bookId}:${src}:${tgt}`
@@ -92,13 +93,15 @@ function writeSavedReaderState(bookId: string, src: string, tgt: string, state: 
 }
 
 export default function Reader() {
-    const params = new URLSearchParams(location.search)
+    const location = useLocation()
+    const navigate = useNavigate()
+    const params = useMemo(() => new URLSearchParams(location.search), [location.search])
+    const hasReaderParams = params.has('bookId') && params.has('src') && params.has('tgt')
 
-    const bookId =
-        params.get('bookId') ?? 'Faust (Part I)' // fallback, but ideally always provided
+    const bookId = params.get('bookId') ?? ''
 
-    const src = params.get('src') ?? 'de'
-    const tgt = params.get('tgt') ?? 'en'
+    const src = params.get('src') ?? ''
+    const tgt = params.get('tgt') ?? ''
 
     const readerStorageKey = useMemo(
         () => getReaderProgressKey(bookId, src, tgt),
@@ -205,6 +208,35 @@ export default function Reader() {
     }
 
     useEffect(() => {
+        if (hasReaderParams) return
+        ;(async () => {
+            setStatus('loading')
+            setInfo('Finding a readable book...')
+            try {
+                const res = await fetch('/api/catalog/books')
+                if (!res.ok) throw new Error('Failed to load catalog')
+                const books = (await res.json()) as CatalogEntry[]
+                const target = resolveReaderPath(books)
+                if (target) {
+                    navigate(target, { replace: true })
+                    return
+                }
+                setInfo('No readable books available')
+                setErrorMsg('No books with at least two language editions are available yet.')
+                setStatus('error')
+            } catch (e) {
+                setInfo('Error loading catalog')
+                setErrorMsg(e instanceof Error ? e.message : 'Failed to load catalog')
+                setStatus('error')
+            }
+        })()
+    }, [hasReaderParams, navigate])
+
+    useEffect(() => {
+        if (!hasReaderParams) {
+            setProgressReady(false)
+            return
+        }
         const saved = readSavedReaderState(bookId, src, tgt)
         const nextPage = saved?.page ?? 0
         const nextSize = saved?.size ?? DEFAULT_PAGE_SIZE
@@ -215,10 +247,10 @@ export default function Reader() {
         setJumpInput(String(nextPage + 1))
         setJumpError(null)
         setProgressReady(true)
-    }, [readerStorageKey, bookId, src, tgt])
+    }, [readerStorageKey, bookId, src, tgt, hasReaderParams])
 
     useEffect(() => {
-        if (!progressReady) return
+        if (!progressReady || !hasReaderParams) return
         ;(async () => {
             setStatus('loading')
             setErrorMsg(null)
@@ -264,7 +296,7 @@ export default function Reader() {
                 setStatus('error')
             }
         })()
-    }, [bookId, src, tgt, page, size, progressReady])
+    }, [bookId, src, tgt, page, size, progressReady, hasReaderParams])
 
     // close notice (no alignment) automatically
     useEffect(() => {
@@ -280,13 +312,13 @@ export default function Reader() {
     }, [notice])
 
     useEffect(() => {
-        if (!progressReady) return
+        if (!progressReady || !hasReaderParams) return
         writeSavedReaderState(bookId, src, tgt, {
             page,
             size,
             savedAt: Date.now(),
         })
-    }, [bookId, src, tgt, page, size, progressReady])
+    }, [bookId, src, tgt, page, size, progressReady, hasReaderParams])
 
     // Utility: clamp number into [min, max]
     const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(n, max))
@@ -597,6 +629,7 @@ export default function Reader() {
 
 
     const ensureFrontMatterLoaded = useCallback(async () => {
+        if (!hasReaderParams) return
         if (frontMatter !== null) return
 
         try {
@@ -617,13 +650,14 @@ export default function Reader() {
             console.error(e)
             setFrontInfo('Error loading front matter')
         }
-    }, [frontMatter, bookId, src, tgt])
+    }, [frontMatter, bookId, src, tgt, hasReaderParams])
 
     // prefetch the front matter
     useEffect(() => {
+        if (!hasReaderParams) return
         if (page !== 0) return
         void ensureFrontMatterLoaded()
-    }, [page, ensureFrontMatterLoaded])
+    }, [page, ensureFrontMatterLoaded, hasReaderParams])
 
     useEffect(() => {
         rangeRef.current = null
@@ -662,7 +696,7 @@ export default function Reader() {
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                     <div>
                         <h3 className="theme-heading text-3xl font-semibold md:text-[2.2rem]">
-                            {data?.title || bookId}
+                            {data?.title || bookId || 'Reader'}
                         </h3>
                         <p className="mt-2 max-w-3xl text-sm leading-6 muted-copy md:text-[15px]">
                             Compare aligned passages, select words or sentences for literal translation,
@@ -678,7 +712,9 @@ export default function Reader() {
                     <div className="grid gap-3 text-sm sm:grid-cols-3">
                         <div className="surface-panel-strong rounded-[24px] px-4 py-3">
                             <div className="text-xs uppercase tracking-[0.18em] muted-copy">Reading pair</div>
-                            <div className="theme-heading mt-2 font-medium">{src.toUpperCase()} → {tgt.toUpperCase()}</div>
+                            <div className="theme-heading mt-2 font-medium">
+                                {src && tgt ? `${src.toUpperCase()} → ${tgt.toUpperCase()}` : '—'}
+                            </div>
                         </div>
                         <div className="surface-panel-strong rounded-[24px] px-4 py-3">
                             <div className="text-xs uppercase tracking-[0.18em] muted-copy">Author</div>
