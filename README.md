@@ -284,6 +284,13 @@ docker compose -f docker-compose.prod.yml --env-file .env up -d --force-recreate
 | `MLR_ADMIN_ENABLED` | `false` | Enables `/api/admin/**` endpoints when set to `true`. |
 | `MLR_ADMIN_TOKEN` | empty | Required bearer token for `/api/admin/**` when admin is enabled. |
 | `TRANSLATE_PROVIDER` | `stub` | Provider mode: `stub`, `openai`, `google`, or `ollama`. |
+| `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model used when `TRANSLATE_PROVIDER=openai`. |
+| `OPENAI_MAX_COMPLETION_TOKENS` | `300` | Output-token cap for each OpenAI response. |
+| `TRANSLATE_LIMITS_ENABLED` | `true` | Enables daily quota protection for non-stub providers. |
+| `TRANSLATE_LIMITS_PER_IP_DAILY` | `20` | Maximum paid-provider calls per client IP per day. |
+| `TRANSLATE_LIMITS_GLOBAL_DAILY` | `200` | Maximum paid-provider calls for the whole public app per day. |
+| `TRANSLATE_LIMITS_MAX_TEXT_CHARS` | `800` | Maximum selected text length for paid-provider calls. |
+| `TZ` | `UTC` | Container timezone used for daily quota reset at midnight. |
 | `MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE` | `health,info` | Actuator endpoints exposed over HTTP. Use `health,info,prometheus` only for private/local observability. |
 
 ### Translation provider switch
@@ -302,8 +309,15 @@ translate:
 
   openai:
     apiKey: ${OPENAI_API_KEY:}
-    model: gpt-4o-mini
-    timeoutSeconds: 30
+    model: ${OPENAI_MODEL:gpt-4o-mini}
+    timeoutSeconds: ${OPENAI_TIMEOUT_SECONDS:30}
+    maxCompletionTokens: ${OPENAI_MAX_COMPLETION_TOKENS:300}
+
+  limits:
+    enabled: ${TRANSLATE_LIMITS_ENABLED:true}
+    perIpDaily: ${TRANSLATE_LIMITS_PER_IP_DAILY:20}
+    globalDaily: ${TRANSLATE_LIMITS_GLOBAL_DAILY:200}
+    maxTextChars: ${TRANSLATE_LIMITS_MAX_TEXT_CHARS:800}
 
   google:
     apiKey: ${GOOGLE_API_KEY:}
@@ -318,6 +332,12 @@ translate:
 
 ### OpenAI key
 
+For public deployments, use a separate OpenAI project/API key with a small
+platform budget. The app also enforces in-process daily limits before calling
+OpenAI. If the per-IP or global daily limit is reached, the request is answered
+with a visible quota-reset message and the local stub output instead of calling
+the paid provider.
+
 If running from terminal:
 
 ```OPENAI_API_KEY="sk-..." ./gradlew bootRun```
@@ -325,6 +345,27 @@ If running from terminal:
 If running from IntelliJ:
 
 ```Run config → Environment variables → OPENAI_API_KEY=...```
+
+For a local quota test:
+
+```bash
+TRANSLATE_PROVIDER=openai \
+OPENAI_API_KEY="sk-..." \
+TRANSLATE_LIMITS_PER_IP_DAILY=1 \
+TRANSLATE_LIMITS_GLOBAL_DAILY=2 \
+./gradlew bootRun
+```
+
+Then call translation twice from the UI. The second call from the same IP should
+show the quota reset message and stub output.
+
+When the app is behind a host-level nginx proxy, configure that proxy to
+overwrite forwarded IP headers, not append user-supplied ones:
+
+```nginx
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $remote_addr;
+```
 
 ### Ollama
 
@@ -730,3 +771,17 @@ Supporting benchmark docs:
 
 - [perf/k6/README.md](perf/k6/README.md)
 - [perf/parity/README.md](perf/parity/README.md)
+
+
+
+
+
+docker compose -f docker-compose.prod.yml --env-file .env --profile ingest run --rm ingest-runner \
+--work "The Nail" --year 1853 --author "Pedro Antonio de Alarcón" --original-lang es \
+--description "Considered the first precedent of the detective genre in Spain, it follows a judge who investigates a mysterious skull pierced with a nail found in a cemetery. As he unravels the murder case, his personal life becomes entangled with the investigation when the prime suspect turns out to be someone he knows intimately. Based on a real case that circulated in nineteenth-century Spanish newspapers, this short novel blends romance with criminal mystery." \
+--edition "lang=es,file=classpath:books/nail_es.epub" \
+--edition "lang=en,file=classpath:books/nail_en.epub" \
+--aligner dp \
+--reset-existing \
+--body-start 'lang=es,text="Lo que más ardientemente desea todo"' \
+--body-start 'lang=en,text="The thing which is most"'

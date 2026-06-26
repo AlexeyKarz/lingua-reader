@@ -20,6 +20,7 @@ public class OpenAIProviderClient implements ProviderClient {
     private final MeterRegistry registry;
     private final String model;
     private final int timeoutSeconds;
+    private final int maxCompletionTokens;
     private final String literalSystem;
     private final String explainSystem;
     private final String providerName = "openai";
@@ -35,12 +36,13 @@ public class OpenAIProviderClient implements ProviderClient {
         }
         this.timeoutSeconds = props.getTimeoutSeconds();
         this.model = props.getModel();
+        this.maxCompletionTokens = props.getMaxCompletionTokens();
         this.webClient = builder
                 .baseUrl("https://api.openai.com")
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + props.getApiKey())
                 .build();
         this.registry = registry;
-        log.info("OpenAI provider enabled with model {}", this.model);
+        log.info("OpenAI provider enabled with model {} and maxCompletionTokens {}", this.model, this.maxCompletionTokens);
         this.literalSystem = prompts.getLiteralSystem();
         this.explainSystem = prompts.getExplainSystem();
     }
@@ -92,7 +94,8 @@ public class OpenAIProviderClient implements ProviderClient {
                         Map.of("role", "system", "content", systemPrompt),
                         Map.of("role", "user", "content", userPrompt)
                 ),
-                "temperature", 0.1
+                "temperature", 0.1,
+                "max_tokens", maxCompletionTokens
         );
 
         try {

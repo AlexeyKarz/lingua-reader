@@ -37,8 +37,15 @@ translate:
 
   openai:
     apiKey: ${OPENAI_API_KEY:}
-    model: gpt-4o-mini
-    timeoutSeconds: 30
+    model: ${OPENAI_MODEL:gpt-4o-mini}
+    timeoutSeconds: ${OPENAI_TIMEOUT_SECONDS:30}
+    maxCompletionTokens: ${OPENAI_MAX_COMPLETION_TOKENS:300}
+
+  limits:
+    enabled: ${TRANSLATE_LIMITS_ENABLED:true}
+    perIpDaily: ${TRANSLATE_LIMITS_PER_IP_DAILY:10}
+    globalDaily: ${TRANSLATE_LIMITS_GLOBAL_DAILY:100}
+    maxTextChars: ${TRANSLATE_LIMITS_MAX_TEXT_CHARS:800}
 
   ollama:
     baseurl: http://localhost:11434

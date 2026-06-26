@@ -21,6 +21,11 @@ public class OpenAITranslateProperties {
      */
     private int timeoutSeconds = 30;
 
+    /**
+     * Maximum output tokens per OpenAI response.
+     */
+    private int maxCompletionTokens = 300;
+
     public String getApiKey() { return apiKey; }
     public void setApiKey(String apiKey) { this.apiKey = apiKey; }
 
@@ -29,4 +34,7 @@ public class OpenAITranslateProperties {
 
     public int getTimeoutSeconds() { return timeoutSeconds; }
     public void setTimeoutSeconds(int timeoutSeconds) { this.timeoutSeconds = timeoutSeconds; }
+
+    public int getMaxCompletionTokens() { return maxCompletionTokens; }
+    public void setMaxCompletionTokens(int maxCompletionTokens) { this.maxCompletionTokens = maxCompletionTokens; }
 }
