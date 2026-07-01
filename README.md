@@ -1,5 +1,7 @@
 # Multilang-reader-mono
 
+### The deployed project can be found at https://reader.alexeykarz.com.
+
 **This project originated as a University of Nicosia Final Year Project comparing [monolithic](https://github.com/AlexeyKarz/Multilang-Reader) and [microservices](https://github.com/AlexeyKarz/multilang-reader-ms)
 architectures. The current repository contains the maintained monolith-based showcase version.**
 
@@ -16,7 +18,7 @@ Security note:
 
 ---
 
-## Tech stack (current)
+## Tech stack
 
 **Backend**
 - Java 23
@@ -177,6 +179,40 @@ http://<server>:8080
 ```
 
 For a real public deployment, put this behind HTTPS using a host-level reverse proxy such as Caddy, Nginx, or your existing server proxy.
+
+### GitHub Actions deployment
+
+The repository includes `.github/workflows/deploy.yml`. It runs backend tests,
+builds the frontend, then connects to the Hetzner server over SSH and runs
+`scripts/deploy-prod.sh`. Deployment is triggered by pushes to `main` or `prod`,
+and can also be started manually from the GitHub Actions tab.
+
+The server keeps its own `.env` file. Do not store database passwords, OpenAI
+keys, or admin tokens in the repository.
+
+Required GitHub repository secrets:
+
+| Secret | Purpose |
+|---|---|
+| `DEPLOY_HOST` | Server IP or hostname. |
+| `DEPLOY_USER` | SSH user on the server. |
+| `DEPLOY_SSH_KEY` | Private SSH key allowed to access the server. |
+| `DEPLOY_PATH` | Absolute path to the checked-out repo on the server, for example `/root/multilang-reader`. |
+| `DEPLOY_PORT` | Optional SSH port; defaults to `22`. |
+| `DEPLOY_KNOWN_HOSTS` | Optional pinned SSH known-hosts line. If omitted, the workflow uses `ssh-keyscan`. |
+| `DEPLOY_HEALTHCHECK_URL` | Optional healthcheck URL; defaults to `http://127.0.0.1:8081/api/catalog/books`. |
+
+The first server checkout should be prepared manually:
+
+```bash
+git clone <repo-url> /root/multilang-reader
+cd /root/multilang-reader
+cp .env.example .env
+nano .env
+docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+```
+
+After that, pushes to `main` or `prod` can deploy automatically.
 
 ### Admin ingestion in production
 
@@ -771,17 +807,3 @@ Supporting benchmark docs:
 
 - [perf/k6/README.md](perf/k6/README.md)
 - [perf/parity/README.md](perf/parity/README.md)
-
-
-
-
-
-docker compose -f docker-compose.prod.yml --env-file .env --profile ingest run --rm ingest-runner \
---work "The Nail" --year 1853 --author "Pedro Antonio de Alarcón" --original-lang es \
---description "Considered the first precedent of the detective genre in Spain, it follows a judge who investigates a mysterious skull pierced with a nail found in a cemetery. As he unravels the murder case, his personal life becomes entangled with the investigation when the prime suspect turns out to be someone he knows intimately. Based on a real case that circulated in nineteenth-century Spanish newspapers, this short novel blends romance with criminal mystery." \
---edition "lang=es,file=classpath:books/nail_es.epub" \
---edition "lang=en,file=classpath:books/nail_en.epub" \
---aligner dp \
---reset-existing \
---body-start 'lang=es,text="Lo que más ardientemente desea todo"' \
---body-start 'lang=en,text="The thing which is most"'

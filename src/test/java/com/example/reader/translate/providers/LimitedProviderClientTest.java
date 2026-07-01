@@ -72,6 +72,19 @@ class LimitedProviderClientTest {
         assertThat(result).contains("[en→de] too long");
     }
 
+    @Test
+    void fallsBackWhenProviderFails() {
+        TranslateLimitProperties limits = new TranslateLimitProperties();
+        FailingProvider realProvider = new FailingProvider();
+        LimitedProviderClient limited = new LimitedProviderClient(realProvider, limits);
+        requestFrom("203.0.113.10");
+
+        String result = limited.explain("Hallo Welt", "de", "en", "context");
+
+        assertThat(result).contains("AI provider is temporarily unavailable or too slow");
+        assertThat(result).contains("Explanation stub: Hallo Welt");
+    }
+
     private static void requestFrom(String ip) {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.addHeader("X-Forwarded-For", ip);
@@ -90,6 +103,18 @@ class LimitedProviderClientTest {
         @Override
         public String explain(String text, String source, String target, String bookContext) {
             return "real explanation:" + text;
+        }
+    }
+
+    private static class FailingProvider implements ProviderClient {
+        @Override
+        public String literal(String text, String source, String target) {
+            throw new RuntimeException("provider failed");
+        }
+
+        @Override
+        public String explain(String text, String source, String target, String bookContext) {
+            throw new RuntimeException("provider failed");
         }
     }
 }

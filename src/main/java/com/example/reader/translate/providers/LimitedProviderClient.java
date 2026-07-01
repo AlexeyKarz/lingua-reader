@@ -40,7 +40,11 @@ public class LimitedProviderClient implements ProviderClient {
         if (!decision.allowed()) {
             return quotaFallback(decision, fallback.literal(text, source, target));
         }
-        return delegate.literal(text, source, target);
+        try {
+            return delegate.literal(text, source, target);
+        } catch (Exception e) {
+            return providerFailureFallback(e, fallback.literal(text, source, target));
+        }
     }
 
     @Override
@@ -49,7 +53,11 @@ public class LimitedProviderClient implements ProviderClient {
         if (!decision.allowed()) {
             return quotaFallback(decision, fallback.explain(text, source, target, bookContext));
         }
-        return delegate.explain(text, source, target, bookContext);
+        try {
+            return delegate.explain(text, source, target, bookContext);
+        } catch (Exception e) {
+            return providerFailureFallback(e, fallback.explain(text, source, target, bookContext));
+        }
     }
 
     private QuotaDecision reserve(String text, String action) {
@@ -94,6 +102,11 @@ public class LimitedProviderClient implements ProviderClient {
 
     private String quotaFallback(QuotaDecision decision, String fallbackText) {
         return decision.message() + " Showing demo stub output instead.\n\n" + fallbackText;
+    }
+
+    private String providerFailureFallback(Exception error, String fallbackText) {
+        log.warn("Paid translation provider failed; returning stub fallback: {}", error.toString());
+        return "AI provider is temporarily unavailable or too slow. Showing demo stub output instead.\n\n" + fallbackText;
     }
 
     private void resetIfNeeded() {
