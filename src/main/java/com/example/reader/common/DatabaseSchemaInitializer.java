@@ -91,5 +91,55 @@ public class DatabaseSchemaInitializer {
                     unique (left_segment_id, right_segment_id, method)
                 )
                 """);
+
+        jdbc.execute("""
+                create table if not exists dictionary_entry (
+                  id bigserial primary key,
+                  source_lang text not null,
+                  target_lang text not null,
+                  surface text not null,
+                  normalized text not null,
+                  lemma text,
+                  part_of_speech text,
+                  gender text,
+                  definitions_json jsonb not null default '[]'::jsonb,
+                  examples_json jsonb not null default '[]'::jsonb,
+                  translations_json jsonb not null default '[]'::jsonb,
+                  source_name text,
+                  source_url text,
+                  created_at timestamp default now(),
+                  last_accessed_at timestamp default now(),
+                  hit_count int not null default 0,
+                  unique(source_lang, target_lang, normalized)
+                )
+                """);
+
+        jdbc.execute("alter table dictionary_entry add column if not exists gender text");
+
+        jdbc.execute("""
+                create index if not exists dictionary_entry_lookup_idx
+                on dictionary_entry (source_lang, normalized)
+                """);
+
+        jdbc.execute("""
+                create table if not exists translation_cache (
+                  id bigserial primary key,
+                  cache_key text not null unique,
+                  operation text not null,
+                  source_lang text not null,
+                  target_lang text not null,
+                  normalized_text text not null,
+                  provider text not null,
+                  response_text text not null,
+                  created_at timestamp default now(),
+                  last_accessed_at timestamp default now(),
+                  hit_count int not null default 0
+                )
+                """);
+
+        jdbc.execute("""
+                create index if not exists translation_cache_lookup_idx
+                on translation_cache (operation, source_lang, target_lang, normalized_text)
+                """);
     }
 }

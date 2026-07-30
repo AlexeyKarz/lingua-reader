@@ -17,6 +17,7 @@ type PopState =
     result?: string
     errorMessage?: string
     action?: 'translate' | 'explain'
+    wordDetails?: WordDetails
 }
 
 type Sentence = { id: number; text: string; chapterId?: number | null; chapterTitle?: string | null }
@@ -41,6 +42,22 @@ type PageData = {
     left: Sentence[]
     right: Sentence[]
     alignments: AlignmentLink[]
+}
+
+type WordDetails = {
+    dictionary: boolean
+    lemma?: string
+    partOfSpeech?: string
+    gender?: string
+    definitions?: string[]
+    examples?: string[]
+    translations?: string[]
+    sourceName?: string
+    sourceUrl?: string
+}
+
+type WordTranslationResponse = WordDetails & {
+    translated?: string
 }
 
 type SavedReaderState = {
@@ -525,6 +542,7 @@ export default function Reader() {
 
         try {
             let resultText = ''
+            let wordDetails: WordDetails | undefined
             const parseJson = async (r: Response) => {
                 let body: unknown = null
                 try {
@@ -559,8 +577,21 @@ export default function Reader() {
                 if (isWord) {
                     const qs = new URLSearchParams({ text, source: sourceLang, target: targetLang })
                     const r = await fetch(`/api/translate/word?${qs}`)
-                    const j = (await parseJson(r)) as { translated?: string }
+                    const j = (await parseJson(r)) as WordTranslationResponse
                     resultText = j.translated ?? ''
+                    if (j.dictionary) {
+                        wordDetails = {
+                            dictionary: true,
+                            lemma: j.lemma,
+                            partOfSpeech: j.partOfSpeech,
+                            gender: j.gender,
+                            definitions: j.definitions ?? [],
+                            examples: j.examples ?? [],
+                            translations: j.translations ?? [],
+                            sourceName: j.sourceName,
+                            sourceUrl: j.sourceUrl,
+                        }
+                    }
                 } else {
                     const r = await fetch('/api/translate/sentence', {
                         method: 'POST',
@@ -618,7 +649,7 @@ export default function Reader() {
             }
 
             setPop(p => (p.kind === 'loading'
-                    ? { ...p, kind: 'result', result: resultText, action }
+                    ? { ...p, kind: 'result', result: resultText, action, wordDetails }
                     : p
             ))
         } catch (error) {
@@ -1029,13 +1060,77 @@ export default function Reader() {
                             {pop.kind === 'result' && (
                                 <div className="mt-3 max-h-[50vh] overflow-y-auto pr-1">
                                     <div className="text-xs uppercase tracking-[0.18em] muted-copy">
-                                        {pop.action === 'explain' ? 'Explanation' : 'Translation'}
+                                        {pop.action === 'explain'
+                                            ? 'Explanation'
+                                            : pop.wordDetails?.dictionary
+                                                ? 'Dictionary'
+                                                : 'Translation'}
                                     </div>
 
                                     <div className="theme-heading mt-2 text-sm font-semibold">“{pop.text}”</div>
-                                    <div className="theme-copy mt-2 whitespace-pre-wrap text-sm">
-                                        {pop.result ?? '—'}
-                                    </div>
+                                    {pop.wordDetails?.dictionary ? (
+                                        <div className="theme-copy mt-3 space-y-3 text-sm">
+                                            {(pop.wordDetails.partOfSpeech || pop.wordDetails.gender || pop.wordDetails.lemma) && (
+                                                <div className="muted-copy">
+                                                    {[
+                                                        pop.wordDetails.partOfSpeech,
+                                                        pop.wordDetails.gender ? `gender: ${pop.wordDetails.gender}` : '',
+                                                        pop.wordDetails.lemma ? `lemma: ${pop.wordDetails.lemma}` : ''
+                                                    ]
+                                                        .filter(Boolean)
+                                                        .join(' · ')}
+                                                </div>
+                                            )}
+
+                                            {!!pop.wordDetails.translations?.length && (
+                                                <div>
+                                                    <div className="text-xs uppercase tracking-[0.16em] muted-copy">Translations</div>
+                                                    <div className="mt-1">{pop.wordDetails.translations.join(', ')}</div>
+                                                </div>
+                                            )}
+
+                                            {!!pop.wordDetails.definitions?.length && (
+                                                <div>
+                                                    <div className="text-xs uppercase tracking-[0.16em] muted-copy">Definitions</div>
+                                                    <ol className="mt-1 list-decimal space-y-1 pl-5">
+                                                        {pop.wordDetails.definitions.slice(0, 3).map((definition, index) => (
+                                                            <li key={`${definition}-${index}`}>{definition}</li>
+                                                        ))}
+                                                    </ol>
+                                                </div>
+                                            )}
+
+                                            {!!pop.wordDetails.examples?.length && (
+                                                <div>
+                                                    <div className="text-xs uppercase tracking-[0.16em] muted-copy">Examples</div>
+                                                    <ul className="mt-1 list-disc space-y-1 pl-5">
+                                                        {pop.wordDetails.examples.slice(0, 2).map((example, index) => (
+                                                            <li key={`${example}-${index}`}>{example}</li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
+
+                                            {pop.wordDetails.sourceName && (
+                                                <div className="text-xs muted-copy">
+                                                    Source: {pop.wordDetails.sourceUrl ? (
+                                                        <a
+                                                            href={pop.wordDetails.sourceUrl}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            className="underline"
+                                                        >
+                                                            {pop.wordDetails.sourceName}
+                                                        </a>
+                                                    ) : pop.wordDetails.sourceName}
+                                                </div>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="theme-copy mt-2 whitespace-pre-wrap text-sm">
+                                            {pop.result ?? '—'}
+                                        </div>
+                                    )}
 
                                     {pop.action !== 'explain' && (
                                         <div className="mt-4 flex items-center gap-2">

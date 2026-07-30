@@ -403,6 +403,69 @@ proxy_set_header X-Real-IP $remote_addr;
 proxy_set_header X-Forwarded-For $remote_addr;
 ```
 
+### Local dictionary and translation cache
+
+Word lookup is dictionary-first. When `/api/translate/word` receives a selected
+word, the backend checks the local `dictionary_entry` table before using the
+configured translation provider. If a dictionary entry is found, the response
+contains structured fields such as definitions, examples, part of speech,
+gender, translations, and source metadata. If no entry is found, the app falls
+back to the provider path.
+
+Literal word and sentence provider responses are stored in `translation_cache`.
+Explanation responses are intentionally not cached because they depend more on
+context and prompt wording.
+
+The dictionary MVP supports English, German, and Spanish imports. More languages
+can be added later by extending the importer language choices and importing the
+corresponding dictionary data.
+
+Recommended data source: Kaikki/Wiktextract JSONL exports from Wiktionary:
+
+```text
+https://kaikki.org/dictionary/rawdata.html
+```
+
+The dictionary data files are not committed to this repository. Download them
+outside Git, then import only entries that occur in your ingested books:
+
+```bash
+cd python-embed
+export DATABASE_URL="postgresql://mlr:mlr_password@localhost:5432/mlr"
+
+python import_dictionary.py \
+  --jsonl ~/Downloads/kaikki.org-dictionary-English.jsonl \
+  --source en \
+  --target es
+
+python import_dictionary.py \
+  --jsonl ~/Downloads/kaikki.org-dictionary-German.jsonl \
+  --source de \
+  --target en
+
+python import_dictionary.py \
+  --jsonl ~/Downloads/kaikki.org-dictionary-Spanish.jsonl \
+  --source es \
+  --target en
+```
+
+By default, the importer scans the current `segment` table and imports only
+matching book words. Use `--all-entries` only for local experiments, because full
+dictionary imports can be large.
+
+If dictionary rows were imported before a new field was added, re-run the import
+for the same language pair. Existing rows are updated in place.
+
+To test a lookup after import:
+
+```bash
+curl "http://localhost:8080/api/translate/word?text=morning&source=en&target=es"
+```
+
+In the reader UI, select a single word. Dictionary hits are shown as a compact
+entry with translations, definitions, examples, and a source label. Misses still
+use the configured provider or the stub provider.
+
 ### Ollama
 
 Start local service:
@@ -491,6 +554,42 @@ CREATE TABLE IF NOT EXISTS alignment (
   created_at TIMESTAMP DEFAULT now(),
   CONSTRAINT alignment_left_right_unique
     UNIQUE (left_segment_id, right_segment_id, method)
+);
+
+-- Local dictionary entries used before provider fallback on word lookup
+CREATE TABLE IF NOT EXISTS dictionary_entry (
+  id BIGSERIAL PRIMARY KEY,
+  source_lang TEXT NOT NULL,
+  target_lang TEXT NOT NULL,
+  surface TEXT NOT NULL,
+  normalized TEXT NOT NULL,
+  lemma TEXT,
+  part_of_speech TEXT,
+  gender TEXT,
+  definitions_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  examples_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  translations_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  source_name TEXT,
+  source_url TEXT,
+  created_at TIMESTAMP DEFAULT now(),
+  last_accessed_at TIMESTAMP DEFAULT now(),
+  hit_count INT NOT NULL DEFAULT 0,
+  UNIQUE(source_lang, target_lang, normalized)
+);
+
+-- Persistent cache for literal word/sentence provider calls
+CREATE TABLE IF NOT EXISTS translation_cache (
+  id BIGSERIAL PRIMARY KEY,
+  cache_key TEXT NOT NULL UNIQUE,
+  operation TEXT NOT NULL,
+  source_lang TEXT NOT NULL,
+  target_lang TEXT NOT NULL,
+  normalized_text TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  response_text TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT now(),
+  last_accessed_at TIMESTAMP DEFAULT now(),
+  hit_count INT NOT NULL DEFAULT 0
 );
 
 ```

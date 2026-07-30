@@ -26,19 +26,13 @@ public class TranslateController {
             extraTags = {"component", "controller"}
     )
     @GetMapping("/word")
-    public Map<String,String> word(
+    public WordTranslationResult word(
             @RequestParam String text,
             @RequestParam String source,
             @RequestParam String target) {
 
         log.info("User word lookup: {} -> {} ({} chars)", source, target, text.length());
-        String translated = svc.word(text, source, target);
-        return Map.of(
-                "text", text,
-                "source", source,
-                "target", target,
-                "translated", translated
-        );
+        return svc.word(text, source, target);
     }
 
     @Timed(
