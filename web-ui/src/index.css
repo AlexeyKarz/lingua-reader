@@ -49,6 +49,12 @@
   --popover-close-hover-bg: #e2e8f0;
   --popover-close-hover-text: #334155;
   --left-rule: rgba(157, 188, 242, 0.42);
+  --dictionary-chip-bg: rgba(219, 234, 254, 0.72);
+  --dictionary-chip-border: rgba(96, 165, 250, 0.24);
+  --dictionary-chip-text: #1d4ed8;
+  --dictionary-meta-bg: rgba(248, 252, 255, 0.8);
+  --dictionary-form-bg: rgba(255, 247, 237, 0.74);
+  --dictionary-form-border: rgba(251, 146, 60, 0.22);
 }
 
 :root[data-theme="dark"] {
@@ -100,6 +106,12 @@
   --popover-close-hover-bg: rgba(48, 74, 105, 0.98);
   --popover-close-hover-text: #eff6ff;
   --left-rule: rgba(96, 165, 250, 0.24);
+  --dictionary-chip-bg: rgba(37, 99, 235, 0.22);
+  --dictionary-chip-border: rgba(147, 197, 253, 0.24);
+  --dictionary-chip-text: #dbeafe;
+  --dictionary-meta-bg: rgba(30, 58, 90, 0.64);
+  --dictionary-form-bg: rgba(120, 75, 24, 0.34);
+  --dictionary-form-border: rgba(251, 191, 36, 0.22);
 }
 
 html {
@@ -352,6 +364,59 @@ html[data-theme="dark"] .nav-pill-active {
   background: var(--popover-bg);
   border-color: var(--border);
   box-shadow: var(--shadow-lift);
+}
+
+.dictionary-summary {
+  @apply rounded-[20px] border px-3 py-3;
+  background: var(--surface-tint);
+  border-color: var(--border);
+}
+
+.dictionary-section {
+  @apply rounded-[18px] border px-3 py-3;
+  background: color-mix(in srgb, var(--surface-muted) 74%, transparent);
+  border-color: var(--border);
+}
+
+.dictionary-section-title {
+  @apply text-xs font-semibold uppercase;
+  color: var(--muted);
+  letter-spacing: 0.12em;
+}
+
+.dictionary-entry {
+  overflow-wrap: anywhere;
+}
+
+.dictionary-chip {
+  @apply inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium;
+  background: var(--dictionary-chip-bg);
+  border-color: var(--dictionary-chip-border);
+  color: var(--dictionary-chip-text);
+}
+
+.dictionary-meta-chip {
+  @apply inline-flex items-center rounded-full px-2.5 py-1 text-xs;
+  background: var(--dictionary-meta-bg);
+  color: var(--text-soft);
+}
+
+.dictionary-form-note {
+  @apply rounded-[16px] border px-3 py-2;
+  background: var(--dictionary-form-bg);
+  border-color: var(--dictionary-form-border);
+  color: var(--text-soft);
+}
+
+.dictionary-toggle {
+  @apply inline-flex items-center rounded-full px-3 py-1.5 text-xs font-medium transition duration-200;
+  background: var(--secondary-bg);
+  border: 1px solid var(--secondary-border);
+  color: var(--secondary-text);
+}
+
+.dictionary-toggle:hover {
+  background: var(--secondary-hover-bg);
 }
 
 .muted-copy {

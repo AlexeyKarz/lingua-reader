@@ -204,6 +204,8 @@ export default function Reader() {
     }, [data?.alignments])
 
     const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set())
+    const [expandedDictionaryExamples, setExpandedDictionaryExamples] = useState<Set<string>>(new Set())
+    const [showGrammarForms, setShowGrammarForms] = useState(false)
 
     // Front matter states
     const [frontMatter, setFrontMatter] = useState<{
@@ -541,6 +543,8 @@ export default function Reader() {
         const targetLang = which === 'left' ? tgt : src
 
         // Show the popover in "ready" state (only a button for now)
+        setExpandedDictionaryExamples(new Set())
+        setShowGrammarForms(false)
         setPop({ kind: 'ready', pane: which, sentenceId, text, rect, sourceLang, targetLang })
     }
 
@@ -557,6 +561,10 @@ export default function Reader() {
         const { text, sourceLang, targetLang } = pop
         const isWord = text.length <= 40 && !/\s/.test(text)
 
+        if (action === 'translate') {
+            setExpandedDictionaryExamples(new Set())
+            setShowGrammarForms(false)
+        }
         setPop({ ...pop, kind: 'loading', action })
 
         try {
@@ -715,6 +723,8 @@ export default function Reader() {
     useEffect(() => {
         rangeRef.current = null
         setPop({ kind: 'hidden' })
+        setExpandedDictionaryExamples(new Set())
+        setShowGrammarForms(false)
     }, [page, size, bookId, src, tgt])
 
     async function toggleFrontLeft() {
@@ -770,11 +780,29 @@ export default function Reader() {
         }]
     }
 
+    function uniqueDictionaryStrings(values: Array<string | undefined>) {
+        const seen = new Set<string>()
+        const result: string[] = []
+        values.forEach(value => {
+            const trimmed = value?.trim()
+            if (!trimmed) return
+            const key = trimmed.toLocaleLowerCase()
+            if (seen.has(key)) return
+            seen.add(key)
+            result.push(trimmed)
+        })
+        return result
+    }
+
+    function dictionaryEntryKey(entry: DictionaryEntryDetails, index: number) {
+        return `${entry.id}:${entry.surface}:${entry.partOfSpeech ?? ''}:${entry.baseSurface ?? ''}:${index}`
+    }
+
     function renderDictionarySection(title: string, entries: DictionaryEntryDetails[]) {
         if (!entries.length) return null
         return (
-            <div className="space-y-3">
-                <div className="text-xs uppercase tracking-[0.16em] muted-copy">{title}</div>
+            <div className="dictionary-section space-y-3">
+                <div className="dictionary-section-title">{title}</div>
                 <div className="space-y-4">
                     {entries.map(renderDictionaryEntry)}
                 </div>
@@ -794,12 +822,46 @@ export default function Reader() {
             normalizeDictionarySurface(entry.surface) !== selected
         )
         const forms = entries.filter(isDictionaryFormEntry)
+        const summaryTranslations = uniqueDictionaryStrings(
+            [...main, ...base].flatMap(entry => entry.translations ?? [])
+        )
 
         return (
             <div className="theme-copy mt-3 space-y-5 text-sm">
+                {!!summaryTranslations.length && (
+                    <div className="dictionary-summary">
+                        <div className="dictionary-section-title">Translations</div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                            {summaryTranslations.slice(0, 8).map(translation => (
+                                <span key={translation} className="dictionary-chip">
+                                    {translation}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
                 {renderDictionarySection('Main meanings', main)}
                 {renderDictionarySection('Base form', base)}
-                {renderDictionarySection('Grammatical forms', forms)}
+
+                {!!forms.length && (
+                    <div className="dictionary-section space-y-3">
+                        <button
+                            type="button"
+                            className="btn-secondary text-xs"
+                            onClick={() => setShowGrammarForms(value => !value)}
+                        >
+                            {showGrammarForms
+                                ? `Hide grammatical forms (${forms.length})`
+                                : `Show grammatical forms (${forms.length})`}
+                        </button>
+                        {showGrammarForms && (
+                            <div className="space-y-4">
+                                {forms.map(renderDictionaryEntry)}
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {details.sourceName && (
                     <div className="text-xs muted-copy">
@@ -826,25 +888,34 @@ export default function Reader() {
             entry.lemma ? `lemma: ${entry.lemma}` : '',
         ].filter(Boolean)
         const formTags = entry.formTags?.filter(Boolean) ?? []
+        const key = dictionaryEntryKey(entry, index)
+        const examples = entry.examples ?? []
+        const examplesExpanded = expandedDictionaryExamples.has(key)
 
         return (
             <section
-                key={`${entry.id}-${index}`}
-                className="border-t border-[color:var(--border)] pt-3 first:border-t-0 first:pt-0"
+                key={key}
+                className="dictionary-entry border-t border-[color:var(--border)] pt-3 first:border-t-0 first:pt-0"
             >
-                <div className="theme-heading text-sm font-semibold">
-                    {entry.surface}
-                    {index > 0 && <span className="muted-copy font-normal"> · variant {index + 1}</span>}
+                <div className="flex flex-wrap items-baseline gap-2">
+                    <div className="theme-heading text-[15px] font-semibold">
+                        {entry.surface}
+                    </div>
+                    {index > 0 && <span className="muted-copy text-xs">variant {index + 1}</span>}
                 </div>
 
                 {!!meta.length && (
-                    <div className="muted-copy mt-1 text-xs">
-                        {meta.join(' · ')}
+                    <div className="mt-2 flex flex-wrap gap-2">
+                        {meta.map(value => (
+                            <span key={value} className="dictionary-meta-chip">
+                                {value}
+                            </span>
+                        ))}
                     </div>
                 )}
 
                 {entry.baseSurface && entry.baseSurface.toLowerCase() !== entry.surface.toLowerCase() && (
-                    <div className="theme-copy mt-2 text-sm">
+                    <div className="dictionary-form-note mt-3 text-sm">
                         Form of <span className="font-medium">{entry.baseSurface}</span>
                         {!!formTags.length && (
                             <span className="muted-copy"> ({formTags.join(', ')})</span>
@@ -854,15 +925,21 @@ export default function Reader() {
 
                 {!!entry.translations?.length && (
                     <div className="mt-3">
-                        <div className="text-xs uppercase tracking-[0.16em] muted-copy">Translations</div>
-                        <div className="theme-copy mt-1 text-sm">{entry.translations.join(', ')}</div>
+                        <div className="dictionary-section-title">Translations</div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                            {entry.translations.map(translation => (
+                                <span key={translation} className="dictionary-chip">
+                                    {translation}
+                                </span>
+                            ))}
+                        </div>
                     </div>
                 )}
 
                 {!!entry.definitions?.length && (
                     <div className="mt-3">
-                        <div className="text-xs uppercase tracking-[0.16em] muted-copy">Definitions</div>
-                        <ol className="theme-copy mt-1 list-decimal space-y-1 pl-5 text-sm">
+                        <div className="dictionary-section-title">Definitions</div>
+                        <ol className="theme-copy mt-2 list-decimal space-y-2 pl-5 text-sm leading-6">
                             {entry.definitions.map((definition, definitionIndex) => (
                                 <li key={`${definition}-${definitionIndex}`}>{definition}</li>
                             ))}
@@ -870,14 +947,29 @@ export default function Reader() {
                     </div>
                 )}
 
-                {!!entry.examples?.length && (
+                {!!examples.length && (
                     <div className="mt-3">
-                        <div className="text-xs uppercase tracking-[0.16em] muted-copy">Examples</div>
-                        <ul className="theme-copy mt-1 list-disc space-y-1 pl-5 text-sm">
-                            {entry.examples.map((example, exampleIndex) => (
-                                <li key={`${example}-${exampleIndex}`}>{example}</li>
-                            ))}
-                        </ul>
+                        <button
+                            type="button"
+                            className="dictionary-toggle"
+                            onClick={() => {
+                                setExpandedDictionaryExamples(previous => {
+                                    const next = new Set(previous)
+                                    if (next.has(key)) next.delete(key)
+                                    else next.add(key)
+                                    return next
+                                })
+                            }}
+                        >
+                            {examplesExpanded ? 'Hide examples' : `Show examples (${examples.length})`}
+                        </button>
+                        {examplesExpanded && (
+                            <ul className="theme-copy mt-2 list-disc space-y-2 pl-5 text-sm leading-6">
+                                {examples.map((example, exampleIndex) => (
+                                    <li key={`${example}-${exampleIndex}`}>{example}</li>
+                                ))}
+                            </ul>
+                        )}
                     </div>
                 )}
             </section>
@@ -1204,7 +1296,7 @@ export default function Reader() {
                     className="fixed z-50"
                     style={{ top: `${coords.top}px`, left: `${coords.left}px` }}
                 >
-                    <div className="popover-surface relative max-w-md">
+                    <div className="popover-surface relative w-[min(92vw,40rem)]">
                         <button
                             aria-label="Close"
                             onClick={() => setPop({ kind: 'hidden' })}
