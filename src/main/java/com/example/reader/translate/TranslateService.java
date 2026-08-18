@@ -49,9 +49,12 @@ public class TranslateService {
                     dictionary.lemma(),
                     dictionary.partOfSpeech(),
                     dictionary.gender(),
+                    dictionary.baseSurface(),
+                    dictionary.baseNormalized(),
                     dictionary.definitions(),
                     dictionary.examples(),
                     dictionary.translations(),
+                    dictionary.entries(),
                     dictionary.sourceName(),
                     dictionary.sourceUrl()
             );

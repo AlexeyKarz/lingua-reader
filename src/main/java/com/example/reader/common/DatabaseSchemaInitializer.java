@@ -95,6 +95,7 @@ public class DatabaseSchemaInitializer {
         jdbc.execute("""
                 create table if not exists dictionary_entry (
                   id bigserial primary key,
+                  entry_key text not null unique,
                   source_lang text not null,
                   target_lang text not null,
                   surface text not null,
@@ -102,6 +103,9 @@ public class DatabaseSchemaInitializer {
                   lemma text,
                   part_of_speech text,
                   gender text,
+                  base_surface text,
+                  base_normalized text,
+                  form_tags_json jsonb not null default '[]'::jsonb,
                   definitions_json jsonb not null default '[]'::jsonb,
                   examples_json jsonb not null default '[]'::jsonb,
                   translations_json jsonb not null default '[]'::jsonb,
@@ -109,12 +113,34 @@ public class DatabaseSchemaInitializer {
                   source_url text,
                   created_at timestamp default now(),
                   last_accessed_at timestamp default now(),
-                  hit_count int not null default 0,
-                  unique(source_lang, target_lang, normalized)
+                  hit_count int not null default 0
                 )
                 """);
 
+        jdbc.execute("alter table dictionary_entry add column if not exists entry_key text");
         jdbc.execute("alter table dictionary_entry add column if not exists gender text");
+        jdbc.execute("alter table dictionary_entry add column if not exists base_surface text");
+        jdbc.execute("alter table dictionary_entry add column if not exists base_normalized text");
+        jdbc.execute("""
+                alter table dictionary_entry
+                add column if not exists form_tags_json jsonb not null default '[]'::jsonb
+                """);
+        jdbc.execute("""
+                update dictionary_entry
+                set entry_key = source_lang || '|' || target_lang || '|' || normalized || '|' ||
+                                coalesce(part_of_speech, '') || '|' || coalesce(lemma, '') || '|' || id
+                where entry_key is null
+                """);
+        jdbc.execute("alter table dictionary_entry alter column entry_key set not null");
+        jdbc.execute("""
+                do $$ begin
+                  alter table dictionary_entry drop constraint dictionary_entry_source_lang_target_lang_normalized_key;
+                exception when undefined_object then null; end $$
+                """);
+        jdbc.execute("""
+                create unique index if not exists dictionary_entry_entry_key_idx
+                on dictionary_entry (entry_key)
+                """);
 
         jdbc.execute("""
                 create index if not exists dictionary_entry_lookup_idx

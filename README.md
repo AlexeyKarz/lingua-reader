@@ -407,10 +407,10 @@ proxy_set_header X-Forwarded-For $remote_addr;
 
 Word lookup is dictionary-first. When `/api/translate/word` receives a selected
 word, the backend checks the local `dictionary_entry` table before using the
-configured translation provider. If a dictionary entry is found, the response
-contains structured fields such as definitions, examples, part of speech,
-gender, translations, and source metadata. If no entry is found, the app falls
-back to the provider path.
+configured translation provider. If dictionary entries are found, the response
+contains all matching imported entries, including definitions, examples, part of
+speech, gender, translations, source metadata, and form-of/base-form links. If no
+entry is found, the app falls back to the provider path.
 
 Literal word and sentence provider responses are stored in `translation_cache`.
 Explanation responses are intentionally not cached because they depend more on
@@ -453,8 +453,17 @@ By default, the importer scans the current `segment` table and imports only
 matching book words. Use `--all-entries` only for local experiments, because full
 dictionary imports can be large.
 
-If dictionary rows were imported before a new field was added, re-run the import
-for the same language pair. Existing rows are updated in place.
+If dictionary rows were imported before a dictionary schema change, re-run the
+import for the same language pair. Existing rows are updated in place. The
+importer now keeps multiple entries for the same written word, so homographs and
+different parts of speech can be displayed together. It also performs a second
+pass for referenced base forms. For example, if a selected German word is only
+found as an inflected form, the importer also attempts to import the base lemma
+referenced by Wiktionary/Kaikki.
+
+The reader popover groups dictionary results into main meanings, base-form
+meanings, and grammatical forms. This keeps useful lexical translations visible
+first while still preserving grammatical-form information from Wiktionary.
 
 To test a lookup after import:
 
@@ -559,6 +568,7 @@ CREATE TABLE IF NOT EXISTS alignment (
 -- Local dictionary entries used before provider fallback on word lookup
 CREATE TABLE IF NOT EXISTS dictionary_entry (
   id BIGSERIAL PRIMARY KEY,
+  entry_key TEXT NOT NULL UNIQUE,
   source_lang TEXT NOT NULL,
   target_lang TEXT NOT NULL,
   surface TEXT NOT NULL,
@@ -566,6 +576,9 @@ CREATE TABLE IF NOT EXISTS dictionary_entry (
   lemma TEXT,
   part_of_speech TEXT,
   gender TEXT,
+  base_surface TEXT,
+  base_normalized TEXT,
+  form_tags_json JSONB NOT NULL DEFAULT '[]'::jsonb,
   definitions_json JSONB NOT NULL DEFAULT '[]'::jsonb,
   examples_json JSONB NOT NULL DEFAULT '[]'::jsonb,
   translations_json JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -573,8 +586,7 @@ CREATE TABLE IF NOT EXISTS dictionary_entry (
   source_url TEXT,
   created_at TIMESTAMP DEFAULT now(),
   last_accessed_at TIMESTAMP DEFAULT now(),
-  hit_count INT NOT NULL DEFAULT 0,
-  UNIQUE(source_lang, target_lang, normalized)
+  hit_count INT NOT NULL DEFAULT 0
 );
 
 -- Persistent cache for literal word/sentence provider calls

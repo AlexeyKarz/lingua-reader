@@ -4,6 +4,7 @@ import java.util.List;
 
 public record DictionaryEntry(
         long id,
+        String entryKey,
         String sourceLang,
         String targetLang,
         String surface,
@@ -11,6 +12,9 @@ public record DictionaryEntry(
         String lemma,
         String partOfSpeech,
         String gender,
+        String baseSurface,
+        String baseNormalized,
+        List<String> formTags,
         List<String> definitions,
         List<String> examples,
         List<String> translations,

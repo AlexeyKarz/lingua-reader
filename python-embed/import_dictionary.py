@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import gzip
+import hashlib
 import json
 import os
 import re
@@ -109,6 +110,56 @@ def collect_gender_values(*values) -> list[str]:
     return found
 
 
+def collect_form_of(sense: dict) -> tuple[str, list[str]]:
+    candidates = []
+    for key in ("form_of", "alt_of", "inflection_of"):
+        value = sense.get(key)
+        if isinstance(value, list):
+            candidates.extend(value)
+        elif value:
+            candidates.append(value)
+
+    base = ""
+    for candidate in candidates:
+        if isinstance(candidate, dict):
+            base = str(candidate.get("word") or candidate.get("text") or "").strip()
+        else:
+            base = str(candidate).strip()
+        if base:
+            break
+
+    tags: list[str] = []
+    for value in (sense.get("tags"), sense.get("raw_tags")):
+        if isinstance(value, list):
+            for tag in value:
+                text = str(tag).strip()
+                if text and text not in tags:
+                    tags.append(text)
+        elif isinstance(value, str):
+            for tag in re.split(r"[,;/]+", value):
+                text = tag.strip()
+                if text and text not in tags:
+                    tags.append(text)
+
+    return base, tags
+
+
+def entry_key(source_lang: str, target_lang: str, entry: dict) -> str:
+    raw = "|".join(
+        [
+            source_lang,
+            target_lang,
+            entry["normalized"],
+            entry["part_of_speech"],
+            entry["lemma"],
+            entry["base_normalized"],
+            json.dumps(entry["definitions"], ensure_ascii=False, sort_keys=True),
+            json.dumps(entry["translations"], ensure_ascii=False, sort_keys=True),
+        ]
+    )
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
 def extract_entry(obj: dict, source_lang: str, target_lang: str, max_items: int) -> Optional[dict]:
     word = str(obj.get("word") or "").strip()
     normalized = normalize_word(word)
@@ -124,6 +175,8 @@ def extract_entry(obj: dict, source_lang: str, target_lang: str, max_items: int)
     translations: list[str] = []
     part_of_speech = str(obj.get("pos") or "").strip()
     lemma = str(obj.get("lemma") or "").strip()
+    base_surface = ""
+    form_tags: list[str] = []
     genders = collect_gender_values(
         obj.get("gender"),
         obj.get("genders"),
@@ -150,6 +203,13 @@ def extract_entry(obj: dict, source_lang: str, target_lang: str, max_items: int)
         ):
             if gender not in genders:
                 genders.append(gender)
+
+        base, tags = collect_form_of(sense)
+        if base and not base_surface:
+            base_surface = base
+        for tag in tags:
+            if tag not in form_tags:
+                form_tags.append(tag)
 
         for definition in as_string_list(sense.get("glosses") or sense.get("raw_glosses"), max_items):
             if definition not in definitions:
@@ -196,6 +256,9 @@ def extract_entry(obj: dict, source_lang: str, target_lang: str, max_items: int)
         "lemma": lemma,
         "part_of_speech": part_of_speech,
         "gender": ", ".join(genders),
+        "base_surface": base_surface,
+        "base_normalized": normalize_word(base_surface),
+        "form_tags": form_tags[:max_items],
         "definitions": definitions[:max_items],
         "examples": examples[:max_items],
         "translations": translations[:max_items],
@@ -207,15 +270,19 @@ def upsert_entry(conn: psycopg.Connection, source_lang: str, target_lang: str, e
         cur.execute(
             """
             insert into dictionary_entry (
-              source_lang, target_lang, surface, normalized, lemma, part_of_speech, gender,
+              entry_key, source_lang, target_lang, surface, normalized, lemma, part_of_speech, gender,
+              base_surface, base_normalized, form_tags_json,
               definitions_json, examples_json, translations_json, source_name, source_url
             )
-            values (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s, %s)
-            on conflict (source_lang, target_lang, normalized) do update set
+            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s, %s)
+            on conflict (entry_key) do update set
               surface = excluded.surface,
               lemma = excluded.lemma,
               part_of_speech = excluded.part_of_speech,
               gender = excluded.gender,
+              base_surface = excluded.base_surface,
+              base_normalized = excluded.base_normalized,
+              form_tags_json = excluded.form_tags_json,
               definitions_json = excluded.definitions_json,
               examples_json = excluded.examples_json,
               translations_json = excluded.translations_json,
@@ -224,6 +291,7 @@ def upsert_entry(conn: psycopg.Connection, source_lang: str, target_lang: str, e
               last_accessed_at = now()
             """,
             (
+                entry_key(source_lang, target_lang, entry),
                 source_lang,
                 target_lang,
                 entry["surface"],
@@ -231,6 +299,9 @@ def upsert_entry(conn: psycopg.Connection, source_lang: str, target_lang: str, e
                 entry["lemma"],
                 entry["part_of_speech"],
                 entry["gender"],
+                entry["base_surface"],
+                entry["base_normalized"],
+                json.dumps(entry["form_tags"], ensure_ascii=False),
                 json.dumps(entry["definitions"], ensure_ascii=False),
                 json.dumps(entry["examples"], ensure_ascii=False),
                 json.dumps(entry["translations"], ensure_ascii=False),
@@ -238,6 +309,51 @@ def upsert_entry(conn: psycopg.Connection, source_lang: str, target_lang: str, e
                 SOURCE_URL,
             ),
         )
+
+
+def import_matching_entries(
+    conn: psycopg.Connection,
+    jsonl_path: Path,
+    source_lang: str,
+    target_lang: str,
+    terms: Optional[set[str]],
+    max_items: int,
+    limit: int,
+    collect_bases: bool,
+) -> tuple[int, int, set[str]]:
+    imported = 0
+    scanned = 0
+    base_terms: set[str] = set()
+    opener = gzip.open if jsonl_path.suffix == ".gz" else open
+
+    with opener(jsonl_path, "rt", encoding="utf-8") as fh:
+        for line in fh:
+            scanned += 1
+            if not line.strip():
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            entry = extract_entry(obj, source_lang, target_lang, max_items)
+            if not entry:
+                continue
+            if terms is not None and entry["normalized"] not in terms:
+                continue
+
+            upsert_entry(conn, source_lang, target_lang, entry)
+            imported += 1
+            if collect_bases and entry["base_normalized"]:
+                base_terms.add(entry["base_normalized"])
+            if imported % 500 == 0:
+                conn.commit()
+                print(f"Imported {imported} entries after scanning {scanned} lines")
+            if limit and imported >= limit:
+                break
+
+    conn.commit()
+    return imported, scanned, base_terms
 
 
 def main() -> int:
@@ -266,35 +382,37 @@ def main() -> int:
             allowed_terms = load_book_terms(conn, args.source)
             print(f"Loaded {len(allowed_terms)} unique {args.source} terms from segmented books")
 
-        imported = 0
-        scanned = 0
-        opener = gzip.open if jsonl_path.suffix == ".gz" else open
-        with opener(jsonl_path, "rt", encoding="utf-8") as fh:
-            for line in fh:
-                scanned += 1
-                if not line.strip():
-                    continue
-                try:
-                    obj = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
+        imported, scanned, base_terms = import_matching_entries(
+            conn,
+            jsonl_path,
+            args.source,
+            args.target,
+            allowed_terms,
+            args.max_items,
+            args.limit,
+            collect_bases=not args.all_entries,
+        )
 
-                entry = extract_entry(obj, args.source, args.target, args.max_items)
-                if not entry:
-                    continue
-                if allowed_terms is not None and entry["normalized"] not in allowed_terms:
-                    continue
+        base_imported = 0
+        if allowed_terms is not None:
+            missing_base_terms = base_terms - allowed_terms
+            if missing_base_terms:
+                print(f"Importing {len(missing_base_terms)} referenced base forms")
+                base_imported, _, _ = import_matching_entries(
+                    conn,
+                    jsonl_path,
+                    args.source,
+                    args.target,
+                    missing_base_terms,
+                    args.max_items,
+                    0,
+                    collect_bases=False,
+                )
 
-                upsert_entry(conn, args.source, args.target, entry)
-                imported += 1
-                if imported % 500 == 0:
-                    conn.commit()
-                    print(f"Imported {imported} entries after scanning {scanned} lines")
-                if args.limit and imported >= args.limit:
-                    break
-
-        conn.commit()
-        print(f"Done. Imported {imported} entries from {jsonl_path}")
+        print(
+            f"Done. Imported {imported} book-term entries and {base_imported} referenced base entries "
+            f"after scanning {scanned} lines from {jsonl_path}"
+        )
 
     return 0
 

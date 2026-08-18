@@ -49,6 +49,25 @@ type WordDetails = {
     lemma?: string
     partOfSpeech?: string
     gender?: string
+    baseSurface?: string
+    baseNormalized?: string
+    definitions?: string[]
+    examples?: string[]
+    translations?: string[]
+    entries?: DictionaryEntryDetails[]
+    sourceName?: string
+    sourceUrl?: string
+}
+
+type DictionaryEntryDetails = {
+    id: number
+    surface: string
+    lemma?: string
+    partOfSpeech?: string
+    gender?: string
+    baseSurface?: string
+    baseNormalized?: string
+    formTags?: string[]
     definitions?: string[]
     examples?: string[]
     translations?: string[]
@@ -585,9 +604,12 @@ export default function Reader() {
                             lemma: j.lemma,
                             partOfSpeech: j.partOfSpeech,
                             gender: j.gender,
+                            baseSurface: j.baseSurface,
+                            baseNormalized: j.baseNormalized,
                             definitions: j.definitions ?? [],
                             examples: j.examples ?? [],
                             translations: j.translations ?? [],
+                            entries: j.entries ?? [],
                             sourceName: j.sourceName,
                             sourceUrl: j.sourceUrl,
                         }
@@ -703,6 +725,163 @@ export default function Reader() {
     async function toggleFrontRight() {
         await ensureFrontMatterLoaded()
         setShowFrontRight(v => !v)
+    }
+
+    function normalizeDictionarySurface(value: string | undefined) {
+        return (value ?? '')
+            .trim()
+            .replace(/^[^\p{L}\p{M}]+|[^\p{L}\p{M}]+$/gu, '')
+            .toLocaleLowerCase()
+    }
+
+    function looksLikeFormDefinition(definition: string) {
+        const text = definition.toLocaleLowerCase()
+        return text.includes(' des verbs ') ||
+            text.includes(' des substantivs ') ||
+            text.includes(' des adjektivs ') ||
+            text.includes(' form of ') ||
+            text.includes('plural of ') ||
+            text.includes('singular of ')
+    }
+
+    function isDictionaryFormEntry(entry: DictionaryEntryDetails) {
+        const surface = normalizeDictionarySurface(entry.surface)
+        const base = normalizeDictionarySurface(entry.baseSurface)
+        if (base && base !== surface) return true
+        if (entry.formTags?.some(tag => tag.toLocaleLowerCase() === 'form-of')) return true
+        if (entry.translations?.length) return false
+        const definitions = entry.definitions ?? []
+        return definitions.length > 0 && definitions.every(looksLikeFormDefinition)
+    }
+
+    function dictionaryEntries(details: WordDetails, selectedText: string): DictionaryEntryDetails[] {
+        if (details.entries?.length) return details.entries
+        return [{
+            id: 0,
+            surface: selectedText,
+            lemma: details.lemma,
+            partOfSpeech: details.partOfSpeech,
+            gender: details.gender,
+            baseSurface: details.baseSurface,
+            baseNormalized: details.baseNormalized,
+            definitions: details.definitions,
+            examples: details.examples,
+            translations: details.translations,
+        }]
+    }
+
+    function renderDictionarySection(title: string, entries: DictionaryEntryDetails[]) {
+        if (!entries.length) return null
+        return (
+            <div className="space-y-3">
+                <div className="text-xs uppercase tracking-[0.16em] muted-copy">{title}</div>
+                <div className="space-y-4">
+                    {entries.map(renderDictionaryEntry)}
+                </div>
+            </div>
+        )
+    }
+
+    function renderDictionaryResult(details: WordDetails, selectedText: string) {
+        const selected = normalizeDictionarySurface(selectedText)
+        const entries = dictionaryEntries(details, selectedText)
+        const main = entries.filter(entry =>
+            !isDictionaryFormEntry(entry) &&
+            normalizeDictionarySurface(entry.surface) === selected
+        )
+        const base = entries.filter(entry =>
+            !isDictionaryFormEntry(entry) &&
+            normalizeDictionarySurface(entry.surface) !== selected
+        )
+        const forms = entries.filter(isDictionaryFormEntry)
+
+        return (
+            <div className="theme-copy mt-3 space-y-5 text-sm">
+                {renderDictionarySection('Main meanings', main)}
+                {renderDictionarySection('Base form', base)}
+                {renderDictionarySection('Grammatical forms', forms)}
+
+                {details.sourceName && (
+                    <div className="text-xs muted-copy">
+                        Source: {details.sourceUrl ? (
+                            <a
+                                href={details.sourceUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="underline"
+                            >
+                                {details.sourceName}
+                            </a>
+                        ) : details.sourceName}
+                    </div>
+                )}
+            </div>
+        )
+    }
+
+    function renderDictionaryEntry(entry: DictionaryEntryDetails, index: number) {
+        const meta = [
+            entry.partOfSpeech,
+            entry.gender ? `gender: ${entry.gender}` : '',
+            entry.lemma ? `lemma: ${entry.lemma}` : '',
+        ].filter(Boolean)
+        const formTags = entry.formTags?.filter(Boolean) ?? []
+
+        return (
+            <section
+                key={`${entry.id}-${index}`}
+                className="border-t border-[color:var(--border)] pt-3 first:border-t-0 first:pt-0"
+            >
+                <div className="theme-heading text-sm font-semibold">
+                    {entry.surface}
+                    {index > 0 && <span className="muted-copy font-normal"> · variant {index + 1}</span>}
+                </div>
+
+                {!!meta.length && (
+                    <div className="muted-copy mt-1 text-xs">
+                        {meta.join(' · ')}
+                    </div>
+                )}
+
+                {entry.baseSurface && entry.baseSurface.toLowerCase() !== entry.surface.toLowerCase() && (
+                    <div className="theme-copy mt-2 text-sm">
+                        Form of <span className="font-medium">{entry.baseSurface}</span>
+                        {!!formTags.length && (
+                            <span className="muted-copy"> ({formTags.join(', ')})</span>
+                        )}
+                    </div>
+                )}
+
+                {!!entry.translations?.length && (
+                    <div className="mt-3">
+                        <div className="text-xs uppercase tracking-[0.16em] muted-copy">Translations</div>
+                        <div className="theme-copy mt-1 text-sm">{entry.translations.join(', ')}</div>
+                    </div>
+                )}
+
+                {!!entry.definitions?.length && (
+                    <div className="mt-3">
+                        <div className="text-xs uppercase tracking-[0.16em] muted-copy">Definitions</div>
+                        <ol className="theme-copy mt-1 list-decimal space-y-1 pl-5 text-sm">
+                            {entry.definitions.map((definition, definitionIndex) => (
+                                <li key={`${definition}-${definitionIndex}`}>{definition}</li>
+                            ))}
+                        </ol>
+                    </div>
+                )}
+
+                {!!entry.examples?.length && (
+                    <div className="mt-3">
+                        <div className="text-xs uppercase tracking-[0.16em] muted-copy">Examples</div>
+                        <ul className="theme-copy mt-1 list-disc space-y-1 pl-5 text-sm">
+                            {entry.examples.map((example, exampleIndex) => (
+                                <li key={`${example}-${exampleIndex}`}>{example}</li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+            </section>
+        )
     }
 
 
@@ -1069,63 +1248,7 @@ export default function Reader() {
 
                                     <div className="theme-heading mt-2 text-sm font-semibold">“{pop.text}”</div>
                                     {pop.wordDetails?.dictionary ? (
-                                        <div className="theme-copy mt-3 space-y-3 text-sm">
-                                            {(pop.wordDetails.partOfSpeech || pop.wordDetails.gender || pop.wordDetails.lemma) && (
-                                                <div className="muted-copy">
-                                                    {[
-                                                        pop.wordDetails.partOfSpeech,
-                                                        pop.wordDetails.gender ? `gender: ${pop.wordDetails.gender}` : '',
-                                                        pop.wordDetails.lemma ? `lemma: ${pop.wordDetails.lemma}` : ''
-                                                    ]
-                                                        .filter(Boolean)
-                                                        .join(' · ')}
-                                                </div>
-                                            )}
-
-                                            {!!pop.wordDetails.translations?.length && (
-                                                <div>
-                                                    <div className="text-xs uppercase tracking-[0.16em] muted-copy">Translations</div>
-                                                    <div className="mt-1">{pop.wordDetails.translations.join(', ')}</div>
-                                                </div>
-                                            )}
-
-                                            {!!pop.wordDetails.definitions?.length && (
-                                                <div>
-                                                    <div className="text-xs uppercase tracking-[0.16em] muted-copy">Definitions</div>
-                                                    <ol className="mt-1 list-decimal space-y-1 pl-5">
-                                                        {pop.wordDetails.definitions.slice(0, 3).map((definition, index) => (
-                                                            <li key={`${definition}-${index}`}>{definition}</li>
-                                                        ))}
-                                                    </ol>
-                                                </div>
-                                            )}
-
-                                            {!!pop.wordDetails.examples?.length && (
-                                                <div>
-                                                    <div className="text-xs uppercase tracking-[0.16em] muted-copy">Examples</div>
-                                                    <ul className="mt-1 list-disc space-y-1 pl-5">
-                                                        {pop.wordDetails.examples.slice(0, 2).map((example, index) => (
-                                                            <li key={`${example}-${index}`}>{example}</li>
-                                                        ))}
-                                                    </ul>
-                                                </div>
-                                            )}
-
-                                            {pop.wordDetails.sourceName && (
-                                                <div className="text-xs muted-copy">
-                                                    Source: {pop.wordDetails.sourceUrl ? (
-                                                        <a
-                                                            href={pop.wordDetails.sourceUrl}
-                                                            target="_blank"
-                                                            rel="noreferrer"
-                                                            className="underline"
-                                                        >
-                                                            {pop.wordDetails.sourceName}
-                                                        </a>
-                                                    ) : pop.wordDetails.sourceName}
-                                                </div>
-                                            )}
-                                        </div>
+                                        renderDictionaryResult(pop.wordDetails, pop.text)
                                     ) : (
                                         <div className="theme-copy mt-2 whitespace-pre-wrap text-sm">
                                             {pop.result ?? '—'}
