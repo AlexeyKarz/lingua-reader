@@ -141,6 +141,32 @@ npm i
 npm run dev
 ```
 
+## Testing
+
+Backend tests require PostgreSQL with pgvector reachable through the configured
+Spring datasource, matching the GitHub Actions Postgres service.
+
+```bash
+./gradlew test
+```
+
+Frontend verification is split into linting, unit/component tests, production
+build, and browser smoke tests:
+
+```bash
+cd web-ui
+npm ci
+npm run lint
+npm run test:unit
+npm run build
+npx playwright install chromium
+npm run test:e2e
+```
+
+The Playwright smoke tests start the Vite preview server and mock API responses
+in the browser. CI installs Chromium with system dependencies before running
+them.
+
 ## Production-style Docker deployment
 
 Use `docker-compose.prod.yml` for a small public/demo deployment. It runs:
@@ -188,9 +214,11 @@ For a real public deployment, put this behind HTTPS using a host-level reverse p
 ### GitHub Actions deployment
 
 The repository includes `.github/workflows/deploy.yml`. It runs backend tests,
-builds the frontend, then connects to the Hetzner server over SSH and runs
-`scripts/deploy-prod.sh`. Deployment is triggered by pushes to `main` or `prod`,
-and can also be started manually from the GitHub Actions tab.
+frontend linting, frontend unit tests, a production frontend build, and
+Playwright browser smoke tests. Deployment then connects to the Hetzner server
+over SSH and runs `scripts/deploy-prod.sh`. Verification runs on pull requests
+targeting `main` or `prod`. Deployment runs only on pushes to `main` or `prod`,
+or when started manually from the GitHub Actions tab.
 
 The server keeps its own `.env` file. Do not store database passwords, OpenAI
 keys, or admin tokens in the repository.

@@ -45,5 +45,9 @@ __pycache__/
 /perf/k6/results/
 /perf/parity/snapshots/
 
+### Frontend test outputs ###
+/web-ui/playwright-report/
+/web-ui/test-results/
+
 ### Local deployment artifacts ###
 /ops/deployment/dumps/
