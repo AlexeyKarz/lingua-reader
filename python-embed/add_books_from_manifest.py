@@ -28,6 +28,10 @@ VALUE_FLAGS = {
     "aligner": "--aligner",
     "threshold": "--threshold",
     "window": "--window",
+    "generate_max_source_chars": "--generate-max-source-chars",
+    "generate_chunk_max_chars": "--generate-chunk-max-chars",
+    "generate_context_chars": "--generate-context-chars",
+    "generate_translate_timeout_sec": "--generate-translate-timeout-sec",
     "dictionary_dir": "--dictionary-dir",
     "dictionary_max_items": "--dictionary-max-items",
     "dictionary_limit": "--dictionary-limit",
@@ -39,6 +43,7 @@ BOOL_FLAGS = {
     "dictionary_body_only": ("--dictionary-body-only", "--no-dictionary-body-only"),
     "dictionary_include_existing": ("--dictionary-include-existing", None),
     "dictionary_skip_missing": ("--dictionary-skip-missing", "--no-dictionary-skip-missing"),
+    "generate_dry_run": ("--generate-dry-run", None),
 }
 
 
@@ -130,7 +135,24 @@ def build_command(book: dict[str, Any], defaults: dict[str, Any]) -> list[str]:
     if not isinstance(editions, list) or not editions:
         raise ValueError(f"Book '{get_value(book, defaults, 'work')}' needs a non-empty editions array")
     for edition in editions:
-        cmd.extend(["--edition", kv_spec(edition, "editions")])
+        if isinstance(edition, dict) and "generate" in edition:
+            generated = edition.get("generate")
+            if generated is True or generated is None:
+                generated_spec: dict[str, Any] = {}
+            elif isinstance(generated, dict):
+                generated_spec = dict(generated)
+            elif isinstance(generated, str):
+                cmd.extend(["--generate-edition", generated])
+                continue
+            else:
+                raise ValueError("editions.generate must be an object, string, true, or null")
+
+            for key in ("lang", "publisher", "translator", "year"):
+                if key in edition and key not in generated_spec:
+                    generated_spec[key] = edition[key]
+            cmd.extend(["--generate-edition", kv_spec(generated_spec, "editions.generate")])
+        else:
+            cmd.extend(["--edition", kv_spec(edition, "editions")])
 
     body_starts = get_value(book, defaults, "body_start") or []
     if not isinstance(body_starts, list):

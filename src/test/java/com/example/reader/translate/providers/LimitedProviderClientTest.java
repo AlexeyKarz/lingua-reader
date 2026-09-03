@@ -73,6 +73,41 @@ class LimitedProviderClientTest {
     }
 
     @Test
+    void appliesSeparateLiteraryTextLimit() {
+        TranslateLimitProperties limits = new TranslateLimitProperties();
+        limits.setMaxTextChars(100);
+        limits.setLiteraryMaxTextChars(5);
+
+        CountingProvider realProvider = new CountingProvider();
+        LimitedProviderClient limited = new LimitedProviderClient(realProvider, limits);
+        requestFrom("203.0.113.10");
+
+        String result = limited.literary("too long", "en", "de", "context");
+
+        assertThat(realProvider.literaryCalls).isZero();
+        assertThat(result).contains("too long for AI mode");
+        assertThat(result).contains("Literary translation stub [en->de]: too long");
+    }
+
+    @Test
+    void adminRequestsBypassDailyQuotaButKeepTextLimit() {
+        TranslateLimitProperties limits = new TranslateLimitProperties();
+        limits.setLiteraryPerIpDaily(0);
+        limits.setLiteraryGlobalDaily(0);
+        limits.setLiteraryMaxTextChars(100);
+
+        CountingProvider realProvider = new CountingProvider();
+        LimitedProviderClient limited = new LimitedProviderClient(realProvider, limits);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/admin/translate/literary");
+        request.addHeader("X-Forwarded-For", "203.0.113.10");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+
+        assertThat(limited.literary("short", "en", "de", "context")).isEqualTo("real literary:short");
+        assertThat(realProvider.literaryCalls).isEqualTo(1);
+    }
+
+    @Test
     void fallsBackWhenProviderFails() {
         TranslateLimitProperties limits = new TranslateLimitProperties();
         FailingProvider realProvider = new FailingProvider();
@@ -93,11 +128,18 @@ class LimitedProviderClientTest {
 
     private static class CountingProvider implements ProviderClient {
         int literalCalls;
+        int literaryCalls;
 
         @Override
         public String literal(String text, String source, String target) {
             literalCalls++;
             return "real:" + text;
+        }
+
+        @Override
+        public String literary(String text, String source, String target, String bookContext) {
+            literaryCalls++;
+            return "real literary:" + text;
         }
 
         @Override
@@ -109,6 +151,11 @@ class LimitedProviderClientTest {
     private static class FailingProvider implements ProviderClient {
         @Override
         public String literal(String text, String source, String target) {
+            throw new RuntimeException("provider failed");
+        }
+
+        @Override
+        public String literary(String text, String source, String target, String bookContext) {
             throw new RuntimeException("provider failed");
         }
 

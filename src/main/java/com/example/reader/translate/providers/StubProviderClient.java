@@ -14,6 +14,13 @@ public class StubProviderClient implements ProviderClient {
     }
 
     @Override
+    public String literary(String text, String source, String target, String bookContext) {
+        log.info("Stub literary translation {} -> {} ({} chars, ctx {} chars)",
+                source, target, text.length(), bookContext == null ? 0 : bookContext.length());
+        return "Literary translation stub [" + source + "->" + target + "]: " + text;
+    }
+
+    @Override
     public String explain(String text, String source, String target, String bookContext) {
         log.info("Stub explain translation {} -> {} ({} chars, ctx {} chars)",
                 source, target, text.length(), bookContext == null ? 0 : bookContext.length());

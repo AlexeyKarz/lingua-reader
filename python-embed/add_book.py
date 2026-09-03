@@ -50,6 +50,7 @@ LANGUAGE_NAMES = {
     "pt": "Portuguese",
     "ru": "Russian",
 }
+DEFAULT_GENERATED_TRANSLATOR = "AI literary translation"
 
 
 def log(event: str, level: str = "INFO", **fields: Any) -> None:
@@ -113,6 +114,12 @@ def parse_int(value: Optional[str], default: int, field: str) -> int:
     if parsed < 0:
         raise ValueError(f"{field} must be >= 0")
     return parsed
+
+
+def optional_int(value: Optional[str], field: str) -> Optional[int]:
+    if value is None or value == "":
+        return None
+    return parse_int(value, 0, field)
 
 
 def resolve_file_arg(file_value: str) -> str:
@@ -591,6 +598,431 @@ def set_body_start(work: str, specs: List[Dict[str, str]]) -> None:
                 log("body_start_set", work=work, lang=lang, segment_id=seg_id)
 
         conn.commit()
+    finally:
+        conn.close()
+
+
+def split_text_sentences(text: str) -> List[str]:
+    cleaned = re.sub(r"\s+", " ", text or "").strip()
+    if not cleaned:
+        return []
+    parts = re.split(r"(?<=[.!?;:…])\s+", cleaned)
+    sentences = [part.strip() for part in parts if part.strip()]
+    return sentences or [cleaned]
+
+
+def chunk_text(text: str, max_chars: int) -> List[str]:
+    cleaned = re.sub(r"\s+", " ", text or "").strip()
+    if not cleaned:
+        return []
+    if max_chars <= 0 or len(cleaned) <= max_chars:
+        return [cleaned]
+
+    chunks: List[str] = []
+    current: List[str] = []
+    current_len = 0
+    for sentence in split_text_sentences(cleaned):
+        if len(sentence) > max_chars:
+            if current:
+                chunks.append(" ".join(current).strip())
+                current = []
+                current_len = 0
+            words = sentence.split()
+            word_chunk: List[str] = []
+            word_len = 0
+            for word in words:
+                added = len(word) + (1 if word_chunk else 0)
+                if word_chunk and word_len + added > max_chars:
+                    chunks.append(" ".join(word_chunk).strip())
+                    word_chunk = [word]
+                    word_len = len(word)
+                else:
+                    word_chunk.append(word)
+                    word_len += added
+            if word_chunk:
+                chunks.append(" ".join(word_chunk).strip())
+            continue
+
+        added = len(sentence) + (1 if current else 0)
+        if current and current_len + added > max_chars:
+            chunks.append(" ".join(current).strip())
+            current = [sentence]
+            current_len = len(sentence)
+        else:
+            current.append(sentence)
+            current_len += added
+
+    if current:
+        chunks.append(" ".join(current).strip())
+    return chunks
+
+
+def parse_generated_editions(
+    raw_specs: Optional[List[str]],
+    source_default: str,
+    defaults: Dict[str, int],
+) -> List[Dict[str, Any]]:
+    generated: List[Dict[str, Any]] = []
+    for raw in raw_specs or []:
+        spec = parse_kv_list(raw)
+        lang = (dictionary_spec_value(spec, "lang", "target", "target-lang", "target_lang") or "").strip().lower()
+        if not lang:
+            raise SystemExit("Each --generate-edition must include lang= or target=")
+        source = (dictionary_spec_value(spec, "source", "source-lang", "source_lang") or source_default).strip().lower()
+        if not source:
+            raise SystemExit("Each --generate-edition needs source=, --align-src, or --original-lang")
+        if source == lang:
+            raise SystemExit(f"Generated edition source and target cannot match: {source}->{lang}")
+
+        generated.append({
+            "lang": lang,
+            "source": source,
+            "publisher": dictionary_spec_value(spec, "publisher"),
+            "translator": dictionary_spec_value(spec, "translator") or DEFAULT_GENERATED_TRANSLATOR,
+            "year": optional_int(dictionary_spec_value(spec, "year"), "generated edition year"),
+            "max_source_chars": parse_int(
+                dictionary_spec_value(spec, "max-source-chars", "max_source_chars"),
+                defaults["max_source_chars"],
+                "max-source-chars",
+            ),
+            "chunk_max_chars": parse_int(
+                dictionary_spec_value(spec, "chunk-max-chars", "chunk_max_chars"),
+                defaults["chunk_max_chars"],
+                "chunk-max-chars",
+            ),
+            "context_chars": parse_int(
+                dictionary_spec_value(spec, "context-chars", "context_chars"),
+                defaults["context_chars"],
+                "context-chars",
+            ),
+            "translate_timeout_sec": parse_int(
+                dictionary_spec_value(spec, "translate-timeout-sec", "translate_timeout_sec"),
+                defaults["translate_timeout_sec"],
+                "translate-timeout-sec",
+            ),
+            "replace_existing": parse_bool(dictionary_spec_value(spec, "replace", "replace-existing"), True),
+        })
+    return generated
+
+
+def fetch_source_paragraphs(conn, work: str, source_lang: str, body_only: bool) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            select w.id as work_id, w.title, w.author, w.description, w.pub_year,
+                   e.id as edition_id, e.body_start_segment_id
+            from work w
+            join edition e on e.work_id = w.id
+            where w.title = %s
+              and e.lang = %s
+            order by e.id desc
+            limit 1
+            """,
+            (work, source_lang),
+        )
+        meta = cur.fetchone()
+        if not meta:
+            raise RuntimeError(f"Source edition not found for generated translation: work='{work}' source='{source_lang}'")
+
+        body_start = meta["body_start_segment_id"] if body_only else None
+        cur.execute(
+            """
+            select ch.id as chapter_id,
+                   ch.ord as chapter_ord,
+                   ch.text as chapter_title,
+                   p.id as paragraph_id,
+                   p.ord as paragraph_ord,
+                   p.text as paragraph_text
+            from segment p
+            left join segment ch on ch.id = p.parent_id and ch.level = 'chapter'
+            where p.edition_id = %s
+              and p.level = 'paragraph'
+              and (
+                %s is null
+                or exists (
+                  select 1
+                  from segment s
+                  where s.parent_id = p.id
+                    and s.level = 'sentence'
+                    and s.id >= %s
+                )
+              )
+            order by coalesce(ch.ord, 0), p.ord, p.id
+            """,
+            (meta["edition_id"], body_start, body_start),
+        )
+        paragraphs = cur.fetchall()
+    return meta, paragraphs
+
+
+def upsert_generated_edition(
+    conn,
+    work_id: int,
+    lang: str,
+    publisher: Optional[str],
+    translator: str,
+    year: Optional[int],
+    source_uri: str,
+    replace_existing: bool,
+) -> int:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            select id
+            from edition
+            where work_id = %s
+              and lang = %s
+              and translator = %s
+            order by id desc
+            limit 1
+            """,
+            (work_id, lang, translator),
+        )
+        row = cur.fetchone()
+        if row:
+            edition_id = int(row["id"])
+            if replace_existing:
+                delete_edition_content(cur, work_id, edition_id)
+            cur.execute(
+                """
+                update edition
+                set publisher = coalesce(%s, publisher),
+                    year = coalesce(%s, year),
+                    source_uri = %s,
+                    format = 'ai-literary'
+                where id = %s
+                """,
+                (publisher, year, source_uri, edition_id),
+            )
+            return edition_id
+
+        cur.execute(
+            """
+            insert into edition(work_id, lang, publisher, translator, year, source_uri, format)
+            values (%s, %s, %s, %s, %s, %s, 'ai-literary')
+            returning id
+            """,
+            (work_id, lang, publisher, translator, year, source_uri),
+        )
+        return int(cur.fetchone()["id"])
+
+
+def delete_edition_content(cur, work_id: int, edition_id: int) -> None:
+    cur.execute(
+        """
+        delete from alignment
+        where work_id = %s
+          and (edition_src_id = %s or edition_tgt_id = %s)
+        """,
+        (work_id, edition_id, edition_id),
+    )
+    cur.execute(
+        """
+        delete from embedding
+        where segment_id in (select id from segment where edition_id = %s)
+        """,
+        (edition_id,),
+    )
+    cur.execute("delete from segment where edition_id = %s", (edition_id,))
+    cur.execute("update edition set body_start_segment_id = null where id = %s", (edition_id,))
+
+
+def insert_segment(cur, edition_id: int, level: str, ord_value: int, parent_id: Optional[int], text: str, cfi: str) -> int:
+    cur.execute(
+        """
+        insert into segment(edition_id, level, ord, parent_id, text, cfi)
+        values (%s, cast(%s as segment_level), %s, %s, %s, %s)
+        returning id
+        """,
+        (edition_id, level, ord_value, parent_id, text, cfi),
+    )
+    return int(cur.fetchone()["id"])
+
+
+def call_admin_literary_translation(
+    api_base_url: str,
+    admin_token: Optional[str],
+    text: str,
+    source: str,
+    target: str,
+    context: str,
+    timeout_sec: int,
+) -> str:
+    url = f"{api_base_url.rstrip('/')}/api/admin/translate/literary"
+    payload = {
+        "text": text,
+        "source": source,
+        "target": target,
+        "context": context,
+    }
+    response = _api_json("POST", url, timeout_sec=timeout_sec, payload=payload, admin_token=admin_token)
+    translated = str(response.get("translated") or "").strip()
+    if not translated:
+        raise RuntimeError("Admin literary translation returned an empty response")
+    return translated
+
+
+def estimate_generated_edition(conn, work: str, spec: Dict[str, Any], body_only: bool) -> Tuple[int, int, int]:
+    _, paragraphs = fetch_source_paragraphs(conn, work, spec["source"], body_only)
+    total_chars = sum(len(row["paragraph_text"] or "") for row in paragraphs)
+    chunks = sum(len(chunk_text(row["paragraph_text"] or "", spec["chunk_max_chars"])) for row in paragraphs)
+    return len(paragraphs), total_chars, chunks
+
+
+def run_generated_editions(
+    work: str,
+    year: Optional[int],
+    specs: List[Dict[str, Any]],
+    api_base_url: str,
+    admin_token: Optional[str],
+    body_only: bool,
+    dry_run: bool,
+) -> None:
+    if not specs:
+        return
+
+    conn = get_conn()
+    try:
+        for spec in specs:
+            source = spec["source"]
+            target = spec["lang"]
+            meta, paragraphs = fetch_source_paragraphs(conn, work, source, body_only)
+            total_chars = sum(len(row["paragraph_text"] or "") for row in paragraphs)
+            total_chunks = sum(len(chunk_text(row["paragraph_text"] or "", spec["chunk_max_chars"])) for row in paragraphs)
+            log(
+                "generate_literary_estimate",
+                work=work,
+                source=source,
+                target=target,
+                paragraphs=len(paragraphs),
+                source_chars=total_chars,
+                chunks=total_chunks,
+                chunk_max_chars=spec["chunk_max_chars"],
+            )
+            if not paragraphs:
+                raise RuntimeError(f"No source paragraphs available for generated translation: work='{work}' source='{source}'")
+            if total_chars > spec["max_source_chars"]:
+                raise RuntimeError(
+                    f"Generated translation source text is too large for {work} {source}->{target}: "
+                    f"{total_chars} > {spec['max_source_chars']} chars"
+                )
+            if dry_run:
+                continue
+
+            source_uri = f"ai-literary://{source}/{target}/{int(meta['work_id'])}"
+            edition_id = upsert_generated_edition(
+                conn,
+                int(meta["work_id"]),
+                target,
+                spec["publisher"],
+                spec["translator"],
+                spec["year"] if spec["year"] is not None else year,
+                source_uri,
+                spec["replace_existing"],
+            )
+
+            current_chapter_key: Optional[Tuple[int, str]] = None
+            target_chapter_id: Optional[int] = None
+            first_sentence_id: Optional[int] = None
+            previous_translation = ""
+
+            for index, row in enumerate(paragraphs, start=1):
+                chapter_ord = int(row["chapter_ord"] or 1)
+                chapter_title = str(row["chapter_title"] or f"Chapter {chapter_ord}")
+                chapter_key = (chapter_ord, chapter_title)
+                if current_chapter_key != chapter_key:
+                    with conn.cursor() as cur:
+                        target_chapter_id = insert_segment(
+                            cur,
+                            edition_id,
+                            "chapter",
+                            chapter_ord,
+                            None,
+                            chapter_title,
+                            f"ai-literary:chapter:{row['chapter_id'] or chapter_ord}",
+                        )
+                    current_chapter_key = chapter_key
+
+                source_text = str(row["paragraph_text"] or "").strip()
+                chunks = chunk_text(source_text, spec["chunk_max_chars"])
+                translated_chunks: List[str] = []
+                for chunk_index, chunk in enumerate(chunks, start=1):
+                    context_parts = [
+                        f"Work: {work}",
+                        f"Chapter: {chapter_title}",
+                        f"Paragraph: {index}/{len(paragraphs)}",
+                    ]
+                    if len(chunks) > 1:
+                        context_parts.append(f"Paragraph chunk: {chunk_index}/{len(chunks)}")
+                    if previous_translation and spec["context_chars"] > 0:
+                        context_parts.append("Previous translated paragraph: " + previous_translation[-spec["context_chars"]:])
+                    context = "\n".join(context_parts)
+                    translated_chunks.append(
+                        call_admin_literary_translation(
+                            api_base_url,
+                            admin_token,
+                            chunk,
+                            source,
+                            target,
+                            context,
+                            spec["translate_timeout_sec"],
+                        )
+                    )
+
+                translated_paragraph = " ".join(translated_chunks).strip()
+                if not translated_paragraph:
+                    raise RuntimeError(f"Generated empty paragraph for {work} {source}->{target} paragraph {index}")
+
+                with conn.cursor() as cur:
+                    paragraph_id = insert_segment(
+                        cur,
+                        edition_id,
+                        "paragraph",
+                        int(row["paragraph_ord"]),
+                        target_chapter_id,
+                        translated_paragraph,
+                        f"ai-literary:paragraph:{row['paragraph_id']}",
+                    )
+                    for sent_ord, sentence in enumerate(split_text_sentences(translated_paragraph), start=1):
+                        sentence_id = insert_segment(
+                            cur,
+                            edition_id,
+                            "sentence",
+                            sent_ord,
+                            paragraph_id,
+                            sentence,
+                            f"ai-literary:sentence:{row['paragraph_id']}:{sent_ord}",
+                        )
+                        if first_sentence_id is None:
+                            first_sentence_id = sentence_id
+
+                previous_translation = translated_paragraph
+                if index % 20 == 0 or index == len(paragraphs):
+                    conn.commit()
+                    log(
+                        "generate_literary_progress",
+                        work=work,
+                        source=source,
+                        target=target,
+                        paragraphs=index,
+                        total=len(paragraphs),
+                    )
+
+            if first_sentence_id is not None:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "update edition set body_start_segment_id = %s where id = %s",
+                        (first_sentence_id, edition_id),
+                    )
+            conn.commit()
+            log(
+                "generate_literary_ok",
+                work=work,
+                source=source,
+                target=target,
+                edition_id=edition_id,
+                translator=spec["translator"],
+            )
     finally:
         conn.close()
 
@@ -1105,6 +1537,43 @@ def main():
         help="Remove existing segments/embeddings/alignments for the specified work/langs before ingesting (prevents duplicate segments on re-run)",
     )
     p.add_argument(
+        "--generate-edition",
+        action="append",
+        help=(
+            "AI-generated literary translation edition spec like: "
+            "lang=en,source=de,translator=\"AI literary translation\""
+        ),
+    )
+    p.add_argument(
+        "--generate-max-source-chars",
+        type=int,
+        default=120000,
+        help="Maximum source characters allowed for each generated edition",
+    )
+    p.add_argument(
+        "--generate-chunk-max-chars",
+        type=int,
+        default=1800,
+        help="Maximum characters sent to the literary translation endpoint per request",
+    )
+    p.add_argument(
+        "--generate-context-chars",
+        type=int,
+        default=600,
+        help="Characters of previous generated paragraph included as literary context",
+    )
+    p.add_argument(
+        "--generate-translate-timeout-sec",
+        type=int,
+        default=120,
+        help="Timeout for each admin literary translation request",
+    )
+    p.add_argument(
+        "--generate-dry-run",
+        action="store_true",
+        help="Estimate generated-translation size and chunks, then stop before calling AI",
+    )
+    p.add_argument(
         "--dictionary",
         action="append",
         help=(
@@ -1167,6 +1636,14 @@ def main():
         raise SystemExit("--dictionary-max-items must be >= 1")
     if args.dictionary_limit < 0:
         raise SystemExit("--dictionary-limit must be >= 0")
+    if args.generate_max_source_chars < 1:
+        raise SystemExit("--generate-max-source-chars must be >= 1")
+    if args.generate_chunk_max_chars < 1:
+        raise SystemExit("--generate-chunk-max-chars must be >= 1")
+    if args.generate_context_chars < 0:
+        raise SystemExit("--generate-context-chars must be >= 0")
+    if args.generate_translate_timeout_sec < 1:
+        raise SystemExit("--generate-translate-timeout-sec must be >= 1")
 
     editions: List[Dict[str, str]] = []
     for ed_str in args.edition:
@@ -1176,11 +1653,26 @@ def main():
         ed["lang"] = ed["lang"].strip().lower()
         editions.append(ed)
 
-    if len(editions) < 2:
-        raise SystemExit("Provide at least two --edition entries so we can align.")
+    generated_editions = parse_generated_editions(
+        args.generate_edition,
+        source_default=(args.align_src or args.original_lang or editions[0]["lang"]).strip().lower(),
+        defaults={
+            "max_source_chars": args.generate_max_source_chars,
+            "chunk_max_chars": args.generate_chunk_max_chars,
+            "context_chars": args.generate_context_chars,
+            "translate_timeout_sec": args.generate_translate_timeout_sec,
+        },
+    )
+    pipeline_editions: List[Dict[str, str]] = editions + [
+        {"lang": spec["lang"], "translator": spec["translator"]}
+        for spec in generated_editions
+    ]
+
+    if len(pipeline_editions) < 2:
+        raise SystemExit("Provide at least two total editions via --edition and/or --generate-edition so we can align.")
 
     align_plan = build_alignment_plan(
-        editions=editions,
+        editions=pipeline_editions,
         align_src_arg=args.align_src,
         align_tgt_arg=args.align_tgt,
         original_lang_arg=args.original_lang,
@@ -1190,7 +1682,7 @@ def main():
     align_src = align_plan[0][0]
     align_tgts = [t for (_, t, _) in align_plan]
     dictionary_plan = build_dictionary_plan(
-        editions=editions,
+        editions=pipeline_editions,
         align_src=align_src,
         align_tgts=align_tgts,
         original_lang_arg=args.original_lang,
@@ -1209,6 +1701,7 @@ def main():
         author=args.author or "n/a",
         description=args.description or "n/a",
         editions=",".join([e["lang"] for e in editions]),
+        generated_editions=",".join([f"{e['source']}->{e['lang']}" for e in generated_editions]) or "none",
         api_base_url=args.api_base_url,
         align_src=align_src,
         align_tgts=",".join(align_tgts),
@@ -1222,7 +1715,7 @@ def main():
     # Ingest each edition
     if args.reset_existing:
         log("reset_start", work=args.work)
-        reset_existing(args.work, list(dict.fromkeys([e["lang"] for e in editions])))
+        reset_existing(args.work, list(dict.fromkeys([e["lang"] for e in pipeline_editions])))
 
     for ed in editions:
         lang = ed["lang"]
@@ -1272,6 +1765,19 @@ def main():
             body_specs.append(parsed)
     set_body_start(args.work, body_specs)
 
+    run_generated_editions(
+        work=args.work,
+        year=args.year,
+        specs=generated_editions,
+        api_base_url=args.api_base_url,
+        admin_token=args.admin_token,
+        body_only=args.dictionary_body_only,
+        dry_run=args.generate_dry_run,
+    )
+    if args.generate_dry_run and generated_editions:
+        log("generate_literary_dry_run_done", work=args.work)
+        return
+
     # Warm dictionary terms before embeddings/alignment; it only needs segmented text.
     run_dictionary_imports(args.work, dictionary_plan)
 
@@ -1283,7 +1789,7 @@ def main():
         run_align(args.work, src, tgt, method, args.aligner, args.threshold, args.window)
 
     # Verify in DB
-    verify_work_and_editions(args.work, editions)
+    verify_work_and_editions(args.work, pipeline_editions)
 
 
 if __name__ == "__main__":

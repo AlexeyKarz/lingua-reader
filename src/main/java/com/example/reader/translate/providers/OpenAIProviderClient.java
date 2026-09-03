@@ -19,9 +19,12 @@ public class OpenAIProviderClient implements ProviderClient {
     private final WebClient webClient;
     private final MeterRegistry registry;
     private final String model;
+    private final String literaryModel;
     private final int timeoutSeconds;
     private final int maxCompletionTokens;
+    private final int literaryMaxCompletionTokens;
     private final String literalSystem;
+    private final String literarySystem;
     private final String explainSystem;
     private final String providerName = "openai";
 
@@ -36,7 +39,11 @@ public class OpenAIProviderClient implements ProviderClient {
         }
         this.timeoutSeconds = props.getTimeoutSeconds();
         this.model = props.getModel();
+        this.literaryModel = props.getLiteraryModel() == null || props.getLiteraryModel().isBlank()
+                ? props.getModel()
+                : props.getLiteraryModel();
         this.maxCompletionTokens = props.getMaxCompletionTokens();
+        this.literaryMaxCompletionTokens = props.getLiteraryMaxCompletionTokens();
         this.webClient = builder
                 .baseUrl("https://api.openai.com")
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + props.getApiKey())
@@ -44,6 +51,7 @@ public class OpenAIProviderClient implements ProviderClient {
         this.registry = registry;
         log.info("OpenAI provider enabled with model {} and maxCompletionTokens {}", this.model, this.maxCompletionTokens);
         this.literalSystem = prompts.getLiteralSystem();
+        this.literarySystem = prompts.getLiterarySystem();
         this.explainSystem = prompts.getExplainSystem();
     }
 
@@ -61,7 +69,27 @@ public class OpenAIProviderClient implements ProviderClient {
                 "literal",
                 source,
                 target,
-                () -> callChat(literalSystem, userPrompt)
+                () -> callChat(model, literalSystem, userPrompt, maxCompletionTokens, 0.1)
+        );
+    }
+
+    @Override
+    public String literary(String text, String source, String target, String bookContext) {
+        log.info("Calling OpenAI literary translation {} -> {} ({} chars, ctx {} chars)",
+                source, target, text.length(), bookContext == null ? 0 : bookContext.length());
+        String userPrompt = "Source language: " + source +
+                "\nTarget language: " + target +
+                "\nBook context: " + (bookContext == null ? "" : bookContext) +
+                "\nText:\n" + text;
+
+        return ProviderMetrics.record(
+                registry,
+                providerName,
+                literaryModel,
+                "literary",
+                source,
+                target,
+                () -> callChat(literaryModel, literarySystem, userPrompt, literaryMaxCompletionTokens, 0.3)
         );
     }
 
@@ -81,11 +109,11 @@ public class OpenAIProviderClient implements ProviderClient {
                 "explain",
                 source,
                 target,
-                () -> callChat(explainSystem, userPrompt)
+                () -> callChat(model, explainSystem, userPrompt, maxCompletionTokens, 0.1)
         );
     }
 
-    private String callChat(String systemPrompt, String userPrompt) {
+    private String callChat(String model, String systemPrompt, String userPrompt, int maxTokens, double temperature) {
         // Minimal Chat Completions-style call
         long started = System.currentTimeMillis();
         Map<String, Object> body = Map.of(
@@ -94,8 +122,8 @@ public class OpenAIProviderClient implements ProviderClient {
                         Map.of("role", "system", "content", systemPrompt),
                         Map.of("role", "user", "content", userPrompt)
                 ),
-                "temperature", 0.1,
-                "max_tokens", maxCompletionTokens
+                "temperature", temperature,
+                "max_tokens", maxTokens
         );
 
         try {

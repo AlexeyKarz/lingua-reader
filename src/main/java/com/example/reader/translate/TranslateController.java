@@ -51,6 +51,23 @@ public class TranslateController {
     }
 
     @Timed(
+            value = "translate.literary",
+            description = "Natural literary sentence translation",
+            histogram = true, percentiles = {0.5, 0.95, 0.99},
+            extraTags = {"component", "controller"}
+    )
+    @PostMapping("/literary")
+    public Map<String,String> literary(@RequestBody Map<String,String> body) {
+        var text = body.getOrDefault("text","");
+        var source = body.getOrDefault("source","en");
+        var target = body.getOrDefault("target","de");
+        var context = body.getOrDefault("context","");
+        log.info("User literary translate: {} -> {} ({} chars, ctx {} chars)",
+                source, target, text.length(), context.length());
+        return Map.of("translated", svc.literary(text, source, target, context));
+    }
+
+    @Timed(
             value = "translate.explain",
             description = "Sentence explanation requests",
             histogram = true, percentiles = {0.5, 0.95, 0.99},

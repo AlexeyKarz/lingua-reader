@@ -42,24 +42,33 @@ translate:
   openai:
     apiKey: ${OPENAI_API_KEY:}
     model: ${OPENAI_MODEL:gpt-4o-mini}
+    literaryModel: ${OPENAI_LITERARY_MODEL:${OPENAI_MODEL:gpt-4o-mini}}
     timeoutSeconds: ${OPENAI_TIMEOUT_SECONDS:30}
     maxCompletionTokens: ${OPENAI_MAX_COMPLETION_TOKENS:300}
+    literaryMaxCompletionTokens: ${OPENAI_LITERARY_MAX_COMPLETION_TOKENS:700}
 
   limits:
     enabled: ${TRANSLATE_LIMITS_ENABLED:true}
     perIpDaily: ${TRANSLATE_LIMITS_PER_IP_DAILY:10}
     globalDaily: ${TRANSLATE_LIMITS_GLOBAL_DAILY:100}
     maxTextChars: ${TRANSLATE_LIMITS_MAX_TEXT_CHARS:800}
+    literaryPerIpDaily: ${TRANSLATE_LIMITS_LITERARY_PER_IP_DAILY:5}
+    literaryGlobalDaily: ${TRANSLATE_LIMITS_LITERARY_GLOBAL_DAILY:50}
+    literaryMaxTextChars: ${TRANSLATE_LIMITS_LITERARY_MAX_TEXT_CHARS:2000}
 
   ollama:
     baseurl: http://localhost:11434
     model: llama3.1:8b
+    literaryModel: ${OLLAMA_LITERARY_MODEL:${translate.ollama.model}}
 
   google:
     apiKey: ${GOOGLE_API_KEY:}
     model: gemini-2.5-flash
+    literaryModel: ${GOOGLE_LITERARY_MODEL:${translate.google.model}}
     baseUrl: https://generativelanguage.googleapis.com
     timeoutSeconds: 30
+    maxOutputTokens: ${GOOGLE_MAX_OUTPUT_TOKENS:512}
+    literaryMaxOutputTokens: ${GOOGLE_LITERARY_MAX_OUTPUT_TOKENS:1024}
 
   prompts:
 
@@ -68,6 +77,14 @@ translate:
   - Output only the translated text. No explanations, no quotes, no markup.
   - Preserve meaning and tone; be as literal as possible while remaining grammatical and natural in the target language.
   - Do not summarize, omit, or add content."
+
+    literarySystem: "You are a literary translator for public-domain books, short stories, and novellas.
+  - Translate naturally and fluently from the source language to the target language.
+  - Preserve the author’s meaning, tone, imagery, rhythm, narrative voice, and style.
+  - Adapt idioms, wordplay, sayings, syntax, and grammar when a word-for-word translation would sound unnatural or misleading.
+  - Stay faithful to the source events, details, register, and point of view.
+  - Do not summarize, omit, add commentary, explain, use quotes, or use markup.
+  - Output only translated prose."
 
     explainSystem: "You are a language tutor helping a reader understand sentences from books.
   - Explain the sentence in detail: vocabulary, grammar, nuances, and how a native speaker would interpret it.

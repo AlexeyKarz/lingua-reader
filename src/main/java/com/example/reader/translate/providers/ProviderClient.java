@@ -9,6 +9,12 @@ public interface ProviderClient {
     String literal(String text, String source, String target);
 
     /**
+     * Natural/literary translation that preserves authorial tone and meaning
+     * without forcing word-by-word structure.
+     */
+    String literary(String text, String source, String target, String bookContext);
+
+    /**
      * Explanatory translation: grammar, nuance, etc.
      * Can include longer / structured output.
      */

@@ -10,6 +10,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.util.retry.Retry;
 
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -20,8 +21,12 @@ public class GoogleProviderClient implements ProviderClient {
     private final WebClient webClient;
     private final MeterRegistry registry;
     private final String model;
+    private final String literaryModel;
     private final int timeoutSeconds;
+    private final int maxOutputTokens;
+    private final int literaryMaxOutputTokens;
     private final String literalSystem;
+    private final String literarySystem;
     private final String explainSystem;
     private final String apiKey;
     private final String providerName = "google";
@@ -37,7 +42,12 @@ public class GoogleProviderClient implements ProviderClient {
         }
 
         this.model = props.getModel();
+        this.literaryModel = props.getLiteraryModel() == null || props.getLiteraryModel().isBlank()
+                ? props.getModel()
+                : props.getLiteraryModel();
         this.timeoutSeconds = props.getTimeoutSeconds();
+        this.maxOutputTokens = props.getMaxOutputTokens();
+        this.literaryMaxOutputTokens = props.getLiteraryMaxOutputTokens();
         this.apiKey = props.getApiKey();
 
         this.webClient = builder
@@ -46,6 +56,7 @@ public class GoogleProviderClient implements ProviderClient {
         this.registry = registry;
 
         this.literalSystem = prompts.getLiteralSystem();
+        this.literarySystem = prompts.getLiterarySystem();
         this.explainSystem = prompts.getExplainSystem();
 
         log.info("Google provider enabled with model {}", this.model);
@@ -63,7 +74,24 @@ public class GoogleProviderClient implements ProviderClient {
                 "literal",
                 source,
                 target,
-                () -> callGenerateContent(literalSystem, prompt)
+                () -> callGenerateContent(model, literalSystem, prompt, 0.1, maxOutputTokens)
+        );
+    }
+
+    @Override
+    public String literary(String text, String source, String target, String bookContext) {
+        String prompt = "Source language: " + source +
+                "\nTarget language: " + target +
+                "\nBook context: " + (bookContext == null ? "" : bookContext) +
+                "\nText:\n" + text;
+        return ProviderMetrics.record(
+                registry,
+                providerName,
+                literaryModel,
+                "literary",
+                source,
+                target,
+                () -> callGenerateContent(literaryModel, literarySystem, prompt, 0.3, literaryMaxOutputTokens)
         );
     }
 
@@ -80,12 +108,18 @@ public class GoogleProviderClient implements ProviderClient {
                 "explain",
                 source,
                 target,
-                () -> callGenerateContent(explainSystem, prompt)
+                () -> callGenerateContent(model, explainSystem, prompt, 0.1, maxOutputTokens)
         );
     }
 
-    private String callGenerateContent(String system, String user) {
+    private String callGenerateContent(String model, String system, String user, double temperature, int maxOutputTokens) {
         long started = System.currentTimeMillis();
+
+        Map<String, Object> generationConfig = new HashMap<>();
+        generationConfig.put("temperature", temperature);
+        if (maxOutputTokens > 0) {
+            generationConfig.put("maxOutputTokens", maxOutputTokens);
+        }
 
         // Preferred shape: use systemInstruction + user contents.
         Map<String, Object> body = Map.of(
@@ -98,9 +132,7 @@ public class GoogleProviderClient implements ProviderClient {
                                 "parts", List.of(Map.of("text", user))
                         )
                 ),
-                "generationConfig", Map.of(
-                        "temperature", 0.1
-                )
+                "generationConfig", generationConfig
         );
 
         try {

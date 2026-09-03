@@ -1,5 +1,6 @@
 package com.example.reader.translate.providers;
 
+import com.example.reader.translate.AdminTranslationContext;
 import com.example.reader.translate.properties.TranslateLimitProperties;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -23,7 +24,7 @@ public class LimitedProviderClient implements ProviderClient {
     private final TranslateLimitProperties limits;
     private final ZoneId zone;
     private final ConcurrentHashMap<String, AtomicInteger> ipCounts = new ConcurrentHashMap<>();
-    private final AtomicInteger globalCount = new AtomicInteger(0);
+    private final ConcurrentHashMap<String, AtomicInteger> globalCounts = new ConcurrentHashMap<>();
     private volatile LocalDate activeDate;
 
     public LimitedProviderClient(ProviderClient delegate, TranslateLimitProperties limits) {
@@ -48,6 +49,19 @@ public class LimitedProviderClient implements ProviderClient {
     }
 
     @Override
+    public String literary(String text, String source, String target, String bookContext) {
+        QuotaDecision decision = reserve(text, "literary");
+        if (!decision.allowed()) {
+            return quotaFallback(decision, fallback.literary(text, source, target, bookContext));
+        }
+        try {
+            return delegate.literary(text, source, target, bookContext);
+        } catch (Exception e) {
+            return providerFailureFallback(e, fallback.literary(text, source, target, bookContext));
+        }
+    }
+
+    @Override
     public String explain(String text, String source, String target, String bookContext) {
         QuotaDecision decision = reserve(text, "explain");
         if (!decision.allowed()) {
@@ -65,7 +79,7 @@ public class LimitedProviderClient implements ProviderClient {
             return QuotaDecision.permitted();
         }
 
-        int maxTextChars = limits.getMaxTextChars();
+        int maxTextChars = limits.maxTextCharsFor(action);
         if (maxTextChars > 0 && text != null && text.length() > maxTextChars) {
             log.info("Translate {} rejected by max text length: {} > {}", action, text.length(), maxTextChars);
             return QuotaDecision.rejected(
@@ -73,12 +87,16 @@ public class LimitedProviderClient implements ProviderClient {
             );
         }
 
+        if (isAdminRequest()) {
+            return QuotaDecision.permitted();
+        }
+
         synchronized (this) {
             resetIfNeeded();
 
             String ip = clientIp();
-            int perIpDaily = limits.getPerIpDaily();
-            AtomicInteger ipCount = ipCounts.computeIfAbsent(ip, ignored -> new AtomicInteger(0));
+            int perIpDaily = limits.perIpDailyFor(action);
+            AtomicInteger ipCount = ipCounts.computeIfAbsent(action + "|" + ip, ignored -> new AtomicInteger(0));
             if (perIpDaily >= 0 && ipCount.get() >= perIpDaily) {
                 log.info("Translate {} rejected by per-IP quota: ip={} count={} limit={}", action, ip, ipCount.get(), perIpDaily);
                 return QuotaDecision.rejected(
@@ -86,7 +104,8 @@ public class LimitedProviderClient implements ProviderClient {
                 );
             }
 
-            int globalDaily = limits.getGlobalDaily();
+            int globalDaily = limits.globalDailyFor(action);
+            AtomicInteger globalCount = globalCounts.computeIfAbsent(action, ignored -> new AtomicInteger(0));
             if (globalDaily >= 0 && globalCount.get() >= globalDaily) {
                 log.info("Translate {} rejected by global quota: count={} limit={}", action, globalCount.get(), globalDaily);
                 return QuotaDecision.rejected(
@@ -120,7 +139,7 @@ public class LimitedProviderClient implements ProviderClient {
             }
             activeDate = today;
             ipCounts.clear();
-            globalCount.set(0);
+            globalCounts.clear();
             log.info("Translate daily quotas reset for {}", today);
         }
     }
@@ -146,6 +165,19 @@ public class LimitedProviderClient implements ProviderClient {
             return realIp.trim();
         }
         return request.getRemoteAddr();
+    }
+
+    private boolean isAdminRequest() {
+        if (AdminTranslationContext.isActive()) {
+            return true;
+        }
+        ServletRequestAttributes attributes =
+                (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        if (attributes == null) {
+            return false;
+        }
+        String uri = attributes.getRequest().getRequestURI();
+        return uri != null && uri.startsWith("/api/admin/");
     }
 
     private record QuotaDecision(boolean allowed, String message) {

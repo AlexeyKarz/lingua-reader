@@ -13,12 +13,16 @@ public class OllamaProviderClient implements ProviderClient {
     private final WebClient client;
     private final MeterRegistry registry;
     private final String model;
+    private final String literaryModel;
     private final String explainModel;
     private final String providerName = "ollama";
 
     public OllamaProviderClient(OllamaTranslateProperties props, WebClient.Builder builder, MeterRegistry registry) {
         this.client = builder.baseUrl(props.getBaseUrl()).build();
         this.model = props.getModel();
+        this.literaryModel = (props.getLiteraryModel() == null || props.getLiteraryModel().isBlank())
+                ? props.getModel()
+                : props.getLiteraryModel();
         this.explainModel = (props.getExplainModel() == null || props.getExplainModel().isBlank())
                 ? props.getModel()
                 : props.getExplainModel();
@@ -44,6 +48,32 @@ public class OllamaProviderClient implements ProviderClient {
                 source,
                 target,
                 () -> generate(model, prompt)
+        );
+    }
+
+    @Override
+    public String literary(String text, String source, String target, String bookContext) {
+        String prompt = """
+                Translate naturally from %s to %s for a reader of literature.
+                Preserve authorial tone, imagery, narrative voice, and meaning.
+                Adapt idioms, wordplay, sayings, and grammar when a literal version would sound wrong.
+                Output only translated prose. Do not explain, summarize, omit, or add commentary.
+
+                Book context:
+                %s
+
+                Text:
+                %s
+                """.formatted(source, target, bookContext == null ? "" : bookContext, text);
+
+        return ProviderMetrics.record(
+                registry,
+                providerName,
+                literaryModel,
+                "literary",
+                source,
+                target,
+                () -> generate(literaryModel, prompt)
         );
     }
 

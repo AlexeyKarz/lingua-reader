@@ -20,6 +20,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
@@ -89,6 +90,47 @@ class IngestionControllerMockMvcTest {
         assertThat(request.publisher()).isEqualTo("Publisher");
         assertThat(request.translator()).isEqualTo("Translator");
         assertThat(request.year()).isEqualTo(1843);
+    }
+
+    @Test
+    void generatedLiterarySubmitsJob() throws Exception {
+        MockMvc mvc = mockMvc(true, "secret");
+        when(jobService.startGeneratedLiteraryJob(any(GenerateLiteraryEditionRequest.class))).thenReturn(88L);
+
+        mvc.perform(post("/api/admin/ingest/jobs/generate-literary")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer secret")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "workTitle": " A Book ",
+                                  "sourceLang": " DE ",
+                                  "targetLang": " EN ",
+                                  "year": 1915,
+                                  "publisher": "Generated",
+                                  "translator": "AI",
+                                  "maxSourceChars": 20000,
+                                  "chunkMaxChars": 1500,
+                                  "contextChars": 500
+                                }
+                                """))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.jobId").value(88))
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.statusUrl").value("/api/admin/ingest/jobs/88"));
+
+        ArgumentCaptor<GenerateLiteraryEditionRequest> requestCaptor =
+                ArgumentCaptor.forClass(GenerateLiteraryEditionRequest.class);
+        verify(jobService).startGeneratedLiteraryJob(requestCaptor.capture());
+        GenerateLiteraryEditionRequest request = requestCaptor.getValue();
+        assertThat(request.workTitle()).isEqualTo(" A Book ");
+        assertThat(request.sourceLang()).isEqualTo(" DE ");
+        assertThat(request.targetLang()).isEqualTo(" EN ");
+        assertThat(request.publisher()).isEqualTo("Generated");
+        assertThat(request.translator()).isEqualTo("AI");
+        assertThat(request.maxSourceChars()).isEqualTo(20000);
+        assertThat(request.chunkMaxChars()).isEqualTo(1500);
+        assertThat(request.contextChars()).isEqualTo(500);
+        verifyNoInteractions(uploadStorage);
     }
 
     @Test

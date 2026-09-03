@@ -15,6 +15,18 @@ public class PromptProperties {
             """;
 
     /**
+     * System prompt for natural/literary translation. Default. Rebind in applications.yaml
+     */
+    private String literarySystem = """
+            You are a literary translator for public-domain books, stories, and novellas.
+            Translate naturally and fluently from the source language to the target language.
+            Preserve the author's meaning, tone, imagery, narrative voice, and style.
+            Adapt idioms, wordplay, sayings, and grammar when a word-for-word translation would sound wrong.
+            Do not summarize, omit, explain, add commentary, or use markup.
+            Output only translated prose.
+            """;
+
+    /**
      * System prompt for explanatory translation. Default. Rebind in applications.yaml
      */
     private String explainSystem = """
@@ -25,6 +37,9 @@ public class PromptProperties {
 
     public String getLiteralSystem() { return literalSystem; }
     public void setLiteralSystem(String literalSystem) { this.literalSystem = literalSystem; }
+
+    public String getLiterarySystem() { return literarySystem; }
+    public void setLiterarySystem(String literarySystem) { this.literarySystem = literarySystem; }
 
     public String getExplainSystem() { return explainSystem; }
     public void setExplainSystem(String explainSystem) { this.explainSystem = explainSystem; }

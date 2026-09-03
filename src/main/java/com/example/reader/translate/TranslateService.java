@@ -8,6 +8,8 @@ import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.function.Supplier;
+
 @Service
 public class TranslateService {
 
@@ -71,7 +73,26 @@ public class TranslateService {
     )
     public String sentence(String text, String source, String target) {
         log.info("Sentence translate request: {} -> {} ({} chars)", source, target, text.length());
-        return cachedLiteral("sentence", text, source, target);
+        return cachedProvider("sentence", text, source, target, () -> provider.literal(text, source, target));
+    }
+
+    @Timed(
+            value = "translate.service.literary",
+            description = "Service layer literary translation",
+            histogram = true, percentiles = {0.5, 0.95, 0.99},
+            extraTags = {"component", "service"}
+    )
+    public String literary(String text, String source, String target, String bookContext) {
+        log.info("Literary translate request: {} -> {} ({} chars, ctx {} chars)",
+                source, target, text.length(), bookContext == null ? 0 : bookContext.length());
+        String cacheText = literaryCacheText(text, bookContext);
+        return cachedProvider(
+                "literary_sentence",
+                cacheText,
+                source,
+                target,
+                () -> provider.literary(text, source, target, bookContext)
+        );
     }
 
     @Timed(
@@ -87,14 +108,31 @@ public class TranslateService {
     }
 
     private String cachedLiteral(String operation, String text, String source, String target) {
+        return cachedProvider(operation, text, source, target, () -> provider.literal(text, source, target));
+    }
+
+    private String cachedProvider(
+            String operation,
+            String text,
+            String source,
+            String target,
+            Supplier<String> supplier
+    ) {
         return cache.find(operation, source, target, text, providerName)
                 .orElseGet(() -> {
-                    String translated = provider.literal(text, source, target);
+                    String translated = supplier.get();
                     if (isCacheable(translated)) {
                         cache.save(operation, source, target, text, providerName, translated);
                     }
                     return translated;
                 });
+    }
+
+    private String literaryCacheText(String text, String bookContext) {
+        if (bookContext == null || bookContext.isBlank()) {
+            return text;
+        }
+        return "Context:\n" + bookContext.strip() + "\n\nText:\n" + text;
     }
 
     private boolean isCacheable(String translated) {

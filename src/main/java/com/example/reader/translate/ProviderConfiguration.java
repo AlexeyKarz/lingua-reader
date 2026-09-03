@@ -52,10 +52,13 @@ public class ProviderConfiguration {
         };
         if (!"stub".equals(which) && limitProps.isEnabled()) {
             log.info(
-                    "Translation provider limits enabled: perIpDaily={}, globalDaily={}, maxTextChars={}",
+                    "Translation provider limits enabled: perIpDaily={}, globalDaily={}, maxTextChars={}, literaryPerIpDaily={}, literaryGlobalDaily={}, literaryMaxTextChars={}",
                     limitProps.getPerIpDaily(),
                     limitProps.getGlobalDaily(),
-                    limitProps.getMaxTextChars()
+                    limitProps.getMaxTextChars(),
+                    limitProps.getLiteraryPerIpDaily(),
+                    limitProps.getLiteraryGlobalDaily(),
+                    limitProps.getLiteraryMaxTextChars()
             );
             return new LimitedProviderClient(provider, limitProps);
         }
