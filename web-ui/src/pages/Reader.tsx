@@ -5,6 +5,8 @@ import { saveVocabularyItem } from '../vocabularyStorage'
 
 // type Aligned = { left: string[]; right: string[]; bookId: string; src: string; tgt: string }
 
+type PopAction = 'translate' | 'literary' | 'explain'
+
 type PopState =
     | { kind: 'hidden' }
     | {
@@ -17,8 +19,12 @@ type PopState =
     targetLang: string
     result?: string
     errorMessage?: string
-    action?: 'translate' | 'explain'
+    action?: PopAction
     wordDetails?: WordDetails
+}
+
+function isSingleWordSelection(text: string) {
+    return text.length <= 40 && !/\s/.test(text)
 }
 
 type Sentence = { id: number; text: string; chapterId?: number | null; chapterTitle?: string | null }
@@ -551,20 +557,20 @@ export default function Reader() {
         setPop({ kind: 'ready', pane: which, sentenceId, text, rect, sourceLang, targetLang })
     }
 
-    async function doAction(action: 'translate' | 'explain') {
+    async function doAction(action: PopAction) {
         if (pop.kind === 'hidden') return
 
         const canStart =
             pop.kind === 'ready' ||
             pop.kind === 'error' ||
-            (action === 'explain' && pop.kind === 'result' && pop.action !== 'explain')
+            (pop.kind === 'result' && pop.action !== action)
 
         if (!canStart) return
 
         const { text, sourceLang, targetLang } = pop
-        const isWord = text.length <= 40 && !/\s/.test(text)
+        const isWord = isSingleWordSelection(text)
 
-        if (action === 'translate') {
+        if (action === 'translate' || action === 'literary') {
             setExpandedDictionaryExamples(new Set())
             setShowGrammarForms(false)
             setLastSavedLookupKey(null)
@@ -604,6 +610,34 @@ export default function Reader() {
                 return body
             }
 
+            const buildContext = () => {
+                let alignedContext = ''
+                if (pop.sentenceId !== undefined) {
+                    if (pop.pane === 'left') {
+                        const oppositeId = alignMap.get(pop.sentenceId)
+                        const oppositeSentence = oppositeId ? rightById.get(oppositeId) : undefined
+                        if (oppositeSentence?.text) {
+                            alignedContext = `Aligned translation sentence: ${oppositeSentence.text}`
+                        }
+                    } else {
+                        const oppositeId = rightToLeftMap.get(pop.sentenceId)
+                        const oppositeSentence = oppositeId ? leftById.get(oppositeId) : undefined
+                        if (oppositeSentence?.text) {
+                            alignedContext = `Aligned original sentence: ${oppositeSentence.text}`
+                        }
+                    }
+                }
+
+                return [
+                    `Work: ${data?.title || bookId}`,
+                    data?.author ? `Author: ${data.author}` : '',
+                    `Selected side: ${pop.pane === 'left' ? 'original' : 'translation'}`,
+                    `Reader pair: ${src.toUpperCase()} → ${tgt.toUpperCase()}`,
+                    `Current page: ${page + 1}`,
+                    alignedContext,
+                ].filter(Boolean).join(' | ')
+            }
+
             if (action === 'translate') {
                 if (isWord) {
                     const qs = new URLSearchParams({ text, source: sourceLang, target: targetLang })
@@ -635,33 +669,20 @@ export default function Reader() {
                     const j = (await parseJson(r)) as { translated?: string }
                     resultText = j.translated ?? ''
                 }
+            } else if (action === 'literary') {
+                const r = await fetch('/api/translate/literary', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        text,
+                        source: sourceLang,
+                        target: targetLang,
+                        context: buildContext()
+                    })
+                })
+                const j = (await parseJson(r)) as { translated?: string }
+                resultText = j.translated ?? ''
             } else {
-                let alignedContext = ''
-                if (pop.sentenceId !== undefined) {
-                    if (pop.pane === 'left') {
-                        const oppositeId = alignMap.get(pop.sentenceId)
-                        const oppositeSentence = oppositeId ? rightById.get(oppositeId) : undefined
-                        if (oppositeSentence?.text) {
-                            alignedContext = `Aligned translation sentence: ${oppositeSentence.text}`
-                        }
-                    } else {
-                        const oppositeId = rightToLeftMap.get(pop.sentenceId)
-                        const oppositeSentence = oppositeId ? leftById.get(oppositeId) : undefined
-                        if (oppositeSentence?.text) {
-                            alignedContext = `Aligned original sentence: ${oppositeSentence.text}`
-                        }
-                    }
-                }
-
-                const contextParts = [
-                    `Work: ${data?.title || bookId}`,
-                    data?.author ? `Author: ${data.author}` : '',
-                    `Selected side: ${pop.pane === 'left' ? 'original' : 'translation'}`,
-                    `Reader pair: ${src.toUpperCase()} → ${tgt.toUpperCase()}`,
-                    `Current page: ${page + 1}`,
-                    alignedContext,
-                ].filter(Boolean)
-                const context = contextParts.join(' | ')
                 const translation = pop.result ?? ''
                 const r = await fetch('/api/translate/explain', {
                     method: 'POST',
@@ -670,7 +691,7 @@ export default function Reader() {
                         text,
                         source: sourceLang,
                         target: targetLang,
-                        context,
+                        context: buildContext(),
                         translation
                     })
                 })
@@ -1343,14 +1364,23 @@ export default function Reader() {
                                         “{pop.text}”
                                     </div>
                                     <button className="btn" onClick={() => doAction('translate')}>
-                                        Translate
+                                        {isSingleWordSelection(pop.text) ? 'Translate' : 'Literal'}
                                     </button>
+                                    {!isSingleWordSelection(pop.text) && (
+                                        <button className="btn-secondary" onClick={() => doAction('literary')}>
+                                            Natural
+                                        </button>
+                                    )}
                                 </div>
                             )}
 
                             {pop.kind === 'loading' && (
                                 <div className="theme-copy mt-3 text-sm">
-                                    {pop.action === 'explain' ? 'Explaining…' : 'Translating…'}
+                                    {pop.action === 'explain'
+                                        ? 'Explaining…'
+                                        : pop.action === 'literary'
+                                            ? 'Translating naturally…'
+                                            : 'Translating…'}
                                 </div>
                             )}
 
@@ -1359,9 +1389,11 @@ export default function Reader() {
                                     <div className="text-xs uppercase tracking-[0.18em] muted-copy">
                                         {pop.action === 'explain'
                                             ? 'Explanation'
-                                            : pop.wordDetails?.dictionary
-                                                ? 'Dictionary'
-                                                : 'Translation'}
+                                            : pop.action === 'literary'
+                                                ? 'Natural translation'
+                                                : pop.wordDetails?.dictionary
+                                                    ? 'Dictionary'
+                                                    : 'Literal translation'}
                                     </div>
 
                                     <div className="theme-heading mt-2 text-sm font-semibold">“{pop.text}”</div>
@@ -1382,6 +1414,13 @@ export default function Reader() {
                                             >
                                                 {lastSavedLookupKey ? 'Saved' : 'Save'}
                                             </button>
+                                            {!pop.wordDetails?.dictionary &&
+                                                pop.action !== 'literary' &&
+                                                !isSingleWordSelection(pop.text) && (
+                                                    <button className="btn-secondary" onClick={() => doAction('literary')}>
+                                                        Natural
+                                                    </button>
+                                                )}
                                             <button className="btn-secondary" onClick={() => doAction('explain')}>
                                                 Explain
                                             </button>

@@ -49,20 +49,25 @@ export default function App() {
     return (
         <div className="page-shell">
             <div className="mx-auto max-w-7xl px-4 py-4 md:px-6 md:py-6">
-                <header className="surface-panel sticky top-4 z-40 mb-6 rounded-[24px] px-4 py-3 md:px-5">
-                    <div className="flex flex-col gap-3">
-                        <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                                <h1 className="theme-heading text-3xl font-semibold tracking-tight md:text-4xl">
-                                    Multilang Reader
-                                </h1>
-                                <p className="mt-1 max-w-2xl text-sm leading-6 muted-copy">
-                                    Read originals and translations side by side, then save lookups for review.
-                                </p>
-                            </div>
+                <header className="surface-panel sticky top-3 z-40 mb-5 rounded-[22px] px-3 py-3 md:px-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <Link to="/" className="min-w-0">
+                            <h1 className="theme-heading text-2xl font-semibold tracking-tight md:text-[1.65rem]">
+                                Multilang Reader
+                            </h1>
+                            <p className="mt-0.5 hidden max-w-xl text-xs leading-5 muted-copy sm:block">
+                                Read originals and translations side by side, then save lookups for review.
+                            </p>
+                        </Link>
+                        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+                            <nav className="nav-shell min-w-0 sm:w-auto">
+                                <NavLink to="/" label="Catalog" />
+                                <NavLink to={readerPath} activePath="/reader" label="Reader" />
+                                <NavLink to="/vocabulary" label="Vocabulary" />
+                            </nav>
                             <button
                                 type="button"
-                                className="theme-toggle"
+                                className="theme-toggle self-start sm:self-auto"
                                 onClick={() => setTheme(current => current === 'light' ? 'dark' : 'light')}
                                 aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
                                 title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
@@ -70,14 +75,8 @@ export default function App() {
                                 <span aria-hidden="true">{theme === 'light' ? '☾' : '☀'}</span>
                             </button>
                         </div>
-                        <nav className="nav-shell">
-                            <NavLink to="/" label="Catalog" />
-                            <NavLink to={readerPath} activePath="/reader" label="Reader" />
-                            <NavLink to="/vocabulary" label="Vocabulary" />
-                        </nav>
                     </div>
                 </header>
-
                 <main>
                     <Outlet />
                 </main>

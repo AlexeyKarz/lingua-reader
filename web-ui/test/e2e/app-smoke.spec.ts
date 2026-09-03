@@ -45,6 +45,7 @@ test.beforeEach(async ({ page }) => {
     alignments: [{ leftId: 1, rightId: 2, score: 0.99 }],
   }))
   await page.route('**/api/translate/sentence', route => fulfillJson(route, { translated: 'Hallo Welt.' }))
+  await page.route('**/api/translate/literary', route => fulfillJson(route, { translated: 'Natural Hallo Welt.' }))
   await page.route('**/api/translate/word?**', route => fulfillJson(route, {
     dictionary: false,
     translated: 'Hallo',
@@ -69,7 +70,7 @@ test('catalog to reader lookup save to vocabulary', async ({ page }) => {
     node.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: 120, clientY: 120 }))
   })
 
-  await page.getByRole('button', { name: 'Translate' }).click()
+  await page.getByRole('button', { name: 'Literal' }).click()
   await expect(page.getByText('Hallo Welt.').first()).toBeVisible()
   await page.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByText('Sentence saved for review.')).toBeVisible()
@@ -125,4 +126,57 @@ test('admin ingestion accepts txt upload and shows completed status', async ({ p
   expect(uploadBody).toContain('name="originalLang"')
   expect(uploadBody).toContain('en')
   expect(uploadBody).toContain('filename="admin-book.txt"')
+})
+
+test('admin ingestion queues generated literary edition for an existing source', async ({ page }) => {
+  let generationAuth = ''
+  let generationBody = ''
+
+  await page.route('**/api/admin/ingest/jobs/generate-literary', async route => {
+    generationAuth = route.request().headers().authorization ?? ''
+    generationBody = route.request().postData() ?? ''
+    await fulfillJson(route, { jobId: 78, status: 'PENDING', statusUrl: '/api/admin/ingest/jobs/78' }, 202)
+  })
+  await page.route('**/api/admin/ingest/jobs/78', route => fulfillJson(route, {
+    id: 78,
+    status: 'SUCCEEDED',
+    step: 'done',
+    message: 'Generated',
+    error: null,
+    workTitle: 'Smoke Book',
+    lang: 'fr',
+    fileSpec: 'ai-literary://en/fr/Smoke Book',
+    workId: 101,
+    editionId: 203,
+    chapters: 1,
+    paragraphs: 1,
+    sentences: 2,
+  }))
+
+  await page.goto('/admin/ingest')
+  await page.getByLabel('Admin token').fill('secret')
+  await page.getByLabel('Existing work').selectOption('101')
+  await page.getByRole('button', { name: 'AI' }).click()
+  await page.getByLabel('Language', { exact: true }).fill('fr')
+  await page.getByLabel('Publisher').fill('Generated Press')
+  await page.getByLabel('Max source chars').fill('25000')
+  await page.getByLabel('Chunk chars').fill('1200')
+  await page.getByLabel('Context chars').fill('300')
+  await page.getByRole('button', { name: 'Start ingestion' }).click()
+
+  await expect(page.getByText('2 sentences')).toBeVisible()
+  expect(generationAuth).toBe('Bearer secret')
+  expect(JSON.parse(generationBody)).toMatchObject({
+    workTitle: 'Smoke Book',
+    sourceLang: 'en',
+    targetLang: 'fr',
+    year: 2026,
+    publisher: 'Generated Press',
+    translator: 'AI literary translation',
+    bodyOnly: true,
+    replaceExisting: true,
+    maxSourceChars: 25000,
+    chunkMaxChars: 1200,
+    contextChars: 300,
+  })
 })

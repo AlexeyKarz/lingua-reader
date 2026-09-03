@@ -28,6 +28,9 @@ function installFetchMock() {
     if (url === '/api/admin/ingest/jobs/upload') {
       return jsonResponse({ jobId: 7, status: 'PENDING', statusUrl: '/api/admin/ingest/jobs/7' }, 202)
     }
+    if (url === '/api/admin/ingest/jobs/generate-literary') {
+      return jsonResponse({ jobId: 9, status: 'PENDING', statusUrl: '/api/admin/ingest/jobs/9' }, 202)
+    }
     if (url === '/api/admin/ingest/jobs/7') {
       return jsonResponse({
         id: 7,
@@ -43,6 +46,23 @@ function installFetchMock() {
         chapters: 1,
         paragraphs: 2,
         sentences: 3,
+      })
+    }
+    if (url === '/api/admin/ingest/jobs/9') {
+      return jsonResponse({
+        id: 9,
+        status: 'SUCCEEDED',
+        step: 'done',
+        message: 'Generated',
+        error: null,
+        workTitle: 'Existing Book',
+        lang: 'fr',
+        fileSpec: 'ai-literary://en/fr/Existing Book',
+        workId: 4,
+        editionId: 11,
+        chapters: 1,
+        paragraphs: 2,
+        sentences: 4,
       })
     }
     throw new Error(`Unexpected fetch: ${url}`)
@@ -119,5 +139,52 @@ describe('AdminIngestionPage', () => {
 
     expect(await screen.findByText('Only EPUB and TXT files are supported.')).toBeTruthy()
     expect(fetchMock.mock.calls.filter(([input]) => String(input) === '/api/admin/ingest/jobs/upload')).toHaveLength(0)
+  })
+
+  it('submits generated literary editions against an existing source language', async () => {
+    const fetchMock = installFetchMock()
+    render(<AdminIngestionPage />)
+
+    await screen.findByText('Existing Book')
+    fireEvent.change(screen.getByLabelText(/^Admin token$/i), { target: { value: 'secret' } })
+    fireEvent.change(screen.getByLabelText(/^Existing work$/i), { target: { value: '4' } })
+    fireEvent.click(screen.getByRole('button', { name: 'AI' }))
+    fireEvent.change(screen.getByLabelText(/^Language$/i), { target: { value: 'FR' } })
+    fireEvent.change(screen.getByLabelText(/^Publisher$/i), { target: { value: 'Generated Press' } })
+    fireEvent.change(screen.getByLabelText(/^Max source chars$/i), { target: { value: '25000' } })
+    fireEvent.change(screen.getByLabelText(/^Chunk chars$/i), { target: { value: '1200' } })
+    fireEvent.change(screen.getByLabelText(/^Context chars$/i), { target: { value: '300' } })
+    submitForm()
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/admin/ingest/jobs/generate-literary',
+        expect.objectContaining({ method: 'POST' })
+      )
+    })
+
+    const generatedCall = fetchMock.mock.calls.find(([input]) => String(input) === '/api/admin/ingest/jobs/generate-literary')
+    expect(generatedCall).toBeDefined()
+    const init = generatedCall?.[1] as RequestInit
+    expect(init.headers).toEqual({
+      Authorization: 'Bearer secret',
+      'Content-Type': 'application/json',
+    })
+    expect(JSON.parse(String(init.body))).toEqual({
+      workTitle: 'Existing Book',
+      sourceLang: 'en',
+      targetLang: 'fr',
+      year: 1901,
+      publisher: 'Generated Press',
+      translator: 'AI literary translation',
+      bodyOnly: true,
+      replaceExisting: true,
+      maxSourceChars: 25000,
+      chunkMaxChars: 1200,
+      contextChars: 300,
+    })
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === '/api/admin/ingest/jobs/upload')).toHaveLength(0)
+    expect(await screen.findByText('Generated')).toBeTruthy()
+    expect(screen.getByText('4 sentences')).toBeTruthy()
   })
 })
