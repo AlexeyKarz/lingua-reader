@@ -9,6 +9,11 @@ Monolith implementation of the multilingual reading assistant used in the **mono
 
 Goal: enable parallel reading (original + publisher translation), word/sentence translation, optional AI explanation, and a small secure deployment suitable for a public CV/demo project.
 
+Saved vocabulary and review are implemented client-side. A reader can save a
+word or sentence after lookup and review it later from the Vocabulary page. The
+data stays in the browser's localStorage, so no account is required for the
+public demo.
+
 Security note:
 - public runtime endpoints are catalog, reader, and translation/explanation
 - admin ingestion endpoints are disabled by default
@@ -241,6 +246,11 @@ Admin requests must include:
 Authorization: Bearer <long-random-token>
 ```
 
+The deployed web UI also has a direct admin ingestion page at
+`/admin/ingest`. It is not linked from the public navigation. The page stores
+the admin token in the current browser tab session and submits uploaded EPUBs to
+the secured admin API.
+
 Disable admin again after ingestion unless you actively need it.
 
 ### Server-side ingestion runner
@@ -319,6 +329,9 @@ docker compose -f docker-compose.prod.yml --env-file .env up -d --force-recreate
 |---|---|---|
 | `MLR_ADMIN_ENABLED` | `false` | Enables `/api/admin/**` endpoints when set to `true`. |
 | `MLR_ADMIN_TOKEN` | empty | Required bearer token for `/api/admin/**` when admin is enabled. |
+| `MLR_INGESTION_UPLOAD_DIR` | JVM temp dir | Server-side directory for EPUBs uploaded through `/admin/ingest`. |
+| `MLR_INGESTION_MAX_FILE_SIZE` | `50MB` | Maximum uploaded EPUB size. |
+| `MLR_INGESTION_MAX_REQUEST_SIZE` | `60MB` | Maximum multipart request size for admin ingestion uploads. |
 | `TRANSLATE_PROVIDER` | `stub` | Provider mode: `stub`, `openai`, `google`, or `ollama`. |
 | `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model used when `TRANSLATE_PROVIDER=openai`. |
 | `OPENAI_MAX_COMPLETION_TOKENS` | `300` | Output-token cap for each OpenAI response. |

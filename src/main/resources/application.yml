@@ -4,6 +4,10 @@ server:
 spring:
   application:
     name: multilang-reader-mono
+  servlet:
+    multipart:
+      max-file-size: ${MLR_INGESTION_MAX_FILE_SIZE:50MB}
+      max-request-size: ${MLR_INGESTION_MAX_REQUEST_SIZE:60MB}
   datasource:
     url: jdbc:postgresql://localhost:5432/mlr
     username: mlr
@@ -76,3 +80,6 @@ mlr:
   admin:
     enabled: ${MLR_ADMIN_ENABLED:false}
     token: ${MLR_ADMIN_TOKEN:}
+  ingestion:
+    upload:
+      dir: ${MLR_INGESTION_UPLOAD_DIR:${java.io.tmpdir}/multilang-reader/ingestion-uploads}

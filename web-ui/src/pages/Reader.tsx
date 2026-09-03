@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useLayoutEffect, useRef, useState, useMemo, type JSX} from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { resolveReaderPath, LAST_READER_SESSION_KEY, type CatalogEntry } from '../readerNavigation'
+import { saveVocabularyItem } from '../vocabularyStorage'
 
 // type Aligned = { left: string[]; right: string[]; bookId: string; src: string; tgt: string }
 
@@ -206,6 +207,7 @@ export default function Reader() {
     const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set())
     const [expandedDictionaryExamples, setExpandedDictionaryExamples] = useState<Set<string>>(new Set())
     const [showGrammarForms, setShowGrammarForms] = useState(false)
+    const [lastSavedLookupKey, setLastSavedLookupKey] = useState<string | null>(null)
 
     // Front matter states
     const [frontMatter, setFrontMatter] = useState<{
@@ -545,6 +547,7 @@ export default function Reader() {
         // Show the popover in "ready" state (only a button for now)
         setExpandedDictionaryExamples(new Set())
         setShowGrammarForms(false)
+        setLastSavedLookupKey(null)
         setPop({ kind: 'ready', pane: which, sentenceId, text, rect, sourceLang, targetLang })
     }
 
@@ -564,6 +567,7 @@ export default function Reader() {
         if (action === 'translate') {
             setExpandedDictionaryExamples(new Set())
             setShowGrammarForms(false)
+            setLastSavedLookupKey(null)
         }
         setPop({ ...pop, kind: 'loading', action })
 
@@ -735,6 +739,28 @@ export default function Reader() {
     async function toggleFrontRight() {
         await ensureFrontMatterLoaded()
         setShowFrontRight(v => !v)
+    }
+
+    function saveCurrentTranslation() {
+        if (pop.kind !== 'result' || pop.action === 'explain' || !pop.result?.trim()) return
+        const kind = pop.wordDetails?.dictionary || (pop.text.length <= 40 && !/\s/.test(pop.text))
+            ? 'word'
+            : 'sentence'
+        const saved = saveVocabularyItem({
+            kind,
+            text: pop.text,
+            source: pop.sourceLang,
+            target: pop.targetLang,
+            result: pop.result,
+            dictionary: !!pop.wordDetails?.dictionary,
+            bookId,
+            title: data?.title,
+            author: data?.author,
+            page,
+            sentenceId: pop.sentenceId,
+        })
+        setLastSavedLookupKey(saved.id)
+        setNotice(`${kind === 'word' ? 'Word' : 'Sentence'} saved for review.`)
     }
 
     function normalizeDictionarySurface(value: string | undefined) {
@@ -1348,7 +1374,14 @@ export default function Reader() {
                                     )}
 
                                     {pop.action !== 'explain' && (
-                                        <div className="mt-4 flex items-center gap-2">
+                                        <div className="mt-4 flex flex-wrap items-center gap-2">
+                                            <button
+                                                className="btn"
+                                                onClick={saveCurrentTranslation}
+                                                disabled={!!lastSavedLookupKey}
+                                            >
+                                                {lastSavedLookupKey ? 'Saved' : 'Save'}
+                                            </button>
                                             <button className="btn-secondary" onClick={() => doAction('explain')}>
                                                 Explain
                                             </button>

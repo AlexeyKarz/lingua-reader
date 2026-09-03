@@ -49,39 +49,32 @@ export default function App() {
     return (
         <div className="page-shell">
             <div className="mx-auto max-w-7xl px-4 py-4 md:px-6 md:py-6">
-                <header className="surface-panel sticky top-4 z-40 mb-6 rounded-[32px] px-5 py-4 md:px-6">
-                    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                        <div>
-                            <h1 className="theme-heading text-3xl font-semibold tracking-tight md:text-4xl">
-                                Multilang Reader
-                            </h1>
-                            <p className="mt-1 max-w-2xl text-sm leading-6 muted-copy md:text-[15px]">
-                                Read original and translated editions side by side, inspect aligned passages,
-                                and ask for literal translations or context when you need them.
-                            </p>
-                        </div>
-
-                        <div className="flex flex-col items-start gap-3 md:items-end">
-                            <div className="flex flex-wrap items-center gap-2">
-                                <nav className="surface-panel-strong flex flex-wrap gap-2 rounded-full p-1.5">
-                                    <NavLink to="/" label="Catalog" />
-                                    <NavLink to={readerPath} activePath="/reader" label="Reader" />
-                                </nav>
-                                <button
-                                    type="button"
-                                    className="theme-toggle"
-                                    onClick={() => setTheme(current => current === 'light' ? 'dark' : 'light')}
-                                    aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-                                    title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-                                >
-                                    <span aria-hidden="true">{theme === 'light' ? '☾' : '☀'}</span>
-                                    <span>{theme === 'light' ? 'Dark' : 'Light'}</span>
-                                </button>
+                <header className="surface-panel sticky top-4 z-40 mb-6 rounded-[24px] px-4 py-3 md:px-5">
+                    <div className="flex flex-col gap-3">
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                                <h1 className="theme-heading text-3xl font-semibold tracking-tight md:text-4xl">
+                                    Multilang Reader
+                                </h1>
+                                <p className="mt-1 max-w-2xl text-sm leading-6 muted-copy">
+                                    Read originals and translations side by side, then save lookups for review.
+                                </p>
                             </div>
-                            <div className="text-xs uppercase tracking-[0.18em] muted-copy">
-                                {pathname === '/reader' ? 'Reading view' : 'Library view'}
-                            </div>
+                            <button
+                                type="button"
+                                className="theme-toggle"
+                                onClick={() => setTheme(current => current === 'light' ? 'dark' : 'light')}
+                                aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+                                title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+                            >
+                                <span aria-hidden="true">{theme === 'light' ? '☾' : '☀'}</span>
+                            </button>
                         </div>
+                        <nav className="nav-shell">
+                            <NavLink to="/" label="Catalog" />
+                            <NavLink to={readerPath} activePath="/reader" label="Reader" />
+                            <NavLink to="/vocabulary" label="Vocabulary" />
+                        </nav>
                     </div>
                 </header>
 

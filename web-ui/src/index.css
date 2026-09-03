@@ -279,6 +279,36 @@ a {
   box-shadow: 0 0 0 4px var(--input-focus-ring);
 }
 
+.textarea-input {
+  @apply rounded-[20px] border px-3 py-2 text-sm outline-none transition;
+  background: var(--input-bg);
+  border-color: var(--input-border);
+  color: var(--text);
+}
+
+.textarea-input:focus {
+  border-color: var(--input-focus-border);
+  box-shadow: 0 0 0 4px var(--input-focus-ring);
+}
+
+.file-input {
+  @apply w-full rounded-[20px] border px-3 py-2 text-sm outline-none transition;
+  background: var(--input-bg);
+  border-color: var(--input-border);
+  color: var(--text);
+}
+
+.file-input:focus {
+  border-color: var(--input-focus-border);
+  box-shadow: 0 0 0 4px var(--input-focus-ring);
+}
+
+.file-input::file-selector-button {
+  @apply mr-3 rounded-full border-0 px-3 py-1.5 text-sm font-medium;
+  background: var(--secondary-bg);
+  color: var(--secondary-text);
+}
+
 .input option {
   background: var(--surface-strong);
   color: var(--text);
@@ -296,6 +326,17 @@ select.input {
     calc(100% - 0.8rem) calc(50% - 0.16rem);
   background-size: 0.42rem 0.42rem, 0.42rem 0.42rem;
   background-repeat: no-repeat;
+}
+
+.nav-shell {
+  @apply flex flex-wrap items-center gap-1.5 rounded-full p-1.5;
+  background: var(--surface-strong);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-soft);
+}
+
+.nav-shell .nav-pill {
+  @apply flex-1 justify-center sm:flex-none;
 }
 
 .nav-pill {
@@ -419,6 +460,22 @@ html[data-theme="dark"] .nav-pill-active {
   background: var(--secondary-hover-bg);
 }
 
+.vocab-answer {
+  @apply rounded-[20px] border px-4 py-4;
+  background: var(--surface-tint);
+  border-color: var(--border);
+}
+
+.vocab-list-item {
+  @apply flex flex-col gap-3 rounded-[20px] border px-4 py-4 transition duration-200 md:flex-row md:items-center md:justify-between;
+  background: color-mix(in srgb, var(--surface-strong) 82%, transparent);
+  border-color: var(--border);
+}
+
+.vocab-list-item:hover {
+  background: var(--surface-tint);
+}
+
 .muted-copy {
   color: var(--muted);
 }
@@ -427,6 +484,13 @@ html[data-theme="dark"] .nav-pill-active {
   border-color: var(--danger-border);
   background: var(--danger-soft);
   color: var(--danger-text);
+}
+
+.theme-success {
+  @apply inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium;
+  border-color: rgba(80, 150, 95, 0.24);
+  background: var(--success-soft);
+  color: var(--text-soft);
 }
 
 .theme-warn {
@@ -497,7 +561,7 @@ html[data-theme="dark"] .nav-pill-active {
 }
 
 .theme-toggle {
-  @apply inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition duration-200;
+  @apply inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-base font-medium transition duration-200;
   background: var(--surface-strong);
   border: 1px solid var(--border);
   color: var(--heading);
