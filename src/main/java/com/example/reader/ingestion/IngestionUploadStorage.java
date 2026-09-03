@@ -12,32 +12,42 @@ import java.util.UUID;
 @Service
 public class IngestionUploadStorage {
     private final Path uploadDir;
+    private final PlainTextEpubConverter plainTextEpubConverter;
 
-    public IngestionUploadStorage(IngestionUploadProperties properties) {
+    public IngestionUploadStorage(IngestionUploadProperties properties, PlainTextEpubConverter plainTextEpubConverter) {
         this.uploadDir = properties.getDir().toAbsolutePath().normalize();
+        this.plainTextEpubConverter = plainTextEpubConverter;
     }
 
-    public String store(MultipartFile file) {
+    public String store(MultipartFile file, String title, String lang) {
         if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException("EPUB file is required");
+            throw new IllegalArgumentException("EPUB or TXT file is required");
         }
 
         String originalFilename = file.getOriginalFilename() == null ? "book.epub" : file.getOriginalFilename();
         String safeFilename = sanitizeFilename(originalFilename);
-        if (!safeFilename.toLowerCase(Locale.ROOT).endsWith(".epub")) {
-            throw new IllegalArgumentException("Only EPUB files are supported");
+        String lowerFilename = safeFilename.toLowerCase(Locale.ROOT);
+        if (!lowerFilename.endsWith(".epub") && !lowerFilename.endsWith(".txt")) {
+            throw new IllegalArgumentException("Only EPUB and TXT files are supported");
         }
 
         try {
             Files.createDirectories(uploadDir);
-            Path target = uploadDir.resolve(UUID.randomUUID() + "-" + safeFilename).normalize();
+            String storedFilename = lowerFilename.endsWith(".txt")
+                    ? stripExtension(safeFilename) + ".epub"
+                    : safeFilename;
+            Path target = uploadDir.resolve(UUID.randomUUID() + "-" + storedFilename).normalize();
             if (!target.startsWith(uploadDir)) {
                 throw new IllegalArgumentException("Invalid upload filename");
             }
-            file.transferTo(target);
+            if (lowerFilename.endsWith(".txt")) {
+                plainTextEpubConverter.convert(file.getBytes(), target, title, lang);
+            } else {
+                file.transferTo(target);
+            }
             return target.toUri().toString();
         } catch (IOException e) {
-            throw new IllegalStateException("Could not store uploaded EPUB", e);
+            throw new IllegalStateException("Could not store uploaded file", e);
         }
     }
 
@@ -51,5 +61,10 @@ public class IngestionUploadStorage {
             return "book.epub";
         }
         return sanitized;
+    }
+
+    private String stripExtension(String filename) {
+        int lastDot = filename.lastIndexOf('.');
+        return lastDot > 0 ? filename.substring(0, lastDot) : filename;
     }
 }

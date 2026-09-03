@@ -26,7 +26,7 @@ public class IngestionController {
         return new StartIngestionResponse(jobId, "PENDING", "/api/admin/ingest/jobs/" + jobId);
     }
 
-    @Timed(value = "ingestion.jobs.upload.submit", description = "Upload EPUB and submit ingestion job")
+    @Timed(value = "ingestion.jobs.upload.submit", description = "Upload source file and submit ingestion job")
     @PostMapping(value = "/jobs/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
     public StartIngestionResponse submitUpload(
@@ -43,7 +43,7 @@ public class IngestionController {
         IngestionRequest metadata = new IngestionRequest(
                 workTitle,
                 lang,
-                "uploaded.epub",
+                "uploaded-source",
                 year,
                 publisher,
                 translator,
@@ -53,7 +53,7 @@ public class IngestionController {
         ).withDefaults();
         metadata.validate();
 
-        String fileSpec = uploadStorage.store(file);
+        String fileSpec = uploadStorage.store(file, metadata.workTitle(), metadata.lang());
         IngestionRequest request = new IngestionRequest(
                 metadata.workTitle(),
                 metadata.lang(),

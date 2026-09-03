@@ -86,6 +86,11 @@ function normalizeLang(value: string) {
     return value.trim().toLowerCase()
 }
 
+function isSupportedBookFile(file: File) {
+    const lowerName = file.name.toLowerCase()
+    return lowerName.endsWith('.epub') || lowerName.endsWith('.txt')
+}
+
 function appendIfPresent(form: FormData, key: string, value: string) {
     const trimmed = value.trim()
     if (trimmed) {
@@ -214,9 +219,9 @@ export default function AdminIngestionPage() {
 
         for (const edition of editions) {
             if (!normalizeLang(edition.lang)) return 'Every edition needs a language.'
-            if (!edition.file) return 'Every edition needs an EPUB file.'
-            if (!edition.file.name.toLowerCase().endsWith('.epub')) {
-                return 'Only EPUB files are supported.'
+            if (!edition.file) return 'Every edition needs an EPUB or TXT file.'
+            if (!isSupportedBookFile(edition.file)) {
+                return 'Only EPUB and TXT files are supported.'
             }
         }
 
@@ -321,7 +326,7 @@ export default function AdminIngestionPage() {
                     editionLang: edition.lang,
                     fileName: edition.file.name,
                     status: 'UPLOADING',
-                    message: 'Uploading EPUB',
+                    message: 'Uploading file',
                 }, ...current])
 
                 try {
@@ -351,7 +356,7 @@ export default function AdminIngestionPage() {
                     <div>
                         <div className="soft-badge mb-2">Admin only</div>
                         <h2 className="theme-heading text-2xl font-semibold md:text-[1.85rem]">
-                            EPUB ingestion
+                            Book ingestion
                         </h2>
                     </div>
                     <label className="flex min-w-0 flex-col gap-2 text-sm md:min-w-56">
@@ -511,10 +516,10 @@ export default function AdminIngestionPage() {
                                         </label>
                                     </div>
                                     <label className="flex flex-col gap-2 text-sm">
-                                        <span className="text-xs uppercase tracking-[0.18em] muted-copy">EPUB file</span>
+                                        <span className="text-xs uppercase tracking-[0.18em] muted-copy">EPUB or TXT file</span>
                                         <input
                                             type="file"
-                                            accept=".epub,application/epub+zip"
+                                            accept=".epub,.txt,application/epub+zip,text/plain"
                                             onChange={event => updateEdition(edition.id, {file: event.target.files?.[0] ?? null})}
                                             className="file-input"
                                             required
