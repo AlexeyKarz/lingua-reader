@@ -1,0 +1,68 @@
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci
+
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:10"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+
+  - package-ecosystem: npm
+    directory: /web-ui
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:20"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:30"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+
+  - package-ecosystem: docker
+    directory: /web-ui
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:40"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+
+  - package-ecosystem: docker
+    directory: /python-embed
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:50"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build

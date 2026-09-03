@@ -215,10 +215,30 @@ For a real public deployment, put this behind HTTPS using a host-level reverse p
 
 The repository includes `.github/workflows/deploy.yml`. It runs backend tests,
 frontend linting, frontend unit tests, a production frontend build, and
-Playwright browser smoke tests. Deployment then connects to the Hetzner server
-over SSH and runs `scripts/deploy-prod.sh`. Verification runs on pull requests
-targeting `main` or `prod`. Deployment runs only on pushes to `main` or `prod`,
-or when started manually from the GitHub Actions tab.
+Playwright browser smoke tests. If Playwright fails, the workflow uploads the
+browser report and test-results artifacts for inspection. Deployment then
+connects to the Hetzner server over SSH, runs `scripts/deploy-prod.sh`, and
+checks the public deployment URL after the server-side healthcheck passes.
+Verification runs on pull requests targeting `main` or `prod`. Deployment runs
+only on pushes to `main` or `prod`, or when started manually from the GitHub
+Actions tab.
+
+The public post-deploy check defaults to:
+
+```text
+https://reader.alexeykarz.com/api/catalog/books
+```
+
+To use another domain or path, set the GitHub repository/environment variable
+`PUBLIC_HEALTHCHECK_URL`.
+
+`.github/workflows/security-audit.yml` tracks dependency security separately
+from deployment. It runs npm production audits on pull requests, on a weekly
+schedule, and on manual dispatch. Pull requests also run GitHub dependency
+review and fail when new high-severity dependency changes are introduced.
+
+`.github/dependabot.yml` enables weekly update pull requests for GitHub
+Actions, Gradle, npm, and Docker base images.
 
 The server keeps its own `.env` file. Do not store database passwords, OpenAI
 keys, or admin tokens in the repository.

@@ -15,6 +15,9 @@ concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     name: Verify
@@ -82,6 +85,17 @@ jobs:
         working-directory: web-ui
         run: npm run test:e2e
 
+      - name: Upload Playwright diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-diagnostics
+          path: |
+            web-ui/playwright-report/
+            web-ui/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
   deploy:
     name: Deploy to Hetzner
     runs-on: ubuntu-latest
@@ -122,3 +136,24 @@ jobs:
               && git reset --hard 'origin/$DEPLOY_BRANCH' \
               && chmod +x scripts/deploy-prod.sh \
               && HEALTHCHECK_URL='$HEALTHCHECK_URL' scripts/deploy-prod.sh"
+
+      - name: Smoke test public deployment
+        env:
+          PUBLIC_HEALTHCHECK_URL: ${{ vars.PUBLIC_HEALTHCHECK_URL || 'https://reader.alexeykarz.com/api/catalog/books' }}
+        run: |
+          echo "Checking public deployment: $PUBLIC_HEALTHCHECK_URL"
+          for attempt in $(seq 1 12); do
+            if curl --fail --silent --show-error --max-time 10 "$PUBLIC_HEALTHCHECK_URL" >/tmp/public-healthcheck.json; then
+              bytes=$(wc -c < /tmp/public-healthcheck.json)
+              echo "Public healthcheck passed on attempt $attempt/12 (${bytes} bytes)"
+              exit 0
+            fi
+
+            if [ "$attempt" -eq 12 ]; then
+              echo "::error::Public healthcheck failed after $attempt attempts"
+              exit 1
+            fi
+
+            echo "Public healthcheck attempt $attempt/12 failed; retrying in 10s"
+            sleep 10
+          done
