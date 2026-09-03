@@ -11,8 +11,9 @@ This directory contains the Python helpers used by the monolith ingestion pipeli
 
 1. submits ingestion jobs to the running backend
 2. waits for job completion
-3. runs embedding and alignment helpers
-4. verifies the result in PostgreSQL
+3. imports missing dictionary entries for source-language book terms
+4. runs embedding and alignment helpers
+5. verifies the result in PostgreSQL
 
 ## Setup
 
@@ -26,12 +27,16 @@ python -m pip install -r requirements.txt
 For production-style Docker deployments, the same scripts can be run through
 the `ingest-runner` profile in the root `docker-compose.prod.yml`. This avoids
 installing the Python/NLP dependencies on the host and reuses a Docker volume
-for downloaded model files:
+for downloaded model files. Put Kaikki/Wiktextract dictionary JSONL files in
+`DICTIONARY_DIR` on the host, for example
+`./dictionaries/kaikki.org-dictionary-German.jsonl.gz`, to enable automatic
+dictionary warmup. Put non-committed EPUB/TXT files under
+`INGESTION_MANIFEST_DIR` on the host, for example
+`./ops/ingestion/books/my-book-de.txt`; the runner uploads local files through
+the app admin upload endpoint:
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env --profile ingest build ingest-runner
-
-docker compose -f docker-compose.prod.yml --env-file .env --profile ingest run --rm ingest-runner \
+scripts/ingest-prod.sh \
   --work "Metamorphosis" \
   --year 1915 \
   --author "Franz Kafka" \
@@ -40,6 +45,13 @@ docker compose -f docker-compose.prod.yml --env-file .env --profile ingest run -
   --edition "lang=en,file=classpath:books/metamorphosis_en.epub" \
   --aligner dp \
   --reset-existing
+```
+
+For repeated deployed imports, keep book metadata in a manifest mounted as
+`/ingestion`:
+
+```bash
+scripts/ingest-manifest-prod.sh books.local.json
 ```
 
 ## Environment
@@ -54,6 +66,18 @@ Optional API base URL override for ingestion job submission:
 
 ```bash
 export MLR_API_BASE_URL="http://localhost:8080"
+```
+
+Optional dictionary directory override:
+
+```bash
+export DICTIONARY_DIR="/dictionaries"
+```
+
+Optional ingestion source directory override:
+
+```bash
+export INGESTION_DIR="/ingestion"
 ```
 
 ## Example
@@ -71,4 +95,17 @@ python add_book.py \
   --align-src de \
   --align-tgt en \
   --aligner dp
+```
+
+Dictionary warmup is enabled by default. It imports only missing terms for the
+source/original language into each aligned target language when a matching JSONL
+file is present. Use `--no-dictionary-auto` to skip it, or pass an explicit file:
+
+```bash
+python add_book.py \
+  --work "Faust (Part I)" \
+  --original-lang de \
+  --edition "lang=de,file=classpath:books/faust_de_1.epub" \
+  --edition "lang=en,file=classpath:books/faust_en_1.epub" \
+  --dictionary "source=de,target=en,jsonl=/dictionaries/kaikki.org-dictionary-German.jsonl.gz"
 ```

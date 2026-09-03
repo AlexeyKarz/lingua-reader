@@ -307,12 +307,13 @@ Disable admin again after ingestion unless you actively need it.
 For complete demo books, prefer the Compose `ingest-runner` profile instead of
 calling the ingestion API manually with `curl`. The API ingests EPUB editions,
 but the runner also performs the remaining pipeline steps: body-start selection,
-sentence embeddings, alignment, and verification.
+dictionary warmup, sentence embeddings, alignment, and verification.
 
 The runner uses the same internal Docker network as the app and database. Its
 Python dependencies are built into a reusable image, and model files are cached
 in the `ingest_model_cache` Docker volume so they do not need to be downloaded
-again for every book.
+again for every book. Dictionary files are mounted from the host and are never
+committed or baked into the image.
 
 1. Temporarily enable admin ingestion in `.env`:
 
@@ -327,16 +328,42 @@ MLR_ADMIN_TOKEN=<long-random-token>
 docker compose -f docker-compose.prod.yml --env-file .env up -d --force-recreate app
 ```
 
-3. Build the ingestion runner image:
+3. Put dictionary exports on the host when you want automatic dictionary warmup:
+
+```text
+./dictionaries/kaikki.org-dictionary-German.jsonl.gz
+./dictionaries/kaikki.org-dictionary-English.jsonl.gz
+./dictionaries/kaikki.org-dictionary-Spanish.jsonl.gz
+```
+
+The runner uses `DICTIONARY_DIR` from `.env` and mounts it as `/dictionaries`.
+Automatic dictionary warmup is enabled by default and skips missing files unless
+you pass `--no-dictionary-skip-missing`.
+
+4. Put new, non-committed EPUB/TXT files under the host ingestion directory when
+you want to add books without rebuilding the app image:
+
+```text
+./ops/ingestion/books/new-book-de.txt
+./ops/ingestion/books/new-book-en.epub
+```
+
+The runner mounts `INGESTION_MANIFEST_DIR` as `/ingestion`. A manifest can use
+`file=books/new-book-de.txt` or `file=/ingestion/books/new-book-de.txt`; the
+runner uploads local files to the app through the secured admin upload endpoint.
+TXT files are converted to EPUB by the app-side upload pipeline. `classpath:`
+file specs still work for EPUBs already packaged in the app image.
+
+5. Build the ingestion runner image:
 
 ```bash
 docker compose -f docker-compose.prod.yml --env-file .env --profile ingest build ingest-runner
 ```
 
-4. Run ingestion for a committed EPUB pair:
+6. Run ingestion for a committed EPUB pair:
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env --profile ingest run --rm ingest-runner \
+scripts/ingest-prod.sh \
   --work "Metamorphosis" \
   --year 1915 \
   --author "Franz Kafka" \
@@ -358,7 +385,18 @@ app image before running ingestion:
 docker compose -f docker-compose.prod.yml --env-file .env up -d --build app
 ```
 
-5. Disable admin ingestion again:
+For repeatable server-side ingestion, copy `ops/ingestion/books.example.json` to
+`ops/ingestion/books.local.json`, edit the book entries and local book file
+paths, then run:
+
+```bash
+scripts/ingest-manifest-prod.sh books.local.json
+```
+
+Use `scripts/ingest-manifest-prod.sh books.local.json --dry-run` to validate the
+generated commands before running them.
+
+7. Disable admin ingestion again:
 
 ```env
 MLR_ADMIN_ENABLED=false
@@ -478,9 +516,9 @@ Literal word and sentence provider responses are stored in `translation_cache`.
 Explanation responses are intentionally not cached because they depend more on
 context and prompt wording.
 
-The dictionary MVP supports English, German, and Spanish imports. More languages
-can be added later by extending the importer language choices and importing the
-corresponding dictionary data.
+The importer accepts any source/target language code present in the Kaikki data,
+but automatic file discovery currently knows common names for English, German,
+Spanish, French, Italian, Dutch, Polish, Portuguese, and Russian.
 
 Recommended data source: Kaikki/Wiktextract JSONL exports from Wiktionary:
 
@@ -503,17 +541,28 @@ python import_dictionary.py \
 python import_dictionary.py \
   --jsonl ~/Downloads/kaikki.org-dictionary-German.jsonl \
   --source de \
-  --target en
+  --target en \
+  --work "Metamorphosis" \
+  --body-only \
+  --missing-only
 
 python import_dictionary.py \
   --jsonl ~/Downloads/kaikki.org-dictionary-Spanish.jsonl \
   --source es \
-  --target en
+  --target en \
+  --missing-only
 ```
 
 By default, the importer scans the current `segment` table and imports only
-matching book words. Use `--all-entries` only for local experiments, because full
-dictionary imports can be large.
+matching book words. Use `--work` to limit the scan to one newly ingested work,
+`--body-only` to ignore front matter when `body_start_segment_id` is set, and
+`--missing-only` to skip terms already covered by existing dictionary entries.
+Use `--all-entries` only for local experiments, because full dictionary imports
+can be large.
+
+`python-embed/add_book.py` runs this missing-only dictionary warmup automatically
+for the original/source language to each aligned target language when the source
+dictionary JSONL is present in `DICTIONARY_DIR`.
 
 If dictionary rows were imported before a dictionary schema change, re-run the
 import for the same language pair. Existing rows are updated in place. The
@@ -684,6 +733,12 @@ python add_book.py \
     --body-start 'lang=en,text="Marley was dead, to begin with"' \
     --body-start 'lang=es,text="Marley estaba muerto; eso para empezar"'
 ```
+
+`add_book.py` also imports missing dictionary entries for the source/original
+language by default when a matching Kaikki JSONL file is available in
+`DICTIONARY_DIR`. Use `--no-dictionary-auto` to disable it or
+`--dictionary "source=de,target=en,jsonl=/path/to/file.jsonl.gz"` for an explicit
+dictionary file.
 
 If the `work` table already exists in your local database, add the new optional catalog field once:
 

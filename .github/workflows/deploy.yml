@@ -53,6 +53,23 @@ jobs:
           cache: npm
           cache-dependency-path: web-ui/package-lock.json
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check ingestion helper scripts
+        run: |
+          python -m py_compile \
+            python-embed/add_book.py \
+            python-embed/add_books_from_manifest.py \
+            python-embed/import_dictionary.py
+          python python-embed/add_books_from_manifest.py ops/ingestion/books.example.json --dry-run
+          bash -n \
+            scripts/ingest-prod.sh \
+            scripts/ingest-manifest-prod.sh \
+            scripts/import-dictionary-prod.sh
+
       - name: Run backend tests
         env:
           SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/mlr

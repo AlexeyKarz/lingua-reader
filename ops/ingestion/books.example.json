@@ -1,0 +1,39 @@
+{
+  "defaults": {
+    "aligner": "dp",
+    "reset_existing": true,
+    "dictionary_auto": true,
+    "dictionary_body_only": true,
+    "dictionary_max_items": 4,
+    "dictionary_skip_missing": true
+  },
+  "books": [
+    {
+      "work": "Metamorphosis",
+      "year": 1915,
+      "author": "Franz Kafka",
+      "original_lang": "de",
+      "description": "A novella about Gregor Samsa, who wakes one morning transformed and becomes isolated from his family.",
+      "editions": [
+        {
+          "lang": "de",
+          "file": "classpath:books/metamorphosis_de.epub"
+        },
+        {
+          "lang": "en",
+          "file": "classpath:books/metamorphosis_en.epub"
+        }
+      ],
+      "body_start": [
+        {
+          "lang": "de",
+          "text": "Gregor Samsa eines Morgens"
+        },
+        {
+          "lang": "en",
+          "text": "One morning, when Gregor Samsa"
+        }
+      ]
+    }
+  ]
+}

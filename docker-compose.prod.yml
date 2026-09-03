@@ -59,10 +59,14 @@ services:
       MLR_API_BASE_URL: http://app:8080
       MLR_ADMIN_TOKEN: ${MLR_ADMIN_TOKEN:-}
       DATABASE_URL: host=postgres port=5432 dbname=${POSTGRES_DB:-mlr} user=${POSTGRES_USER:-mlr} password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      DICTIONARY_DIR: /dictionaries
+      INGESTION_DIR: /ingestion
       HF_HOME: /models/huggingface
       SENTENCE_TRANSFORMERS_HOME: /models/sentence-transformers
     volumes:
       - ingest_model_cache:/models
+      - ${DICTIONARY_DIR:-./dictionaries}:/dictionaries:ro
+      - ${INGESTION_MANIFEST_DIR:-./ops/ingestion}:/ingestion:ro
 
 volumes:
   postgres_data:

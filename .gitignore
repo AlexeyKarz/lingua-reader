@@ -51,3 +51,6 @@ __pycache__/
 
 ### Local deployment artifacts ###
 /ops/deployment/dumps/
+/dictionaries/
+/ops/ingestion/*.local.json
+/ops/ingestion/books/

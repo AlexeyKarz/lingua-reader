@@ -11,10 +11,13 @@ from pathlib import Path
 from typing import Optional
 
 import psycopg
+from dotenv import load_dotenv
 
 
 SOURCE_NAME = "Wiktionary via Kaikki/Wiktextract"
 SOURCE_URL = "https://kaikki.org/"
+ROOT = Path(__file__).resolve().parent.parent
+SCRIPTS_DIR = Path(__file__).resolve().parent
 GENDER_LABELS = {
     "m": "masculine",
     "masculine": "masculine",
@@ -45,22 +48,85 @@ def tokenize(text: str) -> set[str]:
     return words
 
 
-def load_book_terms(conn: psycopg.Connection, source_lang: str) -> set[str]:
+def default_database_url() -> Optional[str]:
+    load_dotenv(ROOT / ".env")
+    load_dotenv(SCRIPTS_DIR / ".env")
+
+    dsn = os.getenv("DATABASE_URL") or os.getenv("MLR_DB_DSN")
+    if dsn:
+        return dsn
+
+    host = os.getenv("MLR_DB_HOST")
+    port = os.getenv("MLR_DB_PORT", "5432")
+    name = os.getenv("MLR_DB_NAME")
+    user = os.getenv("MLR_DB_USER")
+    password = os.getenv("MLR_DB_PASS")
+    if host and name and user:
+        return f"postgresql://{user}:{password or ''}@{host}:{port}/{name}"
+    return None
+
+
+def load_book_terms(
+    conn: psycopg.Connection,
+    source_lang: str,
+    work_title: Optional[str],
+    source_edition_lang: Optional[str],
+    body_only: bool,
+) -> set[str]:
     terms: set[str] = set()
-    with conn.cursor() as cur:
-        cur.execute(
-            """
+    edition_lang = source_edition_lang or source_lang
+    clauses = [
+        "e.lang = %s",
+        "s.level = 'sentence'",
+    ]
+    params: list[object] = [edition_lang]
+    if work_title:
+        clauses.append("w.title = %s")
+        params.append(work_title)
+    if body_only:
+        clauses.append("(e.body_start_segment_id is null or s.id >= e.body_start_segment_id)")
+
+    sql = f"""
             select s.text
             from segment s
             join edition e on e.id = s.edition_id
-            where e.lang = %s
-              and s.level = 'sentence'
-            """,
-            (source_lang,),
-        )
+            join work w on w.id = e.work_id
+            where {' and '.join(clauses)}
+            """
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
         for (text,) in cur:
             terms.update(tokenize(text))
     return terms
+
+
+def load_existing_terms(
+    conn: psycopg.Connection,
+    source_lang: str,
+    target_lang: str,
+    terms: Optional[set[str]],
+) -> set[str]:
+    if terms is not None and not terms:
+        return set()
+
+    params: list[object] = [source_lang, target_lang]
+    terms_clause = ""
+    if terms is not None:
+        terms_clause = "and normalized = any(%s)"
+        params.append(list(terms))
+
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            select distinct normalized
+            from dictionary_entry
+            where source_lang = %s
+              and target_lang = %s
+              {terms_clause}
+            """,
+            params,
+        )
+        return {row[0] for row in cur}
 
 
 def as_string_list(values, limit: int) -> list[str]:
@@ -320,6 +386,7 @@ def import_matching_entries(
     max_items: int,
     limit: int,
     collect_bases: bool,
+    skip_existing_terms: Optional[set[str]] = None,
 ) -> tuple[int, int, set[str]]:
     imported = 0
     scanned = 0
@@ -341,6 +408,8 @@ def import_matching_entries(
                 continue
             if terms is not None and entry["normalized"] not in terms:
                 continue
+            if skip_existing_terms is not None and entry["normalized"] in skip_existing_terms:
+                continue
 
             upsert_entry(conn, source_lang, target_lang, entry)
             imported += 1
@@ -359,13 +428,41 @@ def import_matching_entries(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Import local dictionary entries from Kaikki/Wiktextract JSONL.")
     parser.add_argument("--jsonl", required=True, help="Path to a Kaikki/Wiktextract .jsonl file")
-    parser.add_argument("--source", required=True, choices=["en", "de", "es"], help="Source language code")
-    parser.add_argument("--target", required=True, choices=["en", "de", "es"], help="Target language code")
-    parser.add_argument("--database-url", default=os.getenv("DATABASE_URL"), help="PostgreSQL connection string")
+    parser.add_argument("--source", required=True, help="Dictionary source language code")
+    parser.add_argument("--target", required=True, help="Dictionary target language code")
+    parser.add_argument("--database-url", default=default_database_url(), help="PostgreSQL connection string")
+    parser.add_argument("--work", default=None, help="Restrict book-term collection to this work title")
+    parser.add_argument(
+        "--source-edition-lang",
+        default=None,
+        help="Edition language to collect terms from. Defaults to --source.",
+    )
+    parser.add_argument(
+        "--body-only",
+        action="store_true",
+        help="When an edition has body_start_segment_id set, collect only body sentences.",
+    )
+    parser.add_argument(
+        "--missing-only",
+        action="store_true",
+        help="Skip normalized terms that already have dictionary entries for this source/target pair.",
+    )
     parser.add_argument("--all-entries", action="store_true", help="Import all matching entries instead of only words found in books")
     parser.add_argument("--max-items", type=int, default=4, help="Maximum definitions/examples/translations per word")
     parser.add_argument("--limit", type=int, default=0, help="Stop after importing this many entries; 0 means no limit")
     args = parser.parse_args()
+
+    args.source = args.source.strip().lower()
+    args.target = args.target.strip().lower()
+    if args.source_edition_lang:
+        args.source_edition_lang = args.source_edition_lang.strip().lower()
+
+    if args.max_items < 1:
+        print("--max-items must be >= 1", file=sys.stderr)
+        return 2
+    if args.limit < 0:
+        print("--limit must be >= 0", file=sys.stderr)
+        return 2
 
     if not args.database_url:
         print("DATABASE_URL is required", file=sys.stderr)
@@ -378,9 +475,36 @@ def main() -> int:
 
     with psycopg.connect(args.database_url) as conn:
         allowed_terms: Optional[set[str]] = None
+        skip_existing_terms: Optional[set[str]] = None
         if not args.all_entries:
-            allowed_terms = load_book_terms(conn, args.source)
-            print(f"Loaded {len(allowed_terms)} unique {args.source} terms from segmented books")
+            allowed_terms = load_book_terms(
+                conn,
+                args.source,
+                args.work,
+                args.source_edition_lang,
+                args.body_only,
+            )
+            scope = f"work={args.work}" if args.work else "all works"
+            edition_lang = args.source_edition_lang or args.source
+            print(
+                f"Loaded {len(allowed_terms)} unique {edition_lang} terms from {scope} "
+                f"(body_only={str(args.body_only).lower()})"
+            )
+
+            if args.missing_only:
+                existing_terms = load_existing_terms(conn, args.source, args.target, allowed_terms)
+                before = len(allowed_terms)
+                allowed_terms -= existing_terms
+                print(
+                    f"Skipped {before - len(allowed_terms)} terms already covered by "
+                    f"{args.source}->{args.target} dictionary entries"
+                )
+                if not allowed_terms:
+                    print("No missing book terms to import.")
+                    return 0
+        elif args.missing_only:
+            skip_existing_terms = load_existing_terms(conn, args.source, args.target, None)
+            print(f"Loaded {len(skip_existing_terms)} existing {args.source}->{args.target} terms to skip")
 
         imported, scanned, base_terms = import_matching_entries(
             conn,
@@ -391,11 +515,15 @@ def main() -> int:
             args.max_items,
             args.limit,
             collect_bases=not args.all_entries,
+            skip_existing_terms=skip_existing_terms,
         )
 
         base_imported = 0
         if allowed_terms is not None:
             missing_base_terms = base_terms - allowed_terms
+            if args.missing_only:
+                existing_base_terms = load_existing_terms(conn, args.source, args.target, missing_base_terms)
+                missing_base_terms -= existing_base_terms
             if missing_base_terms:
                 print(f"Importing {len(missing_base_terms)} referenced base forms")
                 base_imported, _, _ = import_matching_entries(
@@ -407,6 +535,7 @@ def main() -> int:
                     args.max_items,
                     0,
                     collect_bases=False,
+                    skip_existing_terms=None,
                 )
 
         print(
