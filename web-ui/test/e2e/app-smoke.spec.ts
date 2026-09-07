@@ -59,7 +59,13 @@ test('catalog to reader lookup save to vocabulary', async ({ page }) => {
   await expect(page.getByText('Smoke Book').first()).toBeVisible()
   await page.getByRole('link', { name: /Read\s+EN/i }).click()
   await expect(page).toHaveURL(/\/reader\?bookId=101&src=en&tgt=de/)
+  await expect(page.getByRole('checkbox', { name: 'Jump to match' })).not.toBeChecked()
+  await expect(page.getByRole('button', { name: 'Stack' })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: 'Split' }).click()
+  await expect(page.locator('.reader-pane-grid-mobile-split')).toBeVisible()
   await expect(page.locator('[data-sentence-id="1"]')).toContainText('Hello world.')
+  await page.locator('[data-sentence-id="1"]').click()
+  await expect(page.locator('[data-sentence-id="2"]')).toHaveClass(/right-sentence-highlight/)
 
   await page.locator('[data-sentence-id="1"]').evaluate(node => {
     const range = document.createRange()

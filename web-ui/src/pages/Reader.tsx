@@ -93,9 +93,31 @@ type SavedReaderState = {
 }
 
 const DEFAULT_PAGE_SIZE = 20
+const FOLLOW_ALIGNMENT_KEY = 'mlr:reader-follow-alignment'
+const MOBILE_PANE_LAYOUT_KEY = 'mlr:reader-mobile-pane-layout'
+
+type MobilePaneLayout = 'stack' | 'split'
 
 function getReaderProgressKey(bookId: string, src: string, tgt: string) {
     return `mlr:reader-progress:${bookId}:${src}:${tgt}`
+}
+
+function readBooleanSetting(key: string, fallback: boolean) {
+    try {
+        const raw = window.localStorage.getItem(key)
+        if (raw === null) return fallback
+        return raw === 'true'
+    } catch {
+        return fallback
+    }
+}
+
+function readMobilePaneLayout(): MobilePaneLayout {
+    try {
+        return window.localStorage.getItem(MOBILE_PANE_LAYOUT_KEY) === 'split' ? 'split' : 'stack'
+    } catch {
+        return 'stack'
+    }
 }
 
 function readSavedReaderState(bookId: string, src: string, tgt: string): SavedReaderState | null {
@@ -157,6 +179,8 @@ export default function Reader() {
     const [jumpError, setJumpError] = useState<string | null>(null)
     const [errorMsg, setErrorMsg] = useState<string | null>(null)
     const [progressReady, setProgressReady] = useState(false)
+    const [followAlignment, setFollowAlignment] = useState(() => readBooleanSetting(FOLLOW_ALIGNMENT_KEY, false))
+    const [mobilePaneLayout, setMobilePaneLayout] = useState<MobilePaneLayout>(() => readMobilePaneLayout())
 
     const rangeRef = useRef<Range | null>(null)
 
@@ -366,6 +390,22 @@ export default function Reader() {
         })
     }, [bookId, src, tgt, page, size, progressReady, hasReaderParams])
 
+    useEffect(() => {
+        try {
+            window.localStorage.setItem(FOLLOW_ALIGNMENT_KEY, String(followAlignment))
+        } catch {
+            // Reader settings are convenience-only.
+        }
+    }, [followAlignment])
+
+    useEffect(() => {
+        try {
+            window.localStorage.setItem(MOBILE_PANE_LAYOUT_KEY, mobilePaneLayout)
+        } catch {
+            // Reader settings are convenience-only.
+        }
+    }, [mobilePaneLayout])
+
     // Utility: clamp number into [min, max]
     const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(n, max))
 
@@ -378,6 +418,11 @@ export default function Reader() {
         if (!raw) return undefined
         const id = Number(raw)
         return Number.isFinite(id) ? id : undefined
+    }
+
+    function hasActiveTextSelection() {
+        const selection = window.getSelection()
+        return !!selection && !selection.isCollapsed && selection.toString().trim().length > 0
     }
 
     type ChapterState = { current: number | null }
@@ -503,6 +548,8 @@ export default function Reader() {
 
 
     function handleLeftSentenceClick(sentenceId: number) {
+        if (hasActiveTextSelection()) return
+
         const rightId = alignMap.get(sentenceId)
         if (!rightId) {
             setNotice(
@@ -512,6 +559,8 @@ export default function Reader() {
         }
 
         setHighlightRightId(rightId)
+        if (!followAlignment) return
+
         const el = rightRefs.current[rightId]
         if (el) {
             el.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -1039,41 +1088,64 @@ export default function Reader() {
         return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('mousedown', onDown) }
     }, [pop.kind])
 
+    const paneGridClass = `reader-pane-grid ${
+        mobilePaneLayout === 'split' ? 'reader-pane-grid-mobile-split' : 'reader-pane-grid-mobile-stack'
+    }`
+
     return (
         <div>
-            <section className="surface-panel rounded-[32px] px-5 py-5 md:px-7 md:py-6">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                    <div>
-                        <h3 className="theme-heading text-3xl font-semibold md:text-[2.2rem]">
+            <section className="reader-top-panel surface-panel rounded-[24px] px-4 py-4 md:rounded-[28px] md:px-6 md:py-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                    <div className="min-w-0">
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                            <span className="soft-badge">
+                                {src && tgt ? `${src.toUpperCase()} → ${tgt.toUpperCase()}` : 'Reader'}
+                            </span>
+                            <span className="soft-badge">
+                                Page {page + 1}{data?.totalSrc ? ` / ${Math.max(1, Math.ceil(data.totalSrc / size))}` : ''}
+                            </span>
+                            {data?.author && <span className="soft-badge">{data.author}</span>}
+                        </div>
+                        <h3 className="theme-heading text-2xl font-semibold leading-tight md:text-[2rem]">
                             {data?.title || bookId || 'Reader'}
                         </h3>
-                        <p className="mt-2 max-w-3xl text-sm leading-6 muted-copy md:text-[15px]">
+                        <p className="mt-2 hidden max-w-3xl text-sm leading-6 muted-copy md:block md:text-[15px]">
                             Compare aligned passages, select words or sentences for literal translation,
                             and open short explanations without leaving the page.
                         </p>
                         {data?.description && (
-                            <p className="theme-copy mt-3 max-w-3xl text-sm leading-7">
+                            <p className="theme-copy mt-2 hidden max-w-3xl text-sm leading-7 lg:block">
                                 {data.description}
                             </p>
                         )}
                     </div>
 
-                    <div className="grid gap-3 text-sm sm:grid-cols-3">
-                        <div className="surface-panel-strong rounded-[24px] px-4 py-3">
-                            <div className="text-xs uppercase tracking-[0.18em] muted-copy">Reading pair</div>
-                            <div className="theme-heading mt-2 font-medium">
-                                {src && tgt ? `${src.toUpperCase()} → ${tgt.toUpperCase()}` : '—'}
-                            </div>
-                        </div>
-                        <div className="surface-panel-strong rounded-[24px] px-4 py-3">
-                            <div className="text-xs uppercase tracking-[0.18em] muted-copy">Author</div>
-                            <div className="theme-heading mt-2 font-medium">{data?.author || '—'}</div>
-                        </div>
-                        <div className="surface-panel-strong rounded-[24px] px-4 py-3">
-                            <div className="text-xs uppercase tracking-[0.18em] muted-copy">Page</div>
-                            <div className="theme-heading mt-2 font-medium">
-                                {page + 1}{data?.totalSrc ? ` / ${Math.max(1, Math.ceil(data.totalSrc / size))}` : ''}
-                            </div>
+                    <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                        <label className="reader-toggle-option">
+                            <input
+                                type="checkbox"
+                                checked={followAlignment}
+                                onChange={event => setFollowAlignment(event.target.checked)}
+                            />
+                            <span>Jump to match</span>
+                        </label>
+                        <div className="reader-segmented" role="group" aria-label="Small-screen pane layout">
+                            <button
+                                type="button"
+                                className={mobilePaneLayout === 'stack' ? 'reader-segmented-active' : ''}
+                                aria-pressed={mobilePaneLayout === 'stack'}
+                                onClick={() => setMobilePaneLayout('stack')}
+                            >
+                                Stack
+                            </button>
+                            <button
+                                type="button"
+                                className={mobilePaneLayout === 'split' ? 'reader-segmented-active' : ''}
+                                aria-pressed={mobilePaneLayout === 'split'}
+                                onClick={() => setMobilePaneLayout('split')}
+                            >
+                                Split
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1090,16 +1162,18 @@ export default function Reader() {
                 </div>
             )}
 
-            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className={paneGridClass}>
                 <div
                     ref={leftRef}
-                    className="reader-pane leading-8"
+                    className="reader-pane leading-7 md:leading-8"
                 >
                     <div className="reader-pane-header">
                         <div className="select-none">
                             <div className="soft-badge">Original ({src.toUpperCase()})</div>
-                            <div className="mt-2 text-sm muted-copy">
-                                Click a sentence to reveal the aligned translation on the opposite side.
+                            <div className="mt-2 hidden text-sm muted-copy sm:block">
+                                {followAlignment
+                                    ? 'Click highlights and follows the matched translation.'
+                                    : 'Click highlights the matched translation.'}
                             </div>
                         </div>
                     </div>
@@ -1146,12 +1220,12 @@ export default function Reader() {
 
                 <div
                     ref={rightRef}
-                    className="reader-pane leading-8"
+                    className="reader-pane leading-7 md:leading-8"
                 >
                     <div className="reader-pane-header">
                         <div className="select-none">
                             <div className="soft-badge">Translation ({tgt.toUpperCase()})</div>
-                            <div className="mt-2 text-sm muted-copy">
+                            <div className="mt-2 hidden text-sm muted-copy sm:block">
                                 Select text here to translate back or request a short explanation.
                             </div>
                         </div>
