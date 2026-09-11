@@ -17,11 +17,15 @@ import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Component
 public class EpubExtractor {
 
     private static final Logger log = LoggerFactory.getLogger(EpubExtractor.class);
+    private static final Pattern FALLBACK_SENTENCE_PATTERN =
+            Pattern.compile("[^.!?;\\u037E\\u2026]+(?:[.!?;\\u037E\\u2026]+|$)");
 
     public record Para(String text, String cfi) {}
     public record Chapter(String title, String cfi, List<Para> paragraphs) {}
@@ -127,14 +131,18 @@ public class EpubExtractor {
     public record Sent(int ord, String text, String cfi) {}
 
     public List<Sent> splitSentences(String lang, String paragraph) throws Exception {
-        var modelName = switch (lang) {
+        String normalizedLang = lang == null ? "" : lang.toLowerCase(Locale.ROOT);
+        var modelName = switch (normalizedLang) {
             case "de" -> "models/de-sent.bin";
             case "en" -> "models/en-sent.bin";
             case "ru" -> "models/ru-sent.bin";
             case "es" -> "models/es-sent.bin";
             case "fr" -> "models/fr-sent.bin";
-            default   -> "models/en-sent.bin";
+            default   -> null;
         };
+        if (modelName == null) {
+            return splitSentencesByPunctuation(paragraph);
+        }
         try (var in = getClass().getClassLoader().getResourceAsStream(modelName)) {
             if (in == null) throw new IllegalStateException("Sentence model not found: " + modelName);
             var model = new opennlp.tools.sentdetect.SentenceModel(in);
@@ -144,5 +152,25 @@ public class EpubExtractor {
             for (int i=0;i<sents.length;i++) out.add(new Sent(i+1, sents[i].trim(), null));
             return out;
         }
+    }
+
+    private List<Sent> splitSentencesByPunctuation(String paragraph) {
+        String cleaned = paragraph == null ? "" : paragraph.trim();
+        if (cleaned.isBlank()) {
+            return List.of();
+        }
+
+        Matcher matcher = FALLBACK_SENTENCE_PATTERN.matcher(cleaned);
+        List<Sent> out = new ArrayList<>();
+        while (matcher.find()) {
+            String sentence = matcher.group().trim();
+            if (!sentence.isBlank()) {
+                out.add(new Sent(out.size() + 1, sentence, null));
+            }
+        }
+        if (out.isEmpty()) {
+            out.add(new Sent(1, cleaned, null));
+        }
+        return out;
     }
 }

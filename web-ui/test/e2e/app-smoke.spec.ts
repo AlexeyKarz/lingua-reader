@@ -9,6 +9,10 @@ const catalog = [
     year: 2026,
     langs: ['en', 'de'],
     originalLang: 'en',
+    editionMeta: {
+      en: { aiGenerated: false },
+      de: { aiGenerated: true, format: 'ai-literary', translator: 'AI literary translation' },
+    },
   },
 ]
 
@@ -40,6 +44,7 @@ test.beforeEach(async ({ page }) => {
     size: 20,
     totalSrc: 1,
     totalTgt: 1,
+    targetAiGenerated: true,
     left: [{ id: 1, text: 'Hello world.', chapterId: 11, chapterTitle: 'Chapter 1' }],
     right: [{ id: 2, text: 'Hallo Welt.', chapterId: 12, chapterTitle: 'Kapitel 1' }],
     alignments: [{ leftId: 1, rightId: 2, score: 0.99 }],
@@ -51,14 +56,16 @@ test.beforeEach(async ({ page }) => {
     translated: 'Hallo',
   }))
   await page.route('**/api/translate/explain', route => fulfillJson(route, { explanation: 'A short explanation.' }))
+  await page.route(/\/api\/admin\/ingest\/jobs\?limit=50$/, route => fulfillJson(route, []))
 })
 
 test('catalog to reader lookup save to vocabulary', async ({ page }) => {
   await page.goto('/')
 
   await expect(page.getByText('Smoke Book').first()).toBeVisible()
-  await page.getByRole('link', { name: /Read\s+EN/i }).click()
+  await page.getByRole('link', { name: /Read\s+EN\s+→\s+DE \(AI\)/i }).click()
   await expect(page).toHaveURL(/\/reader\?bookId=101&src=en&tgt=de/)
+  await expect(page.getByText('Translation (DE - AI)')).toBeVisible()
   await expect(page.getByRole('checkbox', { name: 'Jump to match' })).not.toBeChecked()
   await expect(page.getByRole('button', { name: 'Stack' })).toHaveAttribute('aria-pressed', 'true')
   await page.getByRole('button', { name: 'Split' }).click()
@@ -165,6 +172,7 @@ test('admin ingestion queues generated literary edition for an existing source',
   await page.getByRole('button', { name: 'AI' }).click()
   await page.getByLabel('Language', { exact: true }).fill('fr')
   await page.getByLabel('Publisher').fill('Generated Press')
+  await page.getByLabel('Model').fill('gpt-4o')
   await page.getByLabel('Max source chars').fill('25000')
   await page.getByLabel('Chunk chars').fill('1200')
   await page.getByLabel('Context chars').fill('300')
@@ -184,5 +192,6 @@ test('admin ingestion queues generated literary edition for an existing source',
     maxSourceChars: 25000,
     chunkMaxChars: 1200,
     contextChars: 300,
+    model: 'gpt-4o',
   })
 })

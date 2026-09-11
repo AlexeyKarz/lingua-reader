@@ -90,16 +90,18 @@ public class ReaderController {
                 outcome = "missing_editions";
                 log.warn("Reader page request failed: no editions for bookId='{}' src='{}' tgt='{}'",
                         bookId, resolvedSrc, tgt);
-                resp = Map.of(
-                        "bookId", bookId,
-                        "src", resolvedSrc, "tgt", tgt,
-                        "page", page, "size", size,
-                        "left", List.of(),
-                        "right", List.of(),
-                        "alignments", List.of(),
-                        "totalSrc", 0,
-                        "totalTgt", 0
-                );
+                resp = new java.util.HashMap<>();
+                resp.put("bookId", bookId);
+                resp.put("src", resolvedSrc);
+                resp.put("tgt", tgt);
+                resp.put("page", page);
+                resp.put("size", size);
+                resp.put("left", List.of());
+                resp.put("right", List.of());
+                resp.put("alignments", List.of());
+                resp.put("totalSrc", 0);
+                resp.put("totalTgt", 0);
+                resp.put("targetAiGenerated", false);
                 return resp;
             }
 
@@ -107,6 +109,7 @@ public class ReaderController {
             long srcEd  = ids.srcEditionId();
             long tgtEd  = ids.tgtEditionId();
             ReaderRepository.WorkMeta meta = repo.fetchWorkMeta(workId);
+            ReaderRepository.EditionMeta targetMeta = repo.fetchEditionMeta(tgtEd);
             workIdTag = String.valueOf(workId);
             srcEditionTag = String.valueOf(srcEd);
             tgtEditionTag = String.valueOf(tgtEd);
@@ -143,9 +146,7 @@ public class ReaderController {
             List<SentenceDto> right;
 
             if (links.isEmpty()) {
-                // no alignments on this page: for now show nothing on the right;
-                // later you can fall back to a simple paging of tgt if you want.
-                right = List.of();
+                right = repo.fetchSentencePage(tgtEd, tgtBodyStart, page, size);
             } else {
                 // 3) get the min and max rightId for this page
                 List<Long> rightIds = links.stream()
@@ -171,6 +172,9 @@ public class ReaderController {
             resp.put("title", meta.title());
             resp.put("author", meta.author() == null ? "" : meta.author());
             resp.put("description", meta.description() == null ? "" : meta.description());
+            resp.put("targetTranslator", targetMeta.translator());
+            resp.put("targetFormat", targetMeta.format());
+            resp.put("targetAiGenerated", targetMeta.aiGenerated());
             resp.put("page", page);
             resp.put("size", size);
             resp.put("totalSrc", totalSrc);

@@ -76,6 +76,17 @@ class IngestionUploadStorageTest {
     }
 
     @Test
+    void splitsGreekTextWithFallbackSentenceSplitter() throws Exception {
+        EpubExtractor extractor = new EpubExtractor();
+
+        var sentences = extractor.splitSentences("el", "Πρώτη πρόταση. Τι γίνεται; Δεύτερη!");
+
+        assertThat(sentences)
+                .extracting(EpubExtractor.Sent::text)
+                .containsExactly("Πρώτη πρόταση.", "Τι γίνεται;", "Δεύτερη!");
+    }
+
+    @Test
     void rejectsUnsupportedUploads() {
         IngestionUploadProperties properties = new IngestionUploadProperties();
         properties.setDir(tempDir);

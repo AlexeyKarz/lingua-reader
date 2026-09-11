@@ -6,6 +6,8 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/admin/ingest")
 public class IngestionController {
@@ -24,6 +26,12 @@ public class IngestionController {
     public StartIngestionResponse submit(@RequestBody IngestionRequest request) {
         long jobId = jobService.startJob(request);
         return new StartIngestionResponse(jobId, "PENDING", "/api/admin/ingest/jobs/" + jobId);
+    }
+
+    @Timed(value = "ingestion.jobs.history", description = "List recent ingestion jobs")
+    @GetMapping("/jobs")
+    public List<IngestionJob> jobs(@RequestParam(required = false) Integer limit) {
+        return jobService.listJobs(limit);
     }
 
     @Timed(value = "ingestion.jobs.generate_literary.submit", description = "Submit literary edition generation jobs")
@@ -81,6 +89,14 @@ public class IngestionController {
     @GetMapping("/jobs/{id}")
     public IngestionJob job(@PathVariable long id) {
         return jobService.getJob(id);
+    }
+
+    @Timed(value = "ingestion.jobs.retry", description = "Retry failed ingestion job")
+    @PostMapping("/jobs/{id}/retry")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public StartIngestionResponse retry(@PathVariable long id) {
+        long jobId = jobService.retryJob(id);
+        return new StartIngestionResponse(jobId, "PENDING", "/api/admin/ingest/jobs/" + jobId);
     }
 
     public record StartIngestionResponse(long jobId, String status, String statusUrl) {}

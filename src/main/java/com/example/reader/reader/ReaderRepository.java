@@ -19,6 +19,7 @@ public class ReaderRepository {
     // Small holder for IDs
     public record EditionIds(long workId, long srcEditionId, long tgtEditionId) {}
     public record WorkMeta(String title, String author, String description, String originalLang) {}
+    public record EditionMeta(String translator, String format, boolean aiGenerated) {}
 
     public EditionIds findEditionIds(String bookId, String srcLang, String tgtLang) {
         Long workId = parseWorkId(bookId);
@@ -96,6 +97,26 @@ public class ReaderRepository {
                     rs.getString("original_lang")
             );
         });
+    }
+
+    public EditionMeta fetchEditionMeta(long editionId) {
+        String sql = "select translator, format, source_uri from edition where id = :editionId";
+        var params = new MapSqlParameterSource("editionId", editionId);
+        return jdbc.query(sql, params, rs -> {
+            if (!rs.next()) return new EditionMeta(null, null, false);
+            String format = rs.getString("format");
+            String sourceUri = rs.getString("source_uri");
+            return new EditionMeta(
+                    rs.getString("translator"),
+                    format,
+                    isAiGenerated(format, sourceUri)
+            );
+        });
+    }
+
+    private boolean isAiGenerated(String format, String sourceUri) {
+        return (format != null && format.equalsIgnoreCase("ai-literary"))
+                || (sourceUri != null && sourceUri.startsWith("ai-literary://"));
     }
 
     public WorkMeta fetchWorkMetaByTitle(String title) {

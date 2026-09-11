@@ -143,8 +143,8 @@ npm run dev
 
 ## Testing
 
-Backend tests require PostgreSQL with pgvector reachable through the configured
-Spring datasource, matching the GitHub Actions Postgres service.
+Backend integration tests use an ephemeral pgvector PostgreSQL container through
+Testcontainers. They should not read from or write to your local `mlr` database.
 
 ```bash
 ./gradlew test
@@ -307,6 +307,13 @@ is uploaded in the same form submission, the UI waits for that source ingestion
 job to finish before queuing the generated translation job. Keep this for short
 stories and novellas; the server rejects generated jobs above the configured
 source-character cap.
+
+The AI mode has an optional model field. Leave it blank to use the configured
+`*_LITERARY_MODEL` default, or enter a provider model such as `gpt-5.6-luna`,
+`gpt-5.6-terra`, `gpt-5.6-sol`, or `gpt-6-astra` for that generated edition job.
+The default source-character guard is 250,000 characters. Generated editions are
+stored with `format=ai-literary`, which the catalog and reader use to show `(AI)`
+labels.
 
 Disable admin again after ingestion unless you actively need it.
 

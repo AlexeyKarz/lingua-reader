@@ -12,6 +12,9 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.Instant;
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -19,6 +22,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -110,7 +114,8 @@ class IngestionControllerMockMvcTest {
                                   "translator": "AI",
                                   "maxSourceChars": 20000,
                                   "chunkMaxChars": 1500,
-                                  "contextChars": 500
+                                  "contextChars": 500,
+                                  "model": "gpt-4o"
                                 }
                                 """))
                 .andExpect(status().isAccepted())
@@ -130,7 +135,102 @@ class IngestionControllerMockMvcTest {
         assertThat(request.maxSourceChars()).isEqualTo(20000);
         assertThat(request.chunkMaxChars()).isEqualTo(1500);
         assertThat(request.contextChars()).isEqualTo(500);
+        assertThat(request.model()).isEqualTo("gpt-4o");
         verifyNoInteractions(uploadStorage);
+    }
+
+    @Test
+    void historyListsRecentJobs() throws Exception {
+        MockMvc mvc = mockMvc(true, "secret");
+        when(jobService.listJobs(50)).thenReturn(List.of(new IngestionJob(
+                42L,
+                "FAILED",
+                "failed",
+                "Ingestion failed",
+                "Provider unavailable",
+                "Ithaca",
+                "en",
+                "ai-literary://el/en/Ithaca",
+                1911,
+                "Constantine Cavafy",
+                "A short poem.",
+                "Generated",
+                "AI literary translation",
+                "el",
+                true,
+                true,
+                20_000,
+                1_500,
+                500,
+                "gpt-4o",
+                null,
+                null,
+                1,
+                6,
+                15,
+                Instant.parse("2026-09-07T20:45:16Z"),
+                Instant.parse("2026-09-07T20:45:17Z"),
+                Instant.parse("2026-09-07T20:45:18Z")
+        )));
+
+        mvc.perform(get("/api/admin/ingest/jobs")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer secret")
+                        .param("limit", "50"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(42))
+                .andExpect(jsonPath("$[0].status").value("FAILED"))
+                .andExpect(jsonPath("$[0].workTitle").value("Ithaca"))
+                .andExpect(jsonPath("$[0].description").value("A short poem."))
+                .andExpect(jsonPath("$[0].originalLang").value("el"))
+                .andExpect(jsonPath("$[0].model").value("gpt-4o"));
+
+        verify(jobService).listJobs(50);
+    }
+
+    @Test
+    void retryFailedJobSubmitsFreshJob() throws Exception {
+        MockMvc mvc = mockMvc(true, "secret");
+        when(jobService.retryJob(42L)).thenReturn(43L);
+
+        mvc.perform(post("/api/admin/ingest/jobs/42/retry")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer secret"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.jobId").value(43))
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.statusUrl").value("/api/admin/ingest/jobs/43"));
+
+        verify(jobService).retryJob(42L);
+        verifyNoInteractions(uploadStorage);
+    }
+
+    @Test
+    void uploadRouteReportsMissingFileAsBadRequest() throws Exception {
+        MockMvc mvc = mockMvc(true, "secret");
+
+        mvc.perform(multipart("/api/admin/ingest/jobs/upload")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer secret")
+                        .param("workTitle", "Greek Book")
+                        .param("lang", "el"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value("Request validation failed"))
+                .andExpect(jsonPath("$.path").value("/api/admin/ingest/jobs/upload"));
+
+        verifyNoInteractions(uploadStorage, jobService);
+    }
+
+    @Test
+    void unsupportedPostToJobStatusReturnsMethodNotAllowed() throws Exception {
+        MockMvc mvc = mockMvc(true, "secret");
+
+        mvc.perform(post("/api/admin/ingest/jobs/42")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer secret"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.status").value(405))
+                .andExpect(jsonPath("$.message").value("Request method is not supported"))
+                .andExpect(jsonPath("$.path").value("/api/admin/ingest/jobs/42"));
+
+        verifyNoInteractions(uploadStorage, jobService);
     }
 
     @Test

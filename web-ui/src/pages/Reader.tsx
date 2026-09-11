@@ -42,6 +42,9 @@ type PageData = {
     title?: string
     author?: string | null
     description?: string | null
+    targetTranslator?: string | null
+    targetFormat?: string | null
+    targetAiGenerated?: boolean
     page: number
     size: number
     totalSrc: number
@@ -1224,7 +1227,9 @@ export default function Reader() {
                 >
                     <div className="reader-pane-header">
                         <div className="select-none">
-                            <div className="soft-badge">Translation ({tgt.toUpperCase()})</div>
+                            <div className="soft-badge">
+                                Translation ({tgt.toUpperCase()}{data?.targetAiGenerated ? ' - AI' : ''})
+                            </div>
                             <div className="mt-2 hidden text-sm muted-copy sm:block">
                                 Select text here to translate back or request a short explanation.
                             </div>

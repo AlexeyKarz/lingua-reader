@@ -78,7 +78,7 @@ python add_book.py \
   --original-lang de \
   --edition "lang=de,file=books/metamorphosis_de.txt" \
   --generate-edition "lang=en,source=de,translator=AI literary translation" \
-  --generate-max-source-chars 120000 \
+  --generate-max-source-chars 250000 \
   --generate-chunk-max-chars 1800 \
   --aligner dp
 ```

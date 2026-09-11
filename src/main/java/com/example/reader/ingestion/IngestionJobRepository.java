@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 
 @Repository
@@ -32,9 +33,16 @@ public class IngestionJobRepository {
               file_spec text not null,
               pub_year integer,
               author text,
+              description text,
               publisher text,
               translator text,
               original_lang varchar(16),
+              body_only boolean,
+              replace_existing boolean,
+              max_source_chars integer,
+              chunk_max_chars integer,
+              context_chars integer,
+              generation_model text,
               work_id bigint,
               edition_id bigint,
               chapters integer not null default 0,
@@ -53,9 +61,45 @@ public class IngestionJobRepository {
             create index if not exists idx_ingestion_job_status
               on ingestion_job(status)
             """);
+        jdbc.getJdbcTemplate().execute("""
+            alter table ingestion_job
+              add column if not exists description text
+            """);
+        jdbc.getJdbcTemplate().execute("""
+            alter table ingestion_job
+              add column if not exists body_only boolean
+            """);
+        jdbc.getJdbcTemplate().execute("""
+            alter table ingestion_job
+              add column if not exists replace_existing boolean
+            """);
+        jdbc.getJdbcTemplate().execute("""
+            alter table ingestion_job
+              add column if not exists max_source_chars integer
+            """);
+        jdbc.getJdbcTemplate().execute("""
+            alter table ingestion_job
+              add column if not exists chunk_max_chars integer
+            """);
+        jdbc.getJdbcTemplate().execute("""
+            alter table ingestion_job
+              add column if not exists context_chars integer
+            """);
+        jdbc.getJdbcTemplate().execute("""
+            alter table ingestion_job
+              add column if not exists generation_model text
+            """);
     }
 
     public long create(IngestionRequest request) {
+        return create(request, null);
+    }
+
+    public long createGenerated(GenerateLiteraryEditionRequest request) {
+        return create(request.toJobRequest(), request);
+    }
+
+    private long create(IngestionRequest request, GenerateLiteraryEditionRequest generationRequest) {
         GeneratedKeyHolder key = new GeneratedKeyHolder();
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("status", "PENDING")
@@ -66,18 +110,29 @@ public class IngestionJobRepository {
                 .addValue("fileSpec", request.fileSpec())
                 .addValue("year", request.year())
                 .addValue("author", request.author())
+                .addValue("description", request.description())
                 .addValue("publisher", request.publisher())
                 .addValue("translator", request.translator())
-                .addValue("originalLang", request.originalLang());
+                .addValue("originalLang", request.originalLang())
+                .addValue("bodyOnly", generationRequest == null ? null : generationRequest.bodyOnly())
+                .addValue("replaceExisting", generationRequest == null ? null : generationRequest.replaceExisting())
+                .addValue("maxSourceChars", generationRequest == null ? null : generationRequest.maxSourceChars())
+                .addValue("chunkMaxChars", generationRequest == null ? null : generationRequest.chunkMaxChars())
+                .addValue("contextChars", generationRequest == null ? null : generationRequest.contextChars())
+                .addValue("model", generationRequest == null ? null : generationRequest.model());
 
         jdbc.update("""
             insert into ingestion_job(
                 status, step, message, work_title, lang, file_spec, pub_year,
-                author, publisher, translator, original_lang
+                author, description, publisher, translator, original_lang,
+                body_only, replace_existing, max_source_chars, chunk_max_chars, context_chars,
+                generation_model
             )
             values(
                 :status, :step, :message, :workTitle, :lang, :fileSpec, :year,
-                :author, :publisher, :translator, :originalLang
+                :author, :description, :publisher, :translator, :originalLang,
+                :bodyOnly, :replaceExisting, :maxSourceChars, :chunkMaxChars, :contextChars,
+                :model
             )
             returning id
             """, params, key);
@@ -156,7 +211,9 @@ public class IngestionJobRepository {
     public IngestionJob findById(long id) {
         return jdbc.query("""
             select id, status, step, message, error, work_title, lang, file_spec,
-                   pub_year, author, publisher, translator, original_lang,
+                   pub_year, author, description, publisher, translator, original_lang,
+                   body_only, replace_existing, max_source_chars, chunk_max_chars, context_chars,
+                   generation_model,
                    work_id, edition_id, chapters, paragraphs, sentences,
                    created_at, started_at, finished_at
             from ingestion_job
@@ -165,30 +222,58 @@ public class IngestionJobRepository {
             new MapSqlParameterSource("id", id),
             rs -> {
                 if (!rs.next()) return null;
-                return new IngestionJob(
-                        rs.getLong("id"),
-                        rs.getString("status"),
-                        rs.getString("step"),
-                        rs.getString("message"),
-                        rs.getString("error"),
-                        rs.getString("work_title"),
-                        rs.getString("lang"),
-                        rs.getString("file_spec"),
-                        (Integer) rs.getObject("pub_year"),
-                        rs.getString("author"),
-                        rs.getString("publisher"),
-                        rs.getString("translator"),
-                        rs.getString("original_lang"),
-                        (Long) rs.getObject("work_id"),
-                        (Long) rs.getObject("edition_id"),
-                        rs.getInt("chapters"),
-                        rs.getInt("paragraphs"),
-                        rs.getInt("sentences"),
-                        toInstant(rs.getTimestamp("created_at")),
-                        toInstant(rs.getTimestamp("started_at")),
-                        toInstant(rs.getTimestamp("finished_at"))
-                );
+                return mapJob(rs);
             }
+        );
+    }
+
+    public List<IngestionJob> findRecent(int limit) {
+        return jdbc.query("""
+            select id, status, step, message, error, work_title, lang, file_spec,
+                   pub_year, author, description, publisher, translator, original_lang,
+                   body_only, replace_existing, max_source_chars, chunk_max_chars, context_chars,
+                   generation_model,
+                   work_id, edition_id, chapters, paragraphs, sentences,
+                   created_at, started_at, finished_at
+            from ingestion_job
+            order by created_at desc, id desc
+            limit :limit
+            """,
+            new MapSqlParameterSource("limit", limit),
+            (rs, rowNum) -> mapJob(rs)
+        );
+    }
+
+    private IngestionJob mapJob(java.sql.ResultSet rs) throws java.sql.SQLException {
+        return new IngestionJob(
+                rs.getLong("id"),
+                rs.getString("status"),
+                rs.getString("step"),
+                rs.getString("message"),
+                rs.getString("error"),
+                rs.getString("work_title"),
+                rs.getString("lang"),
+                rs.getString("file_spec"),
+                (Integer) rs.getObject("pub_year"),
+                rs.getString("author"),
+                rs.getString("description"),
+                rs.getString("publisher"),
+                rs.getString("translator"),
+                rs.getString("original_lang"),
+                (Boolean) rs.getObject("body_only"),
+                (Boolean) rs.getObject("replace_existing"),
+                (Integer) rs.getObject("max_source_chars"),
+                (Integer) rs.getObject("chunk_max_chars"),
+                (Integer) rs.getObject("context_chars"),
+                rs.getString("generation_model"),
+                (Long) rs.getObject("work_id"),
+                (Long) rs.getObject("edition_id"),
+                rs.getInt("chapters"),
+                rs.getInt("paragraphs"),
+                rs.getInt("sentences"),
+                toInstant(rs.getTimestamp("created_at")),
+                toInstant(rs.getTimestamp("started_at")),
+                toInstant(rs.getTimestamp("finished_at"))
         );
     }
 

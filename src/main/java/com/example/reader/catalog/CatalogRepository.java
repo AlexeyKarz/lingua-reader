@@ -2,12 +2,15 @@ package com.example.reader.catalog;
 
 import jakarta.annotation.PostConstruct;
 import org.springframework.context.annotation.DependsOn;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.sql.Array;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Repository
 @DependsOn("databaseSchemaInitializer")
@@ -83,8 +86,44 @@ public class CatalogRepository {
                     description,
                     year,
                     Arrays.asList(langs),
-                    rs.getString("original_lang")
+                    rs.getString("original_lang"),
+                    editionMeta(workId)
             );
         });
+    }
+
+    private Map<String, CatalogEntry.EditionMeta> editionMeta(long workId) {
+        return jdbc.query(
+                """
+                select distinct on (lang)
+                       lang,
+                       translator,
+                       format,
+                       source_uri
+                from edition
+                where work_id = :workId
+                order by lang, id desc
+                """,
+                new MapSqlParameterSource("workId", workId),
+                rs -> {
+                    Map<String, CatalogEntry.EditionMeta> meta = new LinkedHashMap<>();
+                    while (rs.next()) {
+                        String lang = rs.getString("lang");
+                        String format = rs.getString("format");
+                        String sourceUri = rs.getString("source_uri");
+                        meta.put(lang, new CatalogEntry.EditionMeta(
+                                rs.getString("translator"),
+                                format,
+                                isAiGenerated(format, sourceUri)
+                        ));
+                    }
+                    return meta;
+                }
+        );
+    }
+
+    private boolean isAiGenerated(String format, String sourceUri) {
+        return (format != null && format.equalsIgnoreCase("ai-literary"))
+                || (sourceUri != null && sourceUri.startsWith("ai-literary://"));
     }
 }

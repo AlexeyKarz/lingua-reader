@@ -1547,7 +1547,7 @@ def main():
     p.add_argument(
         "--generate-max-source-chars",
         type=int,
-        default=120000,
+        default=250000,
         help="Maximum source characters allowed for each generated edition",
     )
     p.add_argument(

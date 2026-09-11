@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import {
     buildReaderPath,
     getSourceLang as getCatalogSourceLang,
+    isAiGeneratedEdition,
     readLastReaderSession,
     type CatalogEntry,
     type LastReaderSession,
@@ -16,6 +17,10 @@ export default function CatalogPage() {
     const [lastSession, setLastSession] = useState<LastReaderSession | null>(null)
 
     const getSourceLang = useCallback(getCatalogSourceLang, [])
+
+    function langLabel(book: CatalogEntry, lang: string) {
+        return `${lang.toUpperCase()}${isAiGeneratedEdition(book, lang) ? ' (AI)' : ''}`
+    }
 
     const matchesFilters = useCallback((book: CatalogEntry, source: string, target: string) => {
         const resolvedSource = getSourceLang(book)
@@ -130,7 +135,7 @@ export default function CatalogPage() {
                                     {continueBook.title}
                                 </div>
                                 <div className="mt-1 text-sm muted-copy">
-                                    {lastSession.src.toUpperCase()} → {lastSession.tgt.toUpperCase()} · page {lastSession.page + 1}
+                                    {lastSession.src.toUpperCase()} → {langLabel(continueBook, lastSession.tgt)} · page {lastSession.page + 1}
                                 </div>
                             </div>
                             <Link
@@ -246,7 +251,7 @@ export default function CatalogPage() {
                                 <div className="mt-3 flex flex-wrap gap-2">
                                     {book.langs.map(l => (
                                         <span key={l} className="soft-badge">
-                                            {l.toUpperCase()}
+                                            {langLabel(book, l)}
                                         </span>
                                     ))}
                                 </div>
@@ -278,7 +283,7 @@ export default function CatalogPage() {
                                             >
                                                 <span>Read</span>
                                                 <span className="text-xs tracking-[0.12em]">
-                                                    {src.toUpperCase()} → {tgt.toUpperCase()}
+                                                    {src.toUpperCase()} → {langLabel(book, tgt)}
                                                 </span>
                                             </Link>
                                         ))

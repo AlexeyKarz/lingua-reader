@@ -1,5 +1,6 @@
 package com.example.reader.reader;
 
+import com.example.reader.support.PostgresIntegrationTest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -10,6 +11,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -24,7 +26,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "mlr.admin.enabled=false"
 })
 @AutoConfigureMockMvc
-class CatalogReaderIntegrationTest {
+class CatalogReaderIntegrationTest extends PostgresIntegrationTest {
 
     private final List<String> createdTitles = new ArrayList<>();
 
@@ -47,13 +49,13 @@ class CatalogReaderIntegrationTest {
     void catalogListsInsertedWorksWithLanguageEditions() throws Exception {
         long workId = insertWork("CI Test Catalog " + UUID.randomUUID(), "en");
         insertEdition(workId, "en");
-        insertEdition(workId, "de");
+        insertAiEdition(workId, "de");
 
         String body = mockMvc.perform(get("/api/catalog/books"))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()
-                .getContentAsString();
+                .getContentAsString(StandardCharsets.UTF_8);
 
         JsonNode entry = findCatalogEntry(body, workId);
         List<String> langs = StreamSupport.stream(entry.get("langs").spliterator(), false)
@@ -65,6 +67,9 @@ class CatalogReaderIntegrationTest {
         assertThat(entry.get("year").asInt()).isEqualTo(2026);
         assertThat(entry.get("originalLang").asText()).isEqualTo("en");
         assertThat(langs).containsExactlyInAnyOrder("en", "de");
+        assertThat(entry.get("editionMeta").get("en").get("aiGenerated").asBoolean()).isFalse();
+        assertThat(entry.get("editionMeta").get("de").get("aiGenerated").asBoolean()).isTrue();
+        assertThat(entry.get("editionMeta").get("de").get("format").asText()).isEqualTo("ai-literary");
     }
 
     @Test
@@ -97,7 +102,7 @@ class CatalogReaderIntegrationTest {
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()
-                .getContentAsString();
+                .getContentAsString(StandardCharsets.UTF_8);
 
         JsonNode json = objectMapper.readTree(body);
         assertThat(json.get("bookId").asText()).isEqualTo(String.valueOf(workId));
@@ -105,11 +110,49 @@ class CatalogReaderIntegrationTest {
         assertThat(json.get("tgt").asText()).isEqualTo("de");
         assertThat(json.get("totalSrc").asInt()).isEqualTo(2);
         assertThat(json.get("totalTgt").asInt()).isEqualTo(2);
+        assertThat(json.get("targetAiGenerated").asBoolean()).isFalse();
         assertThat(json.get("left").get(0).get("text").asText()).isEqualTo("Hello database.");
         assertThat(json.get("left").get(0).get("chapterTitle").asText()).isEqualTo("Chapter 1");
         assertThat(json.get("right").get(0).get("text").asText()).isEqualTo("Hallo Datenbank.");
         assertThat(json.get("alignments").get(0).get("leftId").asLong()).isEqualTo(srcSentence);
         assertThat(json.get("alignments").get(0).get("rightId").asLong()).isEqualTo(tgtSentence);
+    }
+
+    @Test
+    void readerPagesShowTargetTextWhenEditionsExistWithoutAlignments() throws Exception {
+        long workId = insertWork("CI Test Reader Unaligned " + UUID.randomUUID(), "el");
+        long srcEdition = insertEdition(workId, "el");
+        long tgtEdition = insertAiEdition(workId, "en");
+
+        long srcChapter = insertSegment(srcEdition, "chapter", 0, null, "Chapter 1");
+        long srcParagraph = insertSegment(srcEdition, "paragraph", 0, srcChapter, "Source paragraph");
+        long srcSentence = insertSegment(srcEdition, "sentence", 0, srcParagraph, "Πρώτη πρόταση.");
+
+        long tgtChapter = insertSegment(tgtEdition, "chapter", 0, null, "Chapter 1");
+        long tgtParagraph = insertSegment(tgtEdition, "paragraph", 0, tgtChapter, "Target paragraph");
+        long tgtSentence = insertSegment(tgtEdition, "sentence", 0, tgtParagraph, "First sentence.");
+
+        jdbc.update("update edition set body_start_segment_id = ? where id = ?", srcSentence, srcEdition);
+        jdbc.update("update edition set body_start_segment_id = ? where id = ?", tgtSentence, tgtEdition);
+
+        String body = mockMvc.perform(get("/api/reader/pages")
+                        .param("bookId", String.valueOf(workId))
+                        .param("src", "el")
+                        .param("tgt", "en")
+                        .param("page", "0")
+                        .param("size", "2"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        JsonNode json = objectMapper.readTree(body);
+        assertThat(json.get("left").get(0).get("text").asText()).isEqualTo("Πρώτη πρόταση.");
+        assertThat(json.get("right").get(0).get("text").asText()).isEqualTo("First sentence.");
+        assertThat(json.get("alignments")).isEmpty();
+        assertThat(json.get("totalSrc").asInt()).isEqualTo(1);
+        assertThat(json.get("totalTgt").asInt()).isEqualTo(1);
+        assertThat(json.get("targetAiGenerated").asBoolean()).isTrue();
     }
 
     private JsonNode findCatalogEntry(String body, long workId) throws Exception {
@@ -140,17 +183,26 @@ class CatalogReaderIntegrationTest {
     }
 
     private long insertEdition(long workId, String lang) {
+        return insertEdition(workId, lang, "test://" + workId + "/" + lang, "epub", null);
+    }
+
+    private long insertAiEdition(long workId, String lang) {
+        return insertEdition(workId, lang, "ai-literary://el/" + lang + "/" + workId, "ai-literary", "AI literary translation");
+    }
+
+    private long insertEdition(long workId, String lang, String sourceUri, String format, String translator) {
         Long id = jdbc.queryForObject(
                 """
-                insert into edition(work_id, lang, source_uri, format)
-                values (?, ?, ?, ?)
+                insert into edition(work_id, lang, source_uri, format, translator)
+                values (?, ?, ?, ?, ?)
                 returning id
                 """,
                 Long.class,
                 workId,
                 lang,
-                "test://" + workId + "/" + lang,
-                "epub"
+                sourceUri,
+                format,
+                translator
         );
         assertThat(id).isNotNull();
         return id;

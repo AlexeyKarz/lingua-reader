@@ -5,6 +5,8 @@ import com.example.reader.translate.TranslateService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -34,6 +36,7 @@ public class LiteraryEditionGenerationService {
         publish(sink, "resolve_source", "Resolving source edition", 0, 0, 0);
         SourceEdition source = sourceEdition(request.workTitle(), request.sourceLang());
         List<SourceParagraph> paragraphs = sourceParagraphs(source.editionId(), source.bodyStartSegmentId(), request.bodyOnly());
+        Long effectiveBodyStart = request.bodyOnly() ? source.bodyStartSegmentId() : null;
         if (paragraphs.isEmpty()) {
             throw new IllegalArgumentException("No source paragraphs found for " + request.workTitle() + " [" + request.sourceLang() + "]");
         }
@@ -105,11 +108,14 @@ public class LiteraryEditionGenerationService {
                 );
                 String chunk = chunks.get(i);
                 translatedChunks.add(AdminTranslationContext.call(
-                        () -> translateService.literary(chunk, request.sourceLang(), request.targetLang(), context)
+                        () -> translateService.literary(chunk, request.sourceLang(), request.targetLang(), context, request.model())
                 ));
             }
 
             String translatedParagraph = String.join(" ", translatedChunks).trim();
+            if (translatedParagraph.isBlank()) {
+                throw new IllegalStateException("AI literary generation returned empty text for paragraph " + paragraph.paragraphOrd());
+            }
             long paragraphId = writer.insertSegment(
                     editionId,
                     "paragraph",
@@ -119,6 +125,7 @@ public class LiteraryEditionGenerationService {
                     "ai-literary:paragraph:" + paragraph.paragraphId()
             );
 
+            List<Long> generatedSentenceIds = new ArrayList<>();
             for (EpubExtractor.Sent sentence : extractor.splitSentences(request.targetLang(), translatedParagraph)) {
                 long sentenceId = writer.insertSegment(
                         editionId,
@@ -131,8 +138,19 @@ public class LiteraryEditionGenerationService {
                 if (firstSentenceId == null) {
                     firstSentenceId = sentenceId;
                 }
+                generatedSentenceIds.add(sentenceId);
                 sentences++;
             }
+            insertGeneratedAlignments(
+                    source.workId(),
+                    source.editionId(),
+                    editionId,
+                    request.sourceLang(),
+                    request.targetLang(),
+                    paragraph.paragraphId(),
+                    generatedSentenceIds,
+                    effectiveBodyStart
+            );
 
             previousTranslatedParagraph = translatedParagraph;
             translatedParagraphs++;
@@ -185,6 +203,26 @@ public class LiteraryEditionGenerationService {
 
     private List<SourceParagraph> sourceParagraphs(long editionId, Long bodyStartSegmentId, boolean bodyOnly) {
         Long effectiveBodyStart = bodyOnly ? bodyStartSegmentId : null;
+        if (effectiveBodyStart == null) {
+            return jdbc.query(
+                    """
+                    select ch.id as chapter_id,
+                           ch.ord as chapter_ord,
+                           ch.text as chapter_title,
+                           p.id as paragraph_id,
+                           p.ord as paragraph_ord,
+                           p.text as paragraph_text
+                    from segment p
+                    left join segment ch on ch.id = p.parent_id and ch.level = 'chapter'
+                    where p.edition_id = ?
+                      and p.level = 'paragraph'
+                    order by coalesce(ch.ord, 0), p.ord, p.id
+                    """,
+                    this::mapSourceParagraph,
+                    editionId
+            );
+        }
+
         return jdbc.query(
                 """
                 select ch.id as chapter_id,
@@ -197,30 +235,99 @@ public class LiteraryEditionGenerationService {
                 left join segment ch on ch.id = p.parent_id and ch.level = 'chapter'
                 where p.edition_id = ?
                   and p.level = 'paragraph'
-                  and (
-                    ? is null
-                    or exists (
-                      select 1
-                      from segment s
-                      where s.parent_id = p.id
-                        and s.level = 'sentence'
-                        and s.id >= ?
-                    )
+                  and exists (
+                    select 1
+                    from segment s
+                    where s.parent_id = p.id
+                      and s.level = 'sentence'
+                      and s.id >= ?
                   )
                 order by coalesce(ch.ord, 0), p.ord, p.id
                 """,
-                (rs, rowNum) -> new SourceParagraph(
-                        rs.getLong("chapter_id"),
-                        rs.getInt("chapter_ord"),
-                        rs.getString("chapter_title") == null ? "Chapter " + rs.getInt("chapter_ord") : rs.getString("chapter_title"),
-                        rs.getLong("paragraph_id"),
-                        rs.getInt("paragraph_ord"),
-                        rs.getString("paragraph_text")
-                ),
+                this::mapSourceParagraph,
                 editionId,
-                effectiveBodyStart,
                 effectiveBodyStart
         );
+    }
+
+    private SourceParagraph mapSourceParagraph(ResultSet rs, int rowNum) throws SQLException {
+        return new SourceParagraph(
+                rs.getLong("chapter_id"),
+                rs.getInt("chapter_ord"),
+                rs.getString("chapter_title") == null ? "Chapter " + rs.getInt("chapter_ord") : rs.getString("chapter_title"),
+                rs.getLong("paragraph_id"),
+                rs.getInt("paragraph_ord"),
+                rs.getString("paragraph_text")
+        );
+    }
+
+    private List<Long> sourceSentenceIds(long paragraphId, Long bodyStartSegmentId) {
+        if (bodyStartSegmentId == null) {
+            return jdbc.query(
+                    """
+                    select id
+                    from segment
+                    where parent_id = ?
+                      and level = 'sentence'
+                    order by id
+                    """,
+                    (rs, rowNum) -> rs.getLong("id"),
+                    paragraphId
+            );
+        }
+
+        return jdbc.query(
+                """
+                select id
+                from segment
+                where parent_id = ?
+                  and level = 'sentence'
+                  and id >= ?
+                order by id
+                """,
+                (rs, rowNum) -> rs.getLong("id"),
+                paragraphId,
+                bodyStartSegmentId
+        );
+    }
+
+    private void insertGeneratedAlignments(
+            long workId,
+            long sourceEditionId,
+            long generatedEditionId,
+            String sourceLang,
+            String targetLang,
+            long sourceParagraphId,
+            List<Long> generatedSentenceIds,
+            Long bodyStartSegmentId
+    ) {
+        List<Long> sourceSentenceIds = sourceSentenceIds(sourceParagraphId, bodyStartSegmentId);
+        if (sourceSentenceIds.isEmpty() || generatedSentenceIds.isEmpty()) {
+            return;
+        }
+
+        String method = "ai-literary-v1-" + sourceLang + "-" + targetLang;
+        int sourceLast = sourceSentenceIds.size() - 1;
+        int targetLast = generatedSentenceIds.size() - 1;
+        for (int i = 0; i < sourceSentenceIds.size(); i++) {
+            int targetIndex = sourceLast == 0 ? 0 : (int) Math.round((double) i * targetLast / sourceLast);
+            jdbc.update(
+                    """
+                    insert into alignment(
+                      work_id, edition_src_id, edition_tgt_id, left_segment_id, right_segment_id, method, score
+                    )
+                    values (?, ?, ?, ?, ?, ?, ?)
+                    on conflict on constraint alignment_left_right_unique do nothing
+                    """,
+                    workId,
+                    sourceEditionId,
+                    generatedEditionId,
+                    sourceSentenceIds.get(i),
+                    generatedSentenceIds.get(targetIndex),
+                    method,
+                    1.0
+            );
+        }
     }
 
     private long ensureGeneratedEdition(

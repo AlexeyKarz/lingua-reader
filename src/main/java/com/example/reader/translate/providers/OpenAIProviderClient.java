@@ -9,6 +9,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -75,8 +77,14 @@ public class OpenAIProviderClient implements ProviderClient {
 
     @Override
     public String literary(String text, String source, String target, String bookContext) {
-        log.info("Calling OpenAI literary translation {} -> {} ({} chars, ctx {} chars)",
-                source, target, text.length(), bookContext == null ? 0 : bookContext.length());
+        return literary(text, source, target, bookContext, null);
+    }
+
+    @Override
+    public String literary(String text, String source, String target, String bookContext, String modelOverride) {
+        String effectiveModel = effectiveLiteraryModel(modelOverride);
+        log.info("Calling OpenAI literary translation {} -> {} ({} chars, ctx {} chars, model {})",
+                source, target, text.length(), bookContext == null ? 0 : bookContext.length(), effectiveModel);
         String userPrompt = "Source language: " + source +
                 "\nTarget language: " + target +
                 "\nBook context: " + (bookContext == null ? "" : bookContext) +
@@ -85,11 +93,11 @@ public class OpenAIProviderClient implements ProviderClient {
         return ProviderMetrics.record(
                 registry,
                 providerName,
-                literaryModel,
+                effectiveModel,
                 "literary",
                 source,
                 target,
-                () -> callChat(literaryModel, literarySystem, userPrompt, literaryMaxCompletionTokens, 0.3)
+                () -> callResponses(effectiveModel, literarySystem, userPrompt, literaryMaxCompletionTokens, 0.3)
         );
     }
 
@@ -151,6 +159,73 @@ public class OpenAIProviderClient implements ProviderClient {
         }
     }
 
+    private String callResponses(String model, String systemPrompt, String userPrompt, int maxTokens, double temperature) {
+        long started = System.currentTimeMillis();
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", model);
+        body.put("instructions", systemPrompt);
+        body.put("input", userPrompt);
+        body.put("temperature", temperature);
+        body.put("max_output_tokens", maxTokens);
+        body.put("store", false);
+
+        try {
+            OpenAIResponsesResponse response = this.webClient
+                    .post()
+                    .uri("/v1/responses")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(OpenAIResponsesResponse.class)
+                    .timeout(java.time.Duration.ofSeconds(timeoutSeconds))
+                    .block();
+
+            String content = extractResponsesText(response);
+            long durationMs = System.currentTimeMillis() - started;
+            log.info("OpenAI Responses call succeeded in {} ms ({} chars)",
+                    durationMs, content == null ? 0 : content.length());
+            return content;
+        } catch (Exception e) {
+            long durationMs = System.currentTimeMillis() - started;
+            log.error("OpenAI Responses call failed after {} ms: {}", durationMs, e.getMessage());
+            throw e;
+        }
+    }
+
+    private String effectiveLiteraryModel(String modelOverride) {
+        return modelOverride == null || modelOverride.isBlank() ? literaryModel : modelOverride.trim();
+    }
+
+    private String extractResponsesText(OpenAIResponsesResponse response) {
+        if (response == null) {
+            throw new IllegalStateException("Empty OpenAI Responses response");
+        }
+        if (response.error != null) {
+            throw new IllegalStateException("OpenAI Responses error: " + response.error.message);
+        }
+        if (response.output_text != null && !response.output_text.isBlank()) {
+            return response.output_text;
+        }
+        if (response.output == null || response.output.isEmpty()) {
+            throw new IllegalStateException("OpenAI Responses response did not include output text");
+        }
+
+        List<String> parts = new ArrayList<>();
+        for (OpenAIResponsesOutput output : response.output) {
+            if (output.content == null) continue;
+            for (OpenAIResponsesContent content : output.content) {
+                if ("output_text".equals(content.type) && content.text != null && !content.text.isBlank()) {
+                    parts.add(content.text);
+                }
+            }
+        }
+        String text = String.join("", parts).trim();
+        if (text.isBlank()) {
+            throw new IllegalStateException("OpenAI Responses response did not include output text");
+        }
+        return text;
+    }
+
     // DTOs to parse the response (minimal)
     public static class OpenAIChatResponse {
         public List<Choice> choices;
@@ -163,5 +238,25 @@ public class OpenAIProviderClient implements ProviderClient {
     public static class Message {
         public String role;
         public String content;
+    }
+
+    public static class OpenAIResponsesResponse {
+        public String output_text;
+        public List<OpenAIResponsesOutput> output;
+        public OpenAIResponsesError error;
+    }
+
+    public static class OpenAIResponsesOutput {
+        public String type;
+        public List<OpenAIResponsesContent> content;
+    }
+
+    public static class OpenAIResponsesContent {
+        public String type;
+        public String text;
+    }
+
+    public static class OpenAIResponsesError {
+        public String message;
     }
 }

@@ -54,10 +54,8 @@ dependencies {
     runtimeOnly("io.netty:netty-resolver-dns-native-macos:$nettyVersion:$osxClassifier")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
-
-    // (Optional later) Testcontainers for Postgres or external deps
-    // testImplementation("org.testcontainers:junit-jupiter:1.20.4")
-    // testImplementation("org.testcontainers:postgresql:1.20.4")
+    testImplementation("org.testcontainers:junit-jupiter:1.20.4")
+    testImplementation("org.testcontainers:postgresql:1.20.4")
 }
 
 tasks.test { useJUnitPlatform() }

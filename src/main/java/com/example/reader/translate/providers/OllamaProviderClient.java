@@ -53,6 +53,12 @@ public class OllamaProviderClient implements ProviderClient {
 
     @Override
     public String literary(String text, String source, String target, String bookContext) {
+        return literary(text, source, target, bookContext, null);
+    }
+
+    @Override
+    public String literary(String text, String source, String target, String bookContext, String modelOverride) {
+        String effectiveModel = effectiveLiteraryModel(modelOverride);
         String prompt = """
                 Translate naturally from %s to %s for a reader of literature.
                 Preserve authorial tone, imagery, narrative voice, and meaning.
@@ -69,11 +75,11 @@ public class OllamaProviderClient implements ProviderClient {
         return ProviderMetrics.record(
                 registry,
                 providerName,
-                literaryModel,
+                effectiveModel,
                 "literary",
                 source,
                 target,
-                () -> generate(literaryModel, prompt)
+                () -> generate(effectiveModel, prompt)
         );
     }
 
@@ -123,6 +129,10 @@ public class OllamaProviderClient implements ProviderClient {
             throw new IllegalStateException("Empty Ollama response");
         }
         return resp.response.trim();
+    }
+
+    private String effectiveLiteraryModel(String modelOverride) {
+        return modelOverride == null || modelOverride.isBlank() ? literaryModel : modelOverride.trim();
     }
 
     public static class OllamaResp {

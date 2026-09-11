@@ -83,15 +83,25 @@ public class TranslateService {
             extraTags = {"component", "service"}
     )
     public String literary(String text, String source, String target, String bookContext) {
-        log.info("Literary translate request: {} -> {} ({} chars, ctx {} chars)",
-                source, target, text.length(), bookContext == null ? 0 : bookContext.length());
+        return literary(text, source, target, bookContext, null);
+    }
+
+    public String literary(String text, String source, String target, String bookContext, String modelOverride) {
+        String normalizedModelOverride = trimToNull(modelOverride);
+        log.info("Literary translate request: {} -> {} ({} chars, ctx {} chars, model {})",
+                source,
+                target,
+                text.length(),
+                bookContext == null ? 0 : bookContext.length(),
+                normalizedModelOverride == null ? "default" : normalizedModelOverride);
         String cacheText = literaryCacheText(text, bookContext);
         return cachedProvider(
                 "literary_sentence",
                 cacheText,
                 source,
                 target,
-                () -> provider.literary(text, source, target, bookContext)
+                literaryCacheProviderName(normalizedModelOverride),
+                () -> provider.literary(text, source, target, bookContext, normalizedModelOverride)
         );
     }
 
@@ -118,14 +128,32 @@ public class TranslateService {
             String target,
             Supplier<String> supplier
     ) {
-        return cache.find(operation, source, target, text, providerName)
+        return cachedProvider(operation, text, source, target, providerName, supplier);
+    }
+
+    private String cachedProvider(
+            String operation,
+            String text,
+            String source,
+            String target,
+            String cacheProviderName,
+            Supplier<String> supplier
+    ) {
+        return cache.find(operation, source, target, text, cacheProviderName)
                 .orElseGet(() -> {
                     String translated = supplier.get();
                     if (isCacheable(translated)) {
-                        cache.save(operation, source, target, text, providerName, translated);
+                        cache.save(operation, source, target, text, cacheProviderName, translated);
                     }
                     return translated;
                 });
+    }
+
+    private String literaryCacheProviderName(String modelOverride) {
+        if (modelOverride == null) {
+            return providerName;
+        }
+        return providerName + "|literaryModel=" + modelOverride;
     }
 
     private String literaryCacheText(String text, String bookContext) {
@@ -143,5 +171,11 @@ public class TranslateService {
                 && !translated.startsWith("AI provider is temporarily unavailable")
                 && !translated.startsWith("Daily AI limit reached")
                 && !translated.startsWith("The public demo reached its daily AI limit");
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 }

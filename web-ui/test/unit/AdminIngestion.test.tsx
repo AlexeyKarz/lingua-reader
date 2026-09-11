@@ -9,7 +9,34 @@ function jsonResponse(body: unknown, status = 200) {
   })
 }
 
-function installFetchMock() {
+const defaultHistory = [
+  {
+    id: 42,
+    status: 'FAILED',
+    step: 'failed',
+    message: 'Ingestion failed',
+    error: 'Provider unavailable',
+    workTitle: 'Ithaca',
+    lang: 'el',
+    fileSpec: 'file:/tmp/ithaca.epub',
+    year: 1911,
+    author: 'Constantine Cavafy',
+    description: 'A short poem.',
+    publisher: 'Archive Press',
+    translator: 'Original edition',
+    originalLang: 'el',
+    workId: null,
+    editionId: null,
+    chapters: 1,
+    paragraphs: 6,
+    sentences: 15,
+    createdAt: '2026-09-07T20:45:16Z',
+    startedAt: '2026-09-07T20:45:17Z',
+    finishedAt: '2026-09-07T20:45:18Z',
+  },
+]
+
+function installFetchMock(history: unknown = defaultHistory) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input)
     if (url === '/api/catalog/books') {
@@ -30,6 +57,49 @@ function installFetchMock() {
     }
     if (url === '/api/admin/ingest/jobs/generate-literary') {
       return jsonResponse({ jobId: 9, status: 'PENDING', statusUrl: '/api/admin/ingest/jobs/9' }, 202)
+    }
+    if (url === '/api/admin/ingest/jobs?limit=50') {
+      return jsonResponse(history)
+    }
+    if (url === '/api/admin/ingest/jobs/42/retry') {
+      return jsonResponse({ jobId: 43, status: 'PENDING', statusUrl: '/api/admin/ingest/jobs/43' }, 202)
+    }
+    if (url === '/api/admin/ingest/jobs/50/retry') {
+      return jsonResponse({ jobId: 51, status: 'PENDING', statusUrl: '/api/admin/ingest/jobs/51' }, 202)
+    }
+    if (url === '/api/admin/ingest/jobs/43') {
+      return jsonResponse({
+        id: 43,
+        status: 'SUCCEEDED',
+        step: 'done',
+        message: 'Retried',
+        error: null,
+        workTitle: 'Ithaca',
+        lang: 'el',
+        fileSpec: 'file:/tmp/ithaca.epub',
+        workId: 10,
+        editionId: 20,
+        chapters: 1,
+        paragraphs: 6,
+        sentences: 15,
+      })
+    }
+    if (url === '/api/admin/ingest/jobs/51') {
+      return jsonResponse({
+        id: 51,
+        status: 'SUCCEEDED',
+        step: 'done',
+        message: 'Regenerated',
+        error: null,
+        workTitle: 'Generated Story',
+        lang: 'en',
+        fileSpec: 'ai-literary://el/en/Generated Story',
+        workId: 5,
+        editionId: 6,
+        chapters: 1,
+        paragraphs: 2,
+        sentences: 3,
+      })
     }
     if (url === '/api/admin/ingest/jobs/7') {
       return jsonResponse({
@@ -151,6 +221,7 @@ describe('AdminIngestionPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'AI' }))
     fireEvent.change(screen.getByLabelText(/^Language$/i), { target: { value: 'FR' } })
     fireEvent.change(screen.getByLabelText(/^Publisher$/i), { target: { value: 'Generated Press' } })
+    fireEvent.change(screen.getByLabelText(/^Model$/i), { target: { value: 'gpt-4o' } })
     fireEvent.change(screen.getByLabelText(/^Max source chars$/i), { target: { value: '25000' } })
     fireEvent.change(screen.getByLabelText(/^Chunk chars$/i), { target: { value: '1200' } })
     fireEvent.change(screen.getByLabelText(/^Context chars$/i), { target: { value: '300' } })
@@ -182,9 +253,108 @@ describe('AdminIngestionPage', () => {
       maxSourceChars: 25000,
       chunkMaxChars: 1200,
       contextChars: 300,
+      model: 'gpt-4o',
     })
     expect(fetchMock.mock.calls.filter(([input]) => String(input) === '/api/admin/ingest/jobs/upload')).toHaveLength(0)
     expect(await screen.findByText('Generated')).toBeTruthy()
     expect(screen.getByText('4 sentences')).toBeTruthy()
+  })
+
+  it('loads history and reuses saved metadata', async () => {
+    const fetchMock = installFetchMock()
+    render(<AdminIngestionPage />)
+
+    fireEvent.change(screen.getByLabelText(/^Admin token$/i), { target: { value: 'secret' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Load history$/i }))
+
+    expect(await screen.findByText('Ithaca')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /^Use metadata$/i }))
+
+    expect((screen.getByLabelText(/^Title$/i) as HTMLInputElement).value).toBe('Ithaca')
+    expect((screen.getByLabelText(/^Author$/i) as HTMLInputElement).value).toBe('Constantine Cavafy')
+    expect((screen.getByLabelText(/^Original language$/i) as HTMLInputElement).value).toBe('el')
+    expect((screen.getByLabelText(/^Publication year$/i) as HTMLInputElement).value).toBe('1911')
+    expect((screen.getByLabelText(/^Description$/i) as HTMLTextAreaElement).value).toBe('A short poem.')
+    expect((screen.getByLabelText(/^Language$/i) as HTMLInputElement).value).toBe('el')
+    expect((screen.getByLabelText(/^Publisher$/i) as HTMLInputElement).value).toBe('Archive Press')
+    expect((screen.getByLabelText(/^Translator$/i) as HTMLInputElement).value).toBe('Original edition')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/admin/ingest/jobs?limit=50',
+      expect.objectContaining({
+        headers: { Authorization: 'Bearer secret' },
+      })
+    )
+  })
+
+  it('retries failed history jobs as new jobs', async () => {
+    const fetchMock = installFetchMock()
+    render(<AdminIngestionPage />)
+
+    fireEvent.change(screen.getByLabelText(/^Admin token$/i), { target: { value: 'secret' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Load history$/i }))
+
+    expect(await screen.findByText('Provider unavailable')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /^Retry$/i }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/admin/ingest/jobs/42/retry',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { Authorization: 'Bearer secret' },
+        })
+      )
+    })
+    expect(await screen.findByText('Retry queued')).toBeTruthy()
+  })
+
+  it('regenerates successful AI history jobs', async () => {
+    const fetchMock = installFetchMock([
+      {
+        id: 50,
+        status: 'SUCCEEDED',
+        step: 'done',
+        message: 'Generated',
+        error: null,
+        workTitle: 'Generated Story',
+        lang: 'en',
+        fileSpec: 'ai-literary://el/en/Generated Story',
+        year: 1911,
+        author: null,
+        description: null,
+        publisher: 'Generated Press',
+        translator: 'AI literary translation',
+        originalLang: 'el',
+        bodyOnly: true,
+        replaceExisting: true,
+        maxSourceChars: 25000,
+        chunkMaxChars: 1200,
+        contextChars: 300,
+        model: 'gpt-4o',
+        workId: 5,
+        editionId: 6,
+        chapters: 1,
+        paragraphs: 2,
+        sentences: 3,
+      },
+    ])
+    render(<AdminIngestionPage />)
+
+    fireEvent.change(screen.getByLabelText(/^Admin token$/i), { target: { value: 'secret' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Load history$/i }))
+
+    expect(await screen.findByText('Generated Story')).toBeTruthy()
+    expect(screen.getByText('model gpt-4o')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /^Regenerate$/i }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/admin/ingest/jobs/50/retry',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { Authorization: 'Bearer secret' },
+        })
+      )
+    })
   })
 })

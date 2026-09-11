@@ -1,3 +1,9 @@
+export type CatalogEditionMeta = {
+    translator?: string | null
+    format?: string | null
+    aiGenerated?: boolean
+}
+
 export type CatalogEntry = {
     workId: number
     title: string
@@ -6,6 +12,7 @@ export type CatalogEntry = {
     year: number | null
     langs: string[]
     originalLang?: string | null
+    editionMeta?: Record<string, CatalogEditionMeta>
 }
 
 export type LastReaderSession = {
@@ -49,6 +56,10 @@ export function getSourceLang(book: CatalogEntry) {
     return book.originalLang && book.langs.includes(book.originalLang)
         ? book.originalLang
         : book.langs[0]
+}
+
+export function isAiGeneratedEdition(book: CatalogEntry, lang: string) {
+    return book.editionMeta?.[lang]?.aiGenerated === true
 }
 
 export function buildReaderPath(session: Pick<LastReaderSession, 'bookId' | 'src' | 'tgt'>) {

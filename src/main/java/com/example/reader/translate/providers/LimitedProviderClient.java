@@ -50,12 +50,17 @@ public class LimitedProviderClient implements ProviderClient {
 
     @Override
     public String literary(String text, String source, String target, String bookContext) {
+        return literary(text, source, target, bookContext, null);
+    }
+
+    @Override
+    public String literary(String text, String source, String target, String bookContext, String modelOverride) {
         QuotaDecision decision = reserve(text, "literary");
         if (!decision.allowed()) {
             return quotaFallback(decision, fallback.literary(text, source, target, bookContext));
         }
         try {
-            return delegate.literary(text, source, target, bookContext);
+            return delegate.literary(text, source, target, bookContext, modelOverride);
         } catch (Exception e) {
             return providerFailureFallback(e, fallback.literary(text, source, target, bookContext));
         }

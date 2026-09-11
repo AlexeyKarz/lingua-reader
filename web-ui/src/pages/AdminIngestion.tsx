@@ -3,9 +3,26 @@ import { type CatalogEntry } from '../readerNavigation'
 
 const ADMIN_TOKEN_KEY = 'mlr:admin-token'
 const DEFAULT_GENERATED_TRANSLATOR = 'AI literary translation'
-const DEFAULT_GENERATE_MAX_SOURCE_CHARS = '120000'
+const DEFAULT_GENERATE_MAX_SOURCE_CHARS = '250000'
+const LEGACY_GENERATE_MAX_SOURCE_CHARS = 120000
 const DEFAULT_GENERATE_CHUNK_MAX_CHARS = '1800'
 const DEFAULT_GENERATE_CONTEXT_CHARS = '600'
+const GENERATED_FILE_SPEC_PREFIX = 'ai-literary://'
+const MODEL_NAME_PATTERN = /^[A-Za-z0-9._:/+-]+$/
+const MODEL_OPTIONS = [
+    'gpt-5.6-luna',
+    'gpt-5.6-terra',
+    'gpt-5.6-sol',
+    'gpt-5.6',
+    'gpt-6-astra',
+    'gpt-4o-mini',
+    'gpt-4o',
+    'gpt-4.1-mini',
+    'gpt-4.1',
+    'gemini-2.5-flash',
+    'gemini-2.5-pro',
+    'llama3.1:8b',
+]
 
 type WorkDraft = {
     title: string
@@ -26,6 +43,7 @@ type EditionDraft = {
     maxSourceChars: string
     chunkMaxChars: string
     contextChars: string
+    model: string
     replaceExisting: boolean
 }
 
@@ -59,6 +77,18 @@ type IngestionJob = {
     workTitle: string
     lang: string
     fileSpec: string
+    year?: number | null
+    author?: string | null
+    description?: string | null
+    publisher?: string | null
+    translator?: string | null
+    originalLang?: string | null
+    bodyOnly?: boolean | null
+    replaceExisting?: boolean | null
+    maxSourceChars?: number | null
+    chunkMaxChars?: number | null
+    contextChars?: number | null
+    model?: string | null
     workId?: number | null
     editionId?: number | null
     chapters: number
@@ -105,6 +135,7 @@ function createEditionDraft(): EditionDraft {
         maxSourceChars: DEFAULT_GENERATE_MAX_SOURCE_CHARS,
         chunkMaxChars: DEFAULT_GENERATE_CHUNK_MAX_CHARS,
         contextChars: DEFAULT_GENERATE_CONTEXT_CHARS,
+        model: '',
         replaceExisting: true,
     }
 }
@@ -147,6 +178,16 @@ function optionalNumber(value: string) {
     return value.trim() ? Number(value.trim()) : undefined
 }
 
+function optionalModelError(value: string) {
+    const trimmed = value.trim()
+    if (!trimmed) return null
+    if (trimmed.length > 128) return 'Model name must be at most 128 characters.'
+    if (!MODEL_NAME_PATTERN.test(trimmed)) {
+        return 'Model name can only use letters, numbers, dot, dash, underscore, colon, slash, or plus.'
+    }
+    return null
+}
+
 function isTerminalStatus(status: string) {
     return status === 'SUCCEEDED' || status === 'FAILED'
 }
@@ -155,6 +196,60 @@ function statusTone(status: string) {
     if (status === 'SUCCEEDED') return 'theme-success'
     if (status === 'FAILED') return 'soft-badge theme-danger'
     return 'soft-badge'
+}
+
+function isGeneratedJob(job: IngestionJob) {
+    return job.fileSpec.startsWith(GENERATED_FILE_SPEC_PREFIX)
+}
+
+function generatedSourceLang(job: IngestionJob) {
+    if (job.originalLang?.trim()) return normalizeLang(job.originalLang)
+    if (!isGeneratedJob(job)) return ''
+    const parts = job.fileSpec.slice(GENERATED_FILE_SPEC_PREFIX.length).split('/')
+    return normalizeLang(parts[0] ?? '')
+}
+
+function jobMode(job: IngestionJob): 'upload' | 'generate' {
+    return isGeneratedJob(job) ? 'generate' : 'upload'
+}
+
+function hasLegacyGeneratedMaxSourceChars(job: IngestionJob) {
+    return isGeneratedJob(job) && job.maxSourceChars === LEGACY_GENERATE_MAX_SOURCE_CHARS
+}
+
+function historyMaxSourceChars(job: IngestionJob) {
+    if (hasLegacyGeneratedMaxSourceChars(job)) {
+        return DEFAULT_GENERATE_MAX_SOURCE_CHARS
+    }
+    return job.maxSourceChars == null ? DEFAULT_GENERATE_MAX_SOURCE_CHARS : String(job.maxSourceChars)
+}
+
+function canRerunJob(job: IngestionJob) {
+    return job.status === 'FAILED' || isGeneratedJob(job)
+}
+
+function rerunLabel(job: IngestionJob) {
+    if (isGeneratedJob(job) && job.status !== 'FAILED') return 'Regenerate'
+    return 'Retry'
+}
+
+function fileSpecLabel(job: IngestionJob) {
+    if (isGeneratedJob(job)) {
+        const sourceLang = generatedSourceLang(job)
+        return sourceLang ? `AI from ${sourceLang.toUpperCase()}` : 'AI generated'
+    }
+    try {
+        const decoded = decodeURIComponent(job.fileSpec)
+        const lastSlash = decoded.lastIndexOf('/')
+        return lastSlash >= 0 ? decoded.slice(lastSlash + 1) : decoded
+    } catch {
+        return job.fileSpec
+    }
+}
+
+function formatJobTime(value?: string | null) {
+    if (!value) return ''
+    return new Date(value).toLocaleString()
 }
 
 async function responseError(response: Response) {
@@ -188,6 +283,10 @@ export default function AdminIngestionPage() {
     })
     const [editions, setEditions] = useState<EditionDraft[]>(() => [createEditionDraft()])
     const [jobs, setJobs] = useState<SubmittedJob[]>([])
+    const [history, setHistory] = useState<IngestionJob[]>([])
+    const [historyLoading, setHistoryLoading] = useState(false)
+    const [historyError, setHistoryError] = useState<string | null>(null)
+    const [retryingJobId, setRetryingJobId] = useState<number | null>(null)
     const [submitting, setSubmitting] = useState(false)
     const [formError, setFormError] = useState<string | null>(null)
 
@@ -196,6 +295,8 @@ export default function AdminIngestionPage() {
             window.sessionStorage.setItem(ADMIN_TOKEN_KEY, adminToken)
         } else {
             window.sessionStorage.removeItem(ADMIN_TOKEN_KEY)
+            setHistory([])
+            setHistoryError(null)
         }
     }, [adminToken])
 
@@ -222,7 +323,7 @@ export default function AdminIngestionPage() {
     )
 
     const languageOptions = useMemo(() => {
-        const langs = new Set(['de', 'en', 'es', 'fr', 'ru'])
+        const langs = new Set(['de', 'el', 'en', 'es', 'fr', 'ru'])
         catalog.forEach(book => book.langs.forEach(lang => langs.add(lang)))
         if (work.originalLang.trim()) {
             langs.add(normalizeLang(work.originalLang))
@@ -231,8 +332,14 @@ export default function AdminIngestionPage() {
             if (edition.lang.trim()) langs.add(normalizeLang(edition.lang))
             if (edition.sourceLang.trim()) langs.add(normalizeLang(edition.sourceLang))
         })
+        history.forEach(job => {
+            if (job.lang.trim()) langs.add(normalizeLang(job.lang))
+            if (job.originalLang?.trim()) langs.add(normalizeLang(job.originalLang))
+            const sourceLang = generatedSourceLang(job)
+            if (sourceLang) langs.add(sourceLang)
+        })
         return Array.from(langs).filter(Boolean).sort()
-    }, [catalog, editions, work.originalLang])
+    }, [catalog, editions, history, work.originalLang])
 
     const originalEditionMissing = work.originalLang.trim() &&
         !selectedCatalogLangs.has(normalizeLang(work.originalLang)) &&
@@ -268,6 +375,98 @@ export default function AdminIngestionPage() {
 
     function patchJob(localId: string, patch: Partial<SubmittedJob>) {
         setJobs(current => current.map(job => job.localId === localId ? {...job, ...patch} : job))
+    }
+
+    function applyJobMetadata(job: IngestionJob) {
+        const mode = jobMode(job)
+        const sourceLang = generatedSourceLang(job)
+        setSelectedWorkId(job.workId == null ? '' : String(job.workId))
+        setWork({
+            title: job.workTitle,
+            author: job.author ?? '',
+            originalLang: job.originalLang || sourceLang || (mode === 'upload' ? job.lang : ''),
+            year: job.year == null ? '' : String(job.year),
+            description: job.description ?? '',
+        })
+        setEditions([{
+            ...createEditionDraft(),
+            mode,
+            lang: normalizeLang(job.lang),
+            sourceLang,
+            publisher: job.publisher ?? '',
+            translator: job.translator ?? (mode === 'generate' ? DEFAULT_GENERATED_TRANSLATOR : ''),
+            file: null,
+            maxSourceChars: historyMaxSourceChars(job),
+            chunkMaxChars: job.chunkMaxChars == null ? DEFAULT_GENERATE_CHUNK_MAX_CHARS : String(job.chunkMaxChars),
+            contextChars: job.contextChars == null ? DEFAULT_GENERATE_CONTEXT_CHARS : String(job.contextChars),
+            model: job.model ?? '',
+            replaceExisting: job.replaceExisting ?? true,
+        }])
+        setFormError(null)
+    }
+
+    async function loadHistory(token = adminToken.trim()) {
+        if (!token) {
+            setHistoryError('Admin token is required.')
+            return
+        }
+
+        setHistoryLoading(true)
+        setHistoryError(null)
+        try {
+            const response = await fetch('/api/admin/ingest/jobs?limit=50', {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+            })
+            if (!response.ok) {
+                throw new Error(await responseError(response))
+            }
+            setHistory(await response.json() as IngestionJob[])
+        } catch (error) {
+            setHistoryError(error instanceof Error ? error.message : 'Could not load ingestion history.')
+        } finally {
+            setHistoryLoading(false)
+        }
+    }
+
+    async function rerunHistoryJob(job: IngestionJob) {
+        const token = adminToken.trim()
+        if (!token) {
+            setHistoryError('Admin token is required.')
+            return
+        }
+
+        setRetryingJobId(job.id)
+        setHistoryError(null)
+        try {
+            const response = await fetch(`/api/admin/ingest/jobs/${job.id}/retry`, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+            })
+            if (!response.ok) {
+                throw new Error(await responseError(response))
+            }
+            const started = await response.json() as StartIngestionResponse
+            const localId = createId()
+            setJobs(current => [{
+                localId,
+                editionLang: job.lang,
+                label: fileSpecLabel(job),
+                mode: jobMode(job),
+                jobId: started.jobId,
+                status: started.status,
+                message: 'Retry queued',
+            }, ...current])
+            await loadHistory(token)
+            void pollJob(localId, started.jobId, token).then(() => loadHistory(token))
+        } catch (error) {
+            setHistoryError(error instanceof Error ? error.message : 'Could not rerun ingestion job.')
+        } finally {
+            setRetryingJobId(null)
+        }
     }
 
     function validateForm(): string | null {
@@ -311,6 +510,8 @@ export default function AdminIngestionPage() {
                 if (chunkError) return chunkError
                 const contextError = maybeNonNegativeInteger(edition.contextChars, 'Context characters')
                 if (contextError) return contextError
+                const modelError = optionalModelError(edition.model)
+                if (modelError) return modelError
             }
         }
 
@@ -361,6 +562,7 @@ export default function AdminIngestionPage() {
         if (maxSourceChars !== undefined) payload.maxSourceChars = maxSourceChars
         if (chunkMaxChars !== undefined) payload.chunkMaxChars = chunkMaxChars
         if (contextChars !== undefined) payload.contextChars = contextChars
+        if (edition.model.trim()) payload.model = edition.model.trim()
 
         const response = await fetch('/api/admin/ingest/jobs/generate-literary', {
             method: 'POST',
@@ -408,7 +610,10 @@ export default function AdminIngestionPage() {
                     paragraphs: job.paragraphs,
                     sentences: job.sentences,
                 })
-                if (isTerminalStatus(job.status)) return job
+                if (isTerminalStatus(job.status)) {
+                    void loadHistory(token)
+                    return job
+                }
             } catch (error) {
                 patchJob(localId, {
                     status: 'FAILED',
@@ -535,6 +740,7 @@ export default function AdminIngestionPage() {
             }
         } finally {
             setSubmitting(false)
+            void loadHistory(token)
         }
     }
 
@@ -548,18 +754,28 @@ export default function AdminIngestionPage() {
                             Book ingestion
                         </h2>
                     </div>
-                    <label className="flex min-w-0 flex-col gap-2 text-sm md:min-w-56">
-                        <span className="text-xs uppercase tracking-[0.18em] muted-copy">
-                            Admin token
-                        </span>
-                        <input
-                            type="password"
-                            value={adminToken}
-                            onChange={event => setAdminToken(event.target.value)}
-                            className="input"
-                            autoComplete="off"
-                        />
-                    </label>
+                    <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-end">
+                        <label className="flex min-w-0 flex-col gap-2 text-sm md:min-w-56">
+                            <span className="text-xs uppercase tracking-[0.18em] muted-copy">
+                                Admin token
+                            </span>
+                            <input
+                                type="password"
+                                value={adminToken}
+                                onChange={event => setAdminToken(event.target.value)}
+                                className="input"
+                                autoComplete="off"
+                            />
+                        </label>
+                        <button
+                            type="button"
+                            className="btn-secondary h-11 w-fit"
+                            onClick={() => void loadHistory()}
+                            disabled={historyLoading || !adminToken.trim()}
+                        >
+                            {historyLoading ? 'Loading...' : 'Load history'}
+                        </button>
+                    </div>
                 </div>
             </section>
 
@@ -740,7 +956,7 @@ export default function AdminIngestionPage() {
                                         </label>
                                     ) : (
                                         <div className="space-y-3">
-                                            <div className="grid gap-3 md:grid-cols-4">
+                                            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5">
                                                 <label className="flex flex-col gap-2 text-sm">
                                                     <span className="text-xs uppercase tracking-[0.18em] muted-copy">Source language</span>
                                                     <input
@@ -749,6 +965,16 @@ export default function AdminIngestionPage() {
                                                         onChange={event => updateEdition(edition.id, {sourceLang: normalizeLang(event.target.value)})}
                                                         className="input"
                                                         placeholder={normalizeLang(work.originalLang) || 'de'}
+                                                    />
+                                                </label>
+                                                <label className="flex flex-col gap-2 text-sm">
+                                                    <span className="text-xs uppercase tracking-[0.18em] muted-copy">Model</span>
+                                                    <input
+                                                        list="admin-model-options"
+                                                        value={edition.model}
+                                                        onChange={event => updateEdition(edition.id, {model: event.target.value})}
+                                                        className="input"
+                                                        placeholder="default"
                                                     />
                                                 </label>
                                                 <label className="flex flex-col gap-2 text-sm">
@@ -832,6 +1058,103 @@ export default function AdminIngestionPage() {
                     <option key={lang} value={lang} />
                 ))}
             </datalist>
+            <datalist id="admin-model-options">
+                {MODEL_OPTIONS.map(model => (
+                    <option key={model} value={model} />
+                ))}
+            </datalist>
+
+            <section className="surface-panel rounded-[28px] px-5 py-5 md:px-6">
+                <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+                    <div>
+                        <div className="soft-badge mb-2">History</div>
+                        <h3 className="theme-heading text-xl font-semibold">Recent ingestion jobs</h3>
+                    </div>
+                    <button
+                        type="button"
+                        className="btn-secondary w-fit"
+                        onClick={() => void loadHistory()}
+                        disabled={historyLoading || !adminToken.trim()}
+                    >
+                        {historyLoading ? 'Refreshing...' : 'Refresh'}
+                    </button>
+                </div>
+
+                {historyError && (
+                    <div className="theme-danger mt-4 rounded-[20px] border px-4 py-3 text-sm">
+                        {historyError}
+                    </div>
+                )}
+
+                <div className="mt-4 space-y-3">
+                    {history.length === 0 ? (
+                        <div className="vocab-list-item text-sm muted-copy">
+                            No ingestion history loaded.
+                        </div>
+                    ) : history.map(job => (
+                        <article key={job.id} className="vocab-list-item items-start">
+                            <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span className={statusTone(job.status)}>{job.status}</span>
+                                    <span className="soft-badge">{job.lang.toUpperCase()}</span>
+                                    <span className="soft-badge">{jobMode(job) === 'generate' ? 'AI' : 'Upload'}</span>
+                                    <span className="soft-badge">Job {job.id}</span>
+                                    <span className="theme-heading font-medium">{job.workTitle}</span>
+                                </div>
+                                <div className="mt-2 text-sm muted-copy">
+                                    {job.error ?? job.message ?? job.step ?? 'No status message'}
+                                </div>
+                                <div className="mt-2 flex flex-wrap gap-2 text-xs muted-copy">
+                                    <span title={job.fileSpec}>{fileSpecLabel(job)}</span>
+                                    {job.author && <span>{job.author}</span>}
+                                    {job.publisher && <span>{job.publisher}</span>}
+                                    {job.translator && <span>{job.translator}</span>}
+                                    {job.originalLang && <span>original {job.originalLang.toUpperCase()}</span>}
+                                    {job.year != null && <span>{job.year}</span>}
+                                    {isGeneratedJob(job) && job.maxSourceChars != null && (
+                                        <span>
+                                            max {historyMaxSourceChars(job)} chars
+                                            {hasLegacyGeneratedMaxSourceChars(job) ? ' (updated default)' : ''}
+                                        </span>
+                                    )}
+                                    {isGeneratedJob(job) && job.chunkMaxChars != null && <span>chunk {job.chunkMaxChars}</span>}
+                                    {isGeneratedJob(job) && job.contextChars != null && <span>context {job.contextChars}</span>}
+                                    {isGeneratedJob(job) && job.model && <span>model {job.model}</span>}
+                                    {isGeneratedJob(job) && job.replaceExisting != null && (
+                                        <span>{job.replaceExisting ? 'replace existing' : 'keep existing'}</span>
+                                    )}
+                                    <span>{job.chapters} chapters</span>
+                                    <span>{job.paragraphs} paragraphs</span>
+                                    <span>{job.sentences} sentences</span>
+                                    {job.workId && <span>work {job.workId}</span>}
+                                    {job.editionId && <span>edition {job.editionId}</span>}
+                                    {job.createdAt && <span>created {formatJobTime(job.createdAt)}</span>}
+                                    {job.finishedAt && <span>finished {formatJobTime(job.finishedAt)}</span>}
+                                </div>
+                            </div>
+                            <div className="flex shrink-0 flex-wrap gap-2">
+                                <button
+                                    type="button"
+                                    className="btn-secondary text-xs"
+                                    onClick={() => applyJobMetadata(job)}
+                                >
+                                    Use metadata
+                                </button>
+                                {canRerunJob(job) && (
+                                    <button
+                                        type="button"
+                                        className="btn-secondary text-xs"
+                                        onClick={() => void rerunHistoryJob(job)}
+                                        disabled={retryingJobId === job.id}
+                                    >
+                                        {retryingJobId === job.id ? 'Queuing...' : rerunLabel(job)}
+                                    </button>
+                                )}
+                            </div>
+                        </article>
+                    ))}
+                </div>
+            </section>
 
             {jobs.length > 0 && (
                 <section className="surface-panel rounded-[28px] px-5 py-5 md:px-6">

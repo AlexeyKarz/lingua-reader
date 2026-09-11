@@ -22,20 +22,6 @@ jobs:
   verify:
     name: Verify
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: pgvector/pgvector:pg17
-        env:
-          POSTGRES_DB: mlr
-          POSTGRES_USER: mlr
-          POSTGRES_PASSWORD: mlr_password
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U mlr -d mlr"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -73,9 +59,6 @@ jobs:
 
       - name: Run backend tests
         env:
-          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/mlr
-          SPRING_DATASOURCE_USERNAME: mlr
-          SPRING_DATASOURCE_PASSWORD: mlr_password
           TRANSLATE_PROVIDER: stub
         run: ./gradlew test
 

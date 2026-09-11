@@ -5,7 +5,7 @@
     "dictionary_auto": true,
     "dictionary_body_only": true,
     "dictionary_skip_missing": true,
-    "generate_max_source_chars": 120000,
+    "generate_max_source_chars": 250000,
     "generate_chunk_max_chars": 1800,
     "generate_context_chars": 600
   },

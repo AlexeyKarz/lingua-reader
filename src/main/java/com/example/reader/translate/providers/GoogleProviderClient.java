@@ -80,6 +80,12 @@ public class GoogleProviderClient implements ProviderClient {
 
     @Override
     public String literary(String text, String source, String target, String bookContext) {
+        return literary(text, source, target, bookContext, null);
+    }
+
+    @Override
+    public String literary(String text, String source, String target, String bookContext, String modelOverride) {
+        String effectiveModel = effectiveLiteraryModel(modelOverride);
         String prompt = "Source language: " + source +
                 "\nTarget language: " + target +
                 "\nBook context: " + (bookContext == null ? "" : bookContext) +
@@ -87,11 +93,11 @@ public class GoogleProviderClient implements ProviderClient {
         return ProviderMetrics.record(
                 registry,
                 providerName,
-                literaryModel,
+                effectiveModel,
                 "literary",
                 source,
                 target,
-                () -> callGenerateContent(literaryModel, literarySystem, prompt, 0.3, literaryMaxOutputTokens)
+                () -> callGenerateContent(effectiveModel, literarySystem, prompt, 0.3, literaryMaxOutputTokens)
         );
     }
 
@@ -164,6 +170,10 @@ public class GoogleProviderClient implements ProviderClient {
             log.error("Google call failed after {} ms: {}", durationMs, e.toString());
             throw e;
         }
+    }
+
+    private String effectiveLiteraryModel(String modelOverride) {
+        return modelOverride == null || modelOverride.isBlank() ? literaryModel : modelOverride.trim();
     }
 
     private static String extractText(GoogleResponse response) {

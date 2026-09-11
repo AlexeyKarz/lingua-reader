@@ -14,6 +14,10 @@ public interface ProviderClient {
      */
     String literary(String text, String source, String target, String bookContext);
 
+    default String literary(String text, String source, String target, String bookContext, String modelOverride) {
+        return literary(text, source, target, bookContext);
+    }
+
     /**
      * Explanatory translation: grammar, nuance, etc.
      * Can include longer / structured output.
