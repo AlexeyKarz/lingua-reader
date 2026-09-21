@@ -38,6 +38,7 @@ type EditionDraft = {
     model: string
     replaceExisting: boolean
     contentType: 'prose' | 'play'
+    dictionaryWarmup: boolean
 }
 
 type PreparedUploadEdition = Omit<EditionDraft, 'file' | 'mode'> & {
@@ -145,6 +146,7 @@ function createEditionDraft(): EditionDraft {
         model: '',
         replaceExisting: true,
         contentType: 'prose',
+        dictionaryWarmup: true,
     }
 }
 
@@ -424,6 +426,7 @@ export default function AdminIngestionPage() {
             model: job.model && MODEL_OPTIONS.includes(job.model) ? job.model : '',
             replaceExisting: job.replaceExisting ?? true,
             contentType: job.contentType === 'play' ? 'play' : 'prose',
+            dictionaryWarmup: true,
         }])
         setIngestedDraftIds(new Set())
         setEstimates({})
@@ -536,6 +539,14 @@ export default function AdminIngestionPage() {
         appendIfPresent(form, 'description', work.description)
         appendIfPresent(form, 'originalLang', work.originalLang)
         form.append('contentType', edition.contentType)
+        const dictionaryTargets = editions
+            .map(candidate => normalizeLang(candidate.lang))
+            .filter(lang => lang && lang !== edition.lang)
+            .filter((lang, index, values) => values.indexOf(lang) === index)
+        if (edition.dictionaryWarmup && dictionaryTargets.length > 0) {
+            form.append('dictionaryWarmup', 'true')
+            dictionaryTargets.forEach(lang => form.append('dictionaryTargetLangs', lang))
+        }
 
         const response = await csrfFetch('/api/admin/ingest/jobs/upload', {
             method: 'POST',
@@ -1028,6 +1039,20 @@ export default function AdminIngestionPage() {
                                                 <span>
                                                     <span className="theme-heading block font-medium">Play or verse dialogue</span>
                                                     <span className="muted-copy">Preserve line breaks and treat uppercase character cues as speakers.</span>
+                                                </span>
+                                            </label>
+                                            <label className="flex items-start gap-3 text-sm">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={edition.dictionaryWarmup}
+                                                    onChange={event => updateEdition(edition.id, {
+                                                        dictionaryWarmup: event.target.checked,
+                                                    })}
+                                                    className="mt-1"
+                                                />
+                                                <span>
+                                                    <span className="theme-heading block font-medium">Import dictionary entries</span>
+                                                    <span className="muted-copy">After ingestion, import words used in this edition for the other selected languages.</span>
                                                 </span>
                                             </label>
                                         </div>

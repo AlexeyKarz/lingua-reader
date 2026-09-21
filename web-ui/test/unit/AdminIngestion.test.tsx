@@ -303,6 +303,10 @@ describe('AdminIngestionPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Estimate size and time$/i }))
 
     expect(await screen.findByText(/13,332 words, about 48,750 input tokens/)).toBeTruthy()
+    const uploadCall = fetchMock.mock.calls.find(([input]) => String(input) === '/api/admin/ingest/jobs/upload')
+    const uploadForm = uploadCall?.[1]?.body as FormData
+    expect(uploadForm.get('dictionaryWarmup')).toBe('true')
+    expect(uploadForm.getAll('dictionaryTargetLangs')).toEqual(['ru'])
     const calls = fetchMock.mock.calls.map(([input]) => String(input))
     expect(calls.indexOf('/api/admin/ingest/jobs/upload')).toBeLessThan(
       calls.indexOf('/api/admin/ingest/jobs/generate-literary/estimate')

@@ -1,5 +1,6 @@
 package com.example.reader.ingestion;
 
+import com.example.reader.dictionary.DictionaryWarmupService;
 import com.example.reader.metrics.ProductEventService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -25,7 +26,8 @@ class IngestionJobServiceTest {
                 mock(LiteraryEditionGenerationService.class),
                 repository,
                 Runnable::run,
-                mock(ProductEventService.class)
+                mock(ProductEventService.class),
+                mock(DictionaryWarmupService.class)
         );
         when(repository.findRecent(anyInt())).thenReturn(List.of());
 
@@ -47,7 +49,8 @@ class IngestionJobServiceTest {
                 mock(LiteraryEditionGenerationService.class),
                 repository,
                 Runnable::run,
-                mock(ProductEventService.class)
+                mock(ProductEventService.class),
+                mock(DictionaryWarmupService.class)
         );
         when(repository.findById(7L)).thenReturn(new IngestionJob(
                 7L,
@@ -111,7 +114,8 @@ class IngestionJobServiceTest {
                 generationService,
                 repository,
                 Runnable::run,
-                mock(ProductEventService.class)
+                mock(ProductEventService.class),
+                mock(DictionaryWarmupService.class)
         );
         when(repository.findById(9L)).thenReturn(new IngestionJob(
                 9L,
@@ -178,7 +182,8 @@ class IngestionJobServiceTest {
                 generationService,
                 repository,
                 Runnable::run,
-                mock(ProductEventService.class)
+                mock(ProductEventService.class),
+                mock(DictionaryWarmupService.class)
         );
         when(repository.findById(13L)).thenReturn(new IngestionJob(
                 13L,
@@ -231,7 +236,8 @@ class IngestionJobServiceTest {
                 mock(LiteraryEditionGenerationService.class),
                 repository,
                 Runnable::run,
-                mock(ProductEventService.class)
+                mock(ProductEventService.class),
+                mock(DictionaryWarmupService.class)
         );
         when(repository.findById(3L)).thenReturn(new IngestionJob(
                 3L,
@@ -278,7 +284,8 @@ class IngestionJobServiceTest {
                 generationService,
                 repository,
                 Runnable::run,
-                mock(ProductEventService.class)
+                mock(ProductEventService.class),
+                mock(DictionaryWarmupService.class)
         );
         when(repository.findById(11L)).thenReturn(new IngestionJob(
                 11L,
@@ -335,7 +342,8 @@ class IngestionJobServiceTest {
                 generationService,
                 repository,
                 Runnable::run,
-                mock(ProductEventService.class)
+                mock(ProductEventService.class),
+                mock(DictionaryWarmupService.class)
         );
         when(repository.createGenerated(any(GenerateLiteraryEditionRequest.class))).thenReturn(12L);
         when(generationService.generate(any(GenerateLiteraryEditionRequest.class), any(IngestionProgressSink.class)))
@@ -385,7 +393,8 @@ class IngestionJobServiceTest {
                 generationService,
                 repository,
                 Runnable::run,
-                mock(ProductEventService.class)
+                mock(ProductEventService.class),
+                mock(DictionaryWarmupService.class)
         );
         when(repository.createGenerated(any(GenerateLiteraryEditionRequest.class))).thenReturn(33L);
         when(generationService.generate(any(GenerateLiteraryEditionRequest.class), any(IngestionProgressSink.class)))
@@ -418,7 +427,8 @@ class IngestionJobServiceTest {
                 mock(LiteraryEditionGenerationService.class),
                 mock(IngestionJobRepository.class),
                 Runnable::run,
-                mock(ProductEventService.class)
+                mock(ProductEventService.class),
+                mock(DictionaryWarmupService.class)
         );
 
         assertThatThrownBy(() -> service.startGeneratedLiteraryJob(null))

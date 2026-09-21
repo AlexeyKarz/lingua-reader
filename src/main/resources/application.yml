@@ -102,6 +102,8 @@ translate:
   - Do not translate the whole sentence unless needed for clarity; focus on explanation and key phrases."
 
 mlr:
+  dictionary:
+    dir: ${DICTIONARY_DIR:/dictionaries}
   auth:
     bootstrap:
       adminEmail: ${MLR_BOOTSTRAP_ADMIN_EMAIL:}

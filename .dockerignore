@@ -20,3 +20,4 @@ perf/k6/k6-summary.json
 perf/parity/snapshots
 ops/deployment/dumps
 tmp
+dictionaries

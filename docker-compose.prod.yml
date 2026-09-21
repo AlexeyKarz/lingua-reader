@@ -47,6 +47,9 @@ services:
       MLR_BOOTSTRAP_ADMIN_PASSWORD: ${MLR_BOOTSTRAP_ADMIN_PASSWORD:-}
       MLR_BOOTSTRAP_ADMIN_DISPLAY_NAME: ${MLR_BOOTSTRAP_ADMIN_DISPLAY_NAME:-Admin}
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: ${MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:-health,info}
+      DICTIONARY_DIR: /dictionaries
+    volumes:
+      - ${DICTIONARY_DIR:-./dictionaries}:/dictionaries:ro
 
   web:
     build: ./web-ui

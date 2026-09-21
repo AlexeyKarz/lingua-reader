@@ -579,6 +579,26 @@ proxy_set_header X-Forwarded-For $remote_addr;
 
 ### Local dictionary and translation cache
 
+Admin EPUB/TXT ingestion now has an **Import dictionary entries** option. For
+each uploaded source edition, the backend streams `<source-lang>.jsonl` (or
+`.jsonl.gz`) from `DICTIONARY_DIR`, collects the unique words used by that
+edition, and imports only matching entries for the other languages selected in
+the same form. The dictionary file is mounted read-only into the app container;
+it is deliberately excluded from Docker image build contexts.
+
+For example:
+
+```text
+./dictionaries/de.jsonl
+./dictionaries/es.jsonl
+./dictionaries/el.jsonl
+```
+
+Large Kaikki exports are streamed rather than loaded into memory. The first
+warmup for a language can therefore take several minutes while the complete
+source file is scanned. Subsequent ingestions skip book terms already covered
+for that source/target pair.
+
 Word lookup is dictionary-first. When `/api/translate/word` receives a selected
 word, the backend checks the local `dictionary_entry` table before using the
 configured translation provider. If dictionary entries are found, the response

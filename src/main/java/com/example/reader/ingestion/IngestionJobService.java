@@ -1,5 +1,6 @@
 package com.example.reader.ingestion;
 
+import com.example.reader.dictionary.DictionaryWarmupService;
 import com.example.reader.metrics.ProductEventService;
 import io.micrometer.core.annotation.Timed;
 import org.slf4j.Logger;
@@ -23,19 +24,22 @@ public class IngestionJobService {
     private final IngestionJobRepository jobRepository;
     private final Executor ingestionTaskExecutor;
     private final ProductEventService events;
+    private final DictionaryWarmupService dictionaryWarmupService;
 
     public IngestionJobService(
             IngestionFacade ingestionFacade,
             LiteraryEditionGenerationService generationService,
             IngestionJobRepository jobRepository,
             @Qualifier("ingestionTaskExecutor") Executor ingestionTaskExecutor,
-            ProductEventService events
+            ProductEventService events,
+            DictionaryWarmupService dictionaryWarmupService
     ) {
         this.ingestionFacade = ingestionFacade;
         this.generationService = generationService;
         this.jobRepository = jobRepository;
         this.ingestionTaskExecutor = ingestionTaskExecutor;
         this.events = events;
+        this.dictionaryWarmupService = dictionaryWarmupService;
     }
 
     @Timed(value = "ingestion.jobs.start", description = "Start ingestion job")
@@ -109,7 +113,9 @@ public class IngestionJobService {
                 job.author(),
                 job.description(),
                 job.originalLang(),
-                job.contentType()
+                job.contentType(),
+                false,
+                List.of()
         );
         return startJob(request);
     }
@@ -122,6 +128,14 @@ public class IngestionJobService {
             IngestionResult result = ingestionFacade.ingest(request, (step, message, chapters, paragraphs, sentences) ->
                     jobRepository.updateProgress(jobId, step, message, chapters, paragraphs, sentences)
             );
+            if (Boolean.TRUE.equals(request.dictionaryWarmup())) {
+                dictionaryWarmupService.warmup(
+                        result.editionId(), request.lang(), request.dictionaryTargetLangs(),
+                        (step, message, chapters, paragraphs, sentences) ->
+                                jobRepository.updateProgress(jobId, step, message, chapters, paragraphs, sentences),
+                        result.chapters(), result.paragraphs(), result.sentences()
+                );
+            }
             jobRepository.markSucceeded(jobId, result);
             events.record(
                     "ingestion_job_succeeded",
