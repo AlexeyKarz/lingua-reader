@@ -37,7 +37,7 @@ function isSingleWordSelection(text: string) {
     return text.length <= 40 && !/\s/.test(text)
 }
 
-type Sentence = { id: number; text: string; chapterId?: number | null; chapterTitle?: string | null }
+type Sentence = { id: number; text: string; speaker?: string | null; chapterId?: number | null; chapterTitle?: string | null }
 
 type AlignmentLink = {
     leftId: number
@@ -536,6 +536,7 @@ export default function Reader() {
         if (!sentences) return null
         const nodes: JSX.Element[] = []
         const state = chapterState ?? { current: null }
+        let currentSpeaker: string | null = null
 
         sentences.forEach(s => {
             const chapChanged = s.chapterId != null && s.chapterId !== state.current
@@ -548,6 +549,15 @@ export default function Reader() {
                         </div>
                     )
                 }
+            }
+
+            if (s.speaker && s.speaker !== currentSpeaker) {
+                currentSpeaker = s.speaker
+                nodes.push(
+                    <div key={`speaker-${side}-${s.id}`} className="mt-4 mb-1 text-xs font-semibold uppercase tracking-[0.14em] muted-copy">
+                        {s.speaker}
+                    </div>
+                )
             }
 
             nodes.push(

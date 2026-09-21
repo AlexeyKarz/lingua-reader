@@ -58,9 +58,12 @@ public class DatabaseSchemaInitializer {
                   parent_id bigint references segment(id) on delete cascade,
                   text text not null,
                   cfi text,
+                  speaker text,
                   unique(edition_id, level, ord, parent_id)
                 )
                 """);
+
+        jdbc.execute("alter table segment add column if not exists speaker text");
 
         jdbc.execute("""
                 create table if not exists embedding (

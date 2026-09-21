@@ -197,7 +197,7 @@ public class ReaderRepository {
         int offset = page * size;
 
         String sql = """
-        select s.id, s.text, c.id as chap_id, c.text as chap_title
+        select s.id, s.text, s.speaker, c.id as chap_id, c.text as chap_title
         from segment s
         left join segment p on p.id = s.parent_id
         left join segment c on c.id = p.parent_id and c.level = 'chapter'
@@ -218,6 +218,7 @@ public class ReaderRepository {
                 new SentenceDto(
                         rs.getLong("id"),
                         rs.getString("text"),
+                        rs.getString("speaker"),
                         (Long) rs.getObject("chap_id"),
                         rs.getString("chap_title")
                 ));
@@ -335,7 +336,7 @@ public class ReaderRepository {
         if (ids.isEmpty()) return List.of();
 
         String sql = """
-        select s.id, s.text, c.id as chap_id, c.text as chap_title
+        select s.id, s.text, s.speaker, c.id as chap_id, c.text as chap_title
         from segment s
         left join segment p on p.id = s.parent_id
         left join segment c on c.id = p.parent_id and c.level = 'chapter'
@@ -350,6 +351,7 @@ public class ReaderRepository {
                 new SentenceDto(
                         rs.getLong("id"),
                         rs.getString("text"),
+                        rs.getString("speaker"),
                         (Long) rs.getObject("chap_id"),
                         rs.getString("chap_title")
                 ));
@@ -357,7 +359,7 @@ public class ReaderRepository {
 
     public List<SentenceDto> fetchSentencesInRange(long editionId, long fromId, long toId) {
         String sql = """
-        select s.id, s.text, c.id as chap_id, c.text as chap_title
+        select s.id, s.text, s.speaker, c.id as chap_id, c.text as chap_title
         from segment s
         left join segment p on p.id = s.parent_id
         left join segment c on c.id = p.parent_id and c.level = 'chapter'
@@ -376,6 +378,7 @@ public class ReaderRepository {
                 (rs, rowNum) -> new SentenceDto(
                         rs.getLong("id"),
                         rs.getString("text"),
+                        rs.getString("speaker"),
                         (Long) rs.getObject("chap_id"),
                         rs.getString("chap_title")
                 ));
@@ -388,7 +391,7 @@ public class ReaderRepository {
         }
 
         String sql = """
-        select s.id, s.text, c.id as chap_id, c.text as chap_title
+        select s.id, s.text, s.speaker, c.id as chap_id, c.text as chap_title
         from segment s
         left join segment p on p.id = s.parent_id
         left join segment c on c.id = p.parent_id and c.level = 'chapter'
@@ -406,6 +409,7 @@ public class ReaderRepository {
                 (rs, rowNum) -> new SentenceDto(
                         rs.getLong("id"),
                         rs.getString("text"),
+                        rs.getString("speaker"),
                         (Long) rs.getObject("chap_id"),
                         rs.getString("chap_title")
                 ));

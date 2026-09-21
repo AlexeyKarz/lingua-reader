@@ -97,6 +97,11 @@ public class SegmentWriter {
 
     public long insertSegment(long editionId, String level, int ord,
                               Long parentId, String text, String cfi) {
+        return insertSegment(editionId, level, ord, parentId, text, cfi, null);
+    }
+
+    public long insertSegment(long editionId, String level, int ord,
+                              Long parentId, String text, String cfi, String speaker) {
         var key = new org.springframework.jdbc.support.GeneratedKeyHolder();
 
         var params = new MapSqlParameterSource()
@@ -105,11 +110,12 @@ public class SegmentWriter {
                 .addValue("o", ord)
                 .addValue("pid", parentId)
                 .addValue("tx", text)
-                .addValue("cfi", cfi);
+                .addValue("cfi", cfi)
+                .addValue("speaker", speaker);
 
         jdbc.update("""
-        insert into segment(edition_id, level, ord, parent_id, text, cfi)
-        values(:e, CAST(:lv AS segment_level), :o, :pid, :tx, :cfi)
+        insert into segment(edition_id, level, ord, parent_id, text, cfi, speaker)
+        values(:e, CAST(:lv AS segment_level), :o, :pid, :tx, :cfi, :speaker)
         returning id
         """, params, key);
 

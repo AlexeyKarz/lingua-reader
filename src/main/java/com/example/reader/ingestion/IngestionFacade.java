@@ -15,11 +15,13 @@ public class IngestionFacade {
 
     private final ResourceLoader loader;
     private final EpubExtractor extractor;
+    private final PlayTextExtractor playTextExtractor;
     private final SegmentWriter writer;
 
-    public IngestionFacade(ResourceLoader loader, EpubExtractor extractor, SegmentWriter writer) {
+    public IngestionFacade(ResourceLoader loader, EpubExtractor extractor, PlayTextExtractor playTextExtractor, SegmentWriter writer) {
         this.loader = loader;
         this.extractor = extractor;
+        this.playTextExtractor = playTextExtractor;
         this.writer = writer;
     }
 
@@ -37,7 +39,9 @@ public class IngestionFacade {
         }
 
         publish(sink, "extract", "Extracting EPUB content", 0, 0, 0);
-        var doc = extractor.extract(res);
+        boolean plainTextPlay = request.fileSpec().toLowerCase().endsWith(".txt");
+        var doc = plainTextPlay ? null : extractor.extract(res);
+        var playDoc = plainTextPlay ? playTextExtractor.extract(res) : null;
 
         publish(sink, "upsert_entities", "Upserting work and edition", 0, 0, 0);
         long workId = writer.ensureWork(
@@ -54,7 +58,7 @@ public class IngestionFacade {
                 request.translator(),
                 request.year(),
                 request.fileSpec(),
-                "epub3"
+                plainTextPlay ? "text-play" : "epub3"
         );
 
         int chapterCount = 0;
@@ -62,8 +66,22 @@ public class IngestionFacade {
         int sentenceCount = 0;
 
         publish(sink, "write_segments", "Writing chapters, paragraphs and sentences", 0, 0, 0);
-        int chapterOrd = 0;
-        for (var ch : doc.chapters()) {
+        if (plainTextPlay) {
+            long chapterId = writer.insertSegment(editionId, "chapter", 1, null, request.workTitle(), null);
+            chapterCount = 1;
+            int paragraphOrd = 0;
+            for (var unit : playDoc.units()) {
+                long paragraphId = writer.insertSegment(
+                        editionId, "paragraph", ++paragraphOrd, chapterId, unit.text(), null, unit.speaker()
+                );
+                paragraphCount++;
+                writer.insertSegment(editionId, "sentence", 1, paragraphId, unit.text(), null, unit.speaker());
+                sentenceCount++;
+            }
+            publish(sink, "write_segments", "Processed plain-text play", chapterCount, paragraphCount, sentenceCount);
+        } else {
+          int chapterOrd = 0;
+          for (var ch : doc.chapters()) {
             long chapterId = writer.insertSegment(editionId, "chapter", ++chapterOrd, null, ch.title(), ch.cfi());
             chapterCount++;
 
@@ -87,6 +105,7 @@ public class IngestionFacade {
                     paragraphCount,
                     sentenceCount
             );
+          }
         }
 
         publish(sink, "done", "Ingestion completed", chapterCount, paragraphCount, sentenceCount);
@@ -100,6 +119,12 @@ public class IngestionFacade {
     }
 
     private Resource resolveResource(String fileSpec) {
+        if (fileSpec != null && !fileSpec.contains(":")) {
+            Path path = Path.of(fileSpec).normalize();
+            if (path.isAbsolute() && Files.exists(path)) {
+                return loader.getResource("file:" + path);
+            }
+        }
         Resource res = loader.getResource(fileSpec);
         if (res.exists()) {
             return res;
