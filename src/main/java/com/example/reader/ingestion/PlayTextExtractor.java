@@ -8,6 +8,8 @@ import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.HashMap;
 
 /** Parses a plain-text play without treating speaker cues as spoken text. */
 @Component
@@ -43,6 +45,22 @@ public class PlayTextExtractor {
             throw new IllegalStateException("Plain-text play contains no readable lines");
         }
         return new Doc(units);
+    }
+
+    public boolean looksLikePlay(byte[] textBytes) {
+        String text = new String(textBytes, StandardCharsets.UTF_8);
+        Map<String, Integer> cues = new HashMap<>();
+        int cueCount = 0;
+        for (String raw : text.replace("\r\n", "\n").replace('\r', '\n').split("\n")) {
+            String line = raw.strip();
+            if (!line.isEmpty() && isSpeakerCue(line)) {
+                cueCount++;
+                cues.merge(normalizeSpeaker(line), 1, Integer::sum);
+            }
+        }
+        // Repetition avoids classifying a prose document with a few uppercase
+        // headings as drama while recognizing cast lists and recurring speakers.
+        return cueCount >= 3 && cues.values().stream().anyMatch(count -> count >= 2);
     }
 
     boolean isSpeakerCue(String value) {

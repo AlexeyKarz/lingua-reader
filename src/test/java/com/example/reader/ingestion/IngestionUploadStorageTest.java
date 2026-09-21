@@ -23,7 +23,7 @@ class IngestionUploadStorageTest {
     void storesEpubUploadsUnderConfiguredDirectory() throws Exception {
         IngestionUploadProperties properties = new IngestionUploadProperties();
         properties.setDir(tempDir);
-        IngestionUploadStorage storage = new IngestionUploadStorage(properties, new PlainTextEpubConverter());
+        IngestionUploadStorage storage = storage(properties);
         MockMultipartFile file = new MockMultipartFile(
                 "file",
                 "../Unsafe Name.epub",
@@ -43,7 +43,7 @@ class IngestionUploadStorageTest {
     void convertsPlainTextUploadsToEpub() throws Exception {
         IngestionUploadProperties properties = new IngestionUploadProperties();
         properties.setDir(tempDir);
-        IngestionUploadStorage storage = new IngestionUploadStorage(properties, new PlainTextEpubConverter());
+        IngestionUploadStorage storage = storage(properties);
         MockMultipartFile file = new MockMultipartFile(
                 "file",
                 "plain book.txt",
@@ -90,7 +90,7 @@ class IngestionUploadStorageTest {
     void rejectsUnsupportedUploads() {
         IngestionUploadProperties properties = new IngestionUploadProperties();
         properties.setDir(tempDir);
-        IngestionUploadStorage storage = new IngestionUploadStorage(properties, new PlainTextEpubConverter());
+        IngestionUploadStorage storage = storage(properties);
         MockMultipartFile file = new MockMultipartFile(
                 "file",
                 "book.pdf",
@@ -101,5 +101,25 @@ class IngestionUploadStorageTest {
         assertThatThrownBy(() -> storage.store(file, "Book", "en"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Only EPUB and TXT files are supported");
+    }
+
+    @Test
+    void preservesDetectedPlayTextForSpeakerAwareIngestion() throws Exception {
+        IngestionUploadProperties properties = new IngestionUploadProperties();
+        properties.setDir(tempDir);
+        IngestionUploadStorage storage = storage(properties);
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "play.txt", "text/plain",
+                "ANNA\nFirst line.\n\nKARL\nSecond line.\n\nANNA\nThird line.".getBytes(StandardCharsets.UTF_8)
+        );
+
+        Path stored = Path.of(URI.create(storage.store(file, "Play", "en")));
+
+        assertThat(stored.getFileName().toString()).endsWith("-play.txt");
+        assertThat(Files.readString(stored)).contains("ANNA", "KARL");
+    }
+
+    private IngestionUploadStorage storage(IngestionUploadProperties properties) {
+        return new IngestionUploadStorage(properties, new PlainTextEpubConverter(), new PlayTextExtractor());
     }
 }

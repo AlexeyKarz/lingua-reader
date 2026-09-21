@@ -13,10 +13,13 @@ import java.util.UUID;
 public class IngestionUploadStorage {
     private final Path uploadDir;
     private final PlainTextEpubConverter plainTextEpubConverter;
+    private final PlayTextExtractor playTextExtractor;
 
-    public IngestionUploadStorage(IngestionUploadProperties properties, PlainTextEpubConverter plainTextEpubConverter) {
+    public IngestionUploadStorage(IngestionUploadProperties properties, PlainTextEpubConverter plainTextEpubConverter,
+                                  PlayTextExtractor playTextExtractor) {
         this.uploadDir = properties.getDir().toAbsolutePath().normalize();
         this.plainTextEpubConverter = plainTextEpubConverter;
+        this.playTextExtractor = playTextExtractor;
     }
 
     public String store(MultipartFile file, String title, String lang) {
@@ -33,15 +36,17 @@ public class IngestionUploadStorage {
 
         try {
             Files.createDirectories(uploadDir);
-            String storedFilename = lowerFilename.endsWith(".txt")
+            byte[] uploadBytes = lowerFilename.endsWith(".txt") ? file.getBytes() : null;
+            boolean playText = uploadBytes != null && playTextExtractor.looksLikePlay(uploadBytes);
+            String storedFilename = lowerFilename.endsWith(".txt") && !playText
                     ? stripExtension(safeFilename) + ".epub"
                     : safeFilename;
             Path target = uploadDir.resolve(UUID.randomUUID() + "-" + storedFilename).normalize();
             if (!target.startsWith(uploadDir)) {
                 throw new IllegalArgumentException("Invalid upload filename");
             }
-            if (lowerFilename.endsWith(".txt")) {
-                plainTextEpubConverter.convert(file.getBytes(), target, title, lang);
+            if (lowerFilename.endsWith(".txt") && !playText) {
+                plainTextEpubConverter.convert(uploadBytes, target, title, lang);
             } else {
                 file.transferTo(target);
             }

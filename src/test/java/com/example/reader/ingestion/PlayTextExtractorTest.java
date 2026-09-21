@@ -29,4 +29,10 @@ class PlayTextExtractorTest {
         assertThat(extractor.isSpeakerCue("MEDEA.")).isTrue();
         assertThat(extractor.isSpeakerCue("This is spoken text.")).isFalse();
     }
+
+    @Test
+    void distinguishesRepeatedPlayCuesFromProseHeadings() {
+        assertThat(extractor.looksLikePlay("TITLE\n\nCHAPTER ONE\n\nOrdinary prose.".getBytes())).isFalse();
+        assertThat(extractor.looksLikePlay("ANNA\nHello.\nKARL\nHi.\nANNA\nGoodbye.".getBytes())).isTrue();
+    }
 }

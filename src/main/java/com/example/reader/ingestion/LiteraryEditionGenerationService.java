@@ -122,7 +122,8 @@ public class LiteraryEditionGenerationService {
                     paragraph.paragraphOrd(),
                     generatedChapterId,
                     translatedParagraph,
-                    "ai-literary:paragraph:" + paragraph.paragraphId()
+                    "ai-literary:paragraph:" + paragraph.paragraphId(),
+                    paragraph.speaker()
             );
 
             List<Long> generatedSentenceIds = new ArrayList<>();
@@ -133,7 +134,8 @@ public class LiteraryEditionGenerationService {
                         sentence.ord(),
                         paragraphId,
                         sentence.text(),
-                        "ai-literary:sentence:" + paragraph.paragraphId() + ":" + sentence.ord()
+                        "ai-literary:sentence:" + paragraph.paragraphId() + ":" + sentence.ord(),
+                        paragraph.speaker()
                 );
                 if (firstSentenceId == null) {
                     firstSentenceId = sentenceId;
@@ -211,7 +213,8 @@ public class LiteraryEditionGenerationService {
                            ch.text as chapter_title,
                            p.id as paragraph_id,
                            p.ord as paragraph_ord,
-                           p.text as paragraph_text
+                           p.text as paragraph_text,
+                           p.speaker
                     from segment p
                     left join segment ch on ch.id = p.parent_id and ch.level = 'chapter'
                     where p.edition_id = ?
@@ -230,7 +233,8 @@ public class LiteraryEditionGenerationService {
                        ch.text as chapter_title,
                        p.id as paragraph_id,
                        p.ord as paragraph_ord,
-                       p.text as paragraph_text
+                       p.text as paragraph_text,
+                       p.speaker
                 from segment p
                 left join segment ch on ch.id = p.parent_id and ch.level = 'chapter'
                 where p.edition_id = ?
@@ -257,7 +261,8 @@ public class LiteraryEditionGenerationService {
                 rs.getString("chapter_title") == null ? "Chapter " + rs.getInt("chapter_ord") : rs.getString("chapter_title"),
                 rs.getLong("paragraph_id"),
                 rs.getInt("paragraph_ord"),
-                rs.getString("paragraph_text")
+                rs.getString("paragraph_text"),
+                rs.getString("speaker")
         );
     }
 
@@ -426,6 +431,9 @@ public class LiteraryEditionGenerationService {
             parts.add("Author: " + source.author());
         }
         parts.add("Chapter: " + paragraph.chapterTitle());
+        if (paragraph.speaker() != null && !paragraph.speaker().isBlank()) {
+            parts.add("Speaker: " + paragraph.speaker());
+        }
         parts.add("Paragraph: " + paragraphIndex + "/" + paragraphTotal);
         if (chunkTotal > 1) {
             parts.add("Paragraph chunk: " + chunkIndex + "/" + chunkTotal);
@@ -513,7 +521,8 @@ public class LiteraryEditionGenerationService {
             String chapterTitle,
             long paragraphId,
             int paragraphOrd,
-            String text
+            String text,
+            String speaker
     ) {
     }
 }
