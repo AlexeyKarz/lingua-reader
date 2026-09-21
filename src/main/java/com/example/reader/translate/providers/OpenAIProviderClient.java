@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -187,6 +188,15 @@ public class OpenAIProviderClient implements ProviderClient {
             return content;
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - started;
+            if (e instanceof WebClientResponseException responseException) {
+                String detail = responseException.getResponseBodyAsString().trim();
+                if (detail.length() > 1_000) detail = detail.substring(0, 1_000);
+                log.error("OpenAI Responses call failed after {} ms: {} {}", durationMs, e.getMessage(), detail);
+                throw new IllegalStateException(
+                        detail.isBlank() ? e.getMessage() : "OpenAI rejected the request: " + detail,
+                        e
+                );
+            }
             log.error("OpenAI Responses call failed after {} ms: {}", durationMs, e.getMessage());
             throw e;
         }

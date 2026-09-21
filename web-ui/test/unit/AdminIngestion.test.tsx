@@ -283,6 +283,41 @@ describe('AdminIngestionPage', () => {
     expect(screen.getByText('4 sentences')).toBeTruthy()
   })
 
+  it('ingests a draft source before estimating and does not upload it twice', async () => {
+    const fetchMock = installFetchMock()
+    render(<AdminIngestionPage />)
+
+    fireEvent.change(screen.getByLabelText(/^Title$/i), { target: { value: 'Medea' } })
+    fireEvent.change(screen.getByLabelText(/^Original language$/i), { target: { value: 'el' } })
+    fireEvent.change(screen.getByLabelText(/^Language$/i), { target: { value: 'el' } })
+    fireEvent.change(screen.getByLabelText(/^EPUB or TXT file$/i), {
+      target: { files: [new File(['ΜΗΔΕΙΑ\nπρώτη γραμμή'], 'medea.txt', { type: 'text/plain' })] },
+    })
+    fireEvent.click(screen.getByLabelText(/^Play or verse dialogue/i))
+    fireEvent.click(screen.getByRole('button', { name: /^Add edition$/i }))
+    const aiButtons = screen.getAllByRole('button', { name: /^AI$/i })
+    fireEvent.click(aiButtons[1])
+    const languages = screen.getAllByLabelText(/^Language$/i)
+    fireEvent.change(languages[1], { target: { value: 'ru' } })
+
+    fireEvent.click(screen.getByRole('button', { name: /^Estimate size and time$/i }))
+
+    expect(await screen.findByText(/13,332 words, about 48,750 input tokens/)).toBeTruthy()
+    const calls = fetchMock.mock.calls.map(([input]) => String(input))
+    expect(calls.indexOf('/api/admin/ingest/jobs/upload')).toBeLessThan(
+      calls.indexOf('/api/admin/ingest/jobs/generate-literary/estimate')
+    )
+
+    submitForm()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/admin/ingest/jobs/generate-literary',
+        expect.objectContaining({ method: 'POST' })
+      )
+    })
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === '/api/admin/ingest/jobs/upload')).toHaveLength(1)
+  })
+
   it('loads history and reuses saved metadata', async () => {
     const fetchMock = installFetchMock()
     render(<AdminIngestionPage />)

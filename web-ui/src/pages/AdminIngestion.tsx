@@ -10,18 +10,10 @@ const DEFAULT_GENERATE_CONTEXT_CHARS = '600'
 const GENERATED_FILE_SPEC_PREFIX = 'ai-literary://'
 const MODEL_NAME_PATTERN = /^[A-Za-z0-9._:/+-]+$/
 const MODEL_OPTIONS = [
-    'gpt-5.6-luna',
-    'gpt-5.6-terra',
-    'gpt-5.6-sol',
-    'gpt-5.6',
-    'gpt-6-astra',
     'gpt-4o-mini',
     'gpt-4o',
     'gpt-4.1-mini',
     'gpt-4.1',
-    'gemini-2.5-flash',
-    'gemini-2.5-pro',
-    'llama3.1:8b',
 ]
 
 type WorkDraft = {
@@ -201,6 +193,9 @@ function optionalModelError(value: string) {
     if (!MODEL_NAME_PATTERN.test(trimmed)) {
         return 'Model name can only use letters, numbers, dot, dash, underscore, colon, slash, or plus.'
     }
+    if (!MODEL_OPTIONS.includes(trimmed)) {
+        return 'Choose a supported OpenAI model or leave Model blank to use the server default.'
+    }
     return null
 }
 
@@ -306,6 +301,7 @@ export default function AdminIngestionPage() {
     const [formError, setFormError] = useState<string | null>(null)
     const [estimates, setEstimates] = useState<Record<string, LiteraryEstimate>>({})
     const [estimatingId, setEstimatingId] = useState<string | null>(null)
+    const [ingestedDraftIds, setIngestedDraftIds] = useState<Set<string>>(() => new Set())
 
     useEffect(() => {
         ;(async () => {
@@ -355,6 +351,8 @@ export default function AdminIngestionPage() {
         )
 
     function applyCatalogWork(workId: string) {
+        setIngestedDraftIds(new Set())
+        setEstimates({})
         setSelectedWorkId(workId)
         const book = catalog.find(item => String(item.workId) === workId)
         if (!book) return
@@ -370,6 +368,18 @@ export default function AdminIngestionPage() {
 
     function updateEdition(id: string, patch: Partial<EditionDraft>) {
         setEditions(current => current.map(edition => edition.id === id ? {...edition, ...patch} : edition))
+        setIngestedDraftIds(current => {
+            if (!current.has(id)) return current
+            const next = new Set(current)
+            next.delete(id)
+            return next
+        })
+        setEstimates(current => {
+            if (!(id in current)) return current
+            const next = {...current}
+            delete next[id]
+            return next
+        })
     }
 
     function addEdition() {
@@ -378,6 +388,11 @@ export default function AdminIngestionPage() {
 
     function removeEdition(id: string) {
         setEditions(current => current.length === 1 ? current : current.filter(edition => edition.id !== id))
+        setIngestedDraftIds(current => {
+            const next = new Set(current)
+            next.delete(id)
+            return next
+        })
     }
 
     function patchJob(localId: string, patch: Partial<SubmittedJob>) {
@@ -406,10 +421,12 @@ export default function AdminIngestionPage() {
             maxSourceChars: historyMaxSourceChars(job),
             chunkMaxChars: job.chunkMaxChars == null ? DEFAULT_GENERATE_CHUNK_MAX_CHARS : String(job.chunkMaxChars),
             contextChars: job.contextChars == null ? DEFAULT_GENERATE_CONTEXT_CHARS : String(job.contextChars),
-            model: job.model ?? '',
+            model: job.model && MODEL_OPTIONS.includes(job.model) ? job.model : '',
             replaceExisting: job.replaceExisting ?? true,
             contentType: job.contentType === 'play' ? 'play' : 'prose',
         }])
+        setIngestedDraftIds(new Set())
+        setEstimates({})
         setFormError(null)
     }
 
@@ -572,9 +589,44 @@ export default function AdminIngestionPage() {
             setFormError('Title, source language, and target language are required for an estimate.')
             return
         }
+        const modelError = optionalModelError(edition.model)
+        if (modelError) {
+            setFormError(modelError)
+            return
+        }
         setEstimatingId(edition.id)
         setFormError(null)
         try {
+            const draftSource = editions.find(candidate =>
+                candidate.mode === 'upload' && normalizeLang(candidate.lang) === sourceLang
+            )
+            if (!selectedCatalogLangs.has(sourceLang) && draftSource && !ingestedDraftIds.has(draftSource.id)) {
+                if (!draftSource.file || !isSupportedBookFile(draftSource.file)) {
+                    throw new Error(`Add a valid EPUB or TXT file for the ${sourceLang.toUpperCase()} source before estimating.`)
+                }
+                const localId = createId()
+                setJobs(current => [{
+                    localId,
+                    editionLang: sourceLang,
+                    label: draftSource.file?.name ?? `${sourceLang.toUpperCase()} source`,
+                    mode: 'upload',
+                    status: 'UPLOADING',
+                    message: 'Ingesting source before estimate',
+                }, ...current])
+                const started = await submitEdition({
+                    ...draftSource,
+                    mode: 'upload',
+                    lang: sourceLang,
+                    file: draftSource.file,
+                })
+                patchJob(localId, {jobId: started.jobId, status: started.status, message: 'Source ingestion queued'})
+                const terminalJob = await pollJob(localId, started.jobId)
+                if (terminalJob?.status !== 'SUCCEEDED') {
+                    throw new Error(`Could not estimate because ${sourceLang.toUpperCase()} source ingestion failed.`)
+                }
+                setIngestedDraftIds(current => new Set(current).add(draftSource.id))
+            }
+
             const payload = {
                 workTitle: work.title.trim(),
                 sourceLang,
@@ -673,7 +725,7 @@ export default function AdminIngestionPage() {
             }
         })
         const uploadEditions = preparedEditions.filter(
-            (edition): edition is PreparedUploadEdition => edition.mode === 'upload'
+            (edition): edition is PreparedUploadEdition => edition.mode === 'upload' && !ingestedDraftIds.has(edition.id)
         )
         const generatedEditions = preparedEditions.filter(
             (edition): edition is PreparedGeneratedEdition => edition.mode === 'generate'
@@ -812,7 +864,11 @@ export default function AdminIngestionPage() {
                                 <span className="text-xs uppercase tracking-[0.18em] muted-copy">Title</span>
                                 <input
                                     value={work.title}
-                                    onChange={event => setWork(current => ({...current, title: event.target.value}))}
+                                    onChange={event => {
+                                        setWork(current => ({...current, title: event.target.value}))
+                                        setIngestedDraftIds(new Set())
+                                        setEstimates({})
+                                    }}
                                     className="input"
                                     required
                                 />
@@ -830,7 +886,11 @@ export default function AdminIngestionPage() {
                                 <input
                                     list="admin-language-options"
                                     value={work.originalLang}
-                                    onChange={event => setWork(current => ({...current, originalLang: normalizeLang(event.target.value)}))}
+                                    onChange={event => {
+                                        setWork(current => ({...current, originalLang: normalizeLang(event.target.value)}))
+                                        setIngestedDraftIds(new Set())
+                                        setEstimates({})
+                                    }}
                                     className="input"
                                     required
                                     placeholder="de"
@@ -1002,9 +1062,9 @@ export default function AdminIngestionPage() {
                                                     disabled={estimatingId === edition.id}
                                                     onClick={() => void estimateGeneratedEdition(edition)}
                                                 >
-                                                    {estimatingId === edition.id ? 'Estimating…' : 'Estimate size and time'}
+                                                    {estimatingId === edition.id ? 'Preparing estimate…' : 'Estimate size and time'}
                                                 </button>
-                                                <span className="text-xs muted-copy">No AI call is made.</span>
+                                                <span className="text-xs muted-copy">A new source file is ingested first; no AI call is made.</span>
                                             </div>
                                             {estimates[edition.id] && (
                                                 <div className={`rounded-[20px] border px-4 py-3 text-sm ${estimates[edition.id].withinSourceLimit ? 'surface-panel-strong' : 'theme-danger'}`}>
@@ -1064,6 +1124,8 @@ export default function AdminIngestionPage() {
                                 setSelectedWorkId('')
                                 setWork({title: '', author: '', originalLang: '', year: '', description: ''})
                                 setEditions([createEditionDraft()])
+                                setIngestedDraftIds(new Set())
+                                setEstimates({})
                                 setFormError(null)
                             }}
                             disabled={submitting}
