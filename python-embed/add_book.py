@@ -413,6 +413,7 @@ def ingest_via_api(
     publisher: Optional[str],
     translator: Optional[str],
     original_lang: Optional[str],
+    content_type: str,
     poll_interval_sec: float,
     timeout_sec: int,
     admin_token: Optional[str],
@@ -429,6 +430,7 @@ def ingest_via_api(
         "publisher": publisher,
         "translator": translator,
         "originalLang": original_lang,
+        "contentType": content_type,
     }
     payload = {k: v for k, v in payload.items() if v is not None}
 
@@ -465,6 +467,7 @@ def ingest_upload_via_api(
     publisher: Optional[str],
     translator: Optional[str],
     original_lang: Optional[str],
+    content_type: str,
     poll_interval_sec: float,
     timeout_sec: int,
     admin_token: Optional[str],
@@ -474,6 +477,7 @@ def ingest_upload_via_api(
     fields: Dict[str, str] = {
         "workTitle": work,
         "lang": lang,
+        "contentType": content_type,
     }
     for key, value in {
         "year": year,
@@ -499,6 +503,7 @@ def ingest_upload_via_api(
         publisher=publisher,
         original_lang=original_lang,
         translator=translator,
+        content_type=content_type,
     )
 
     submitted = _api_multipart(submit_url, timeout_sec=120, fields=fields, file_path=file_path, admin_token=admin_token)
@@ -1627,7 +1632,7 @@ def main():
         "--edition",
         action="append",
         required=True,
-        help='Edition spec like: "lang=de,file=classpath:books/x.epub,translator=Name"',
+        help='Edition spec like: "lang=de,file=classpath:books/x.epub,translator=Name,content=prose"; use content=play for drama/verse dialogue',
     )
 
     args = p.parse_args()
@@ -1722,6 +1727,9 @@ def main():
         file_arg = resolve_file_arg(ed["file"])
         publisher = ed.get("publisher")
         translator = ed.get("translator")
+        content_type = ed.get("content", ed.get("contentType", "prose")).strip().lower()
+        if content_type not in ("prose", "play"):
+            raise SystemExit(f"Edition content must be prose or play, got '{content_type}' for {lang}")
 
         local_file = Path(file_arg)
         if local_file.exists() and local_file.is_file():
@@ -1736,6 +1744,7 @@ def main():
                 publisher=publisher,
                 translator=translator,
                 original_lang=args.original_lang,
+                content_type=content_type,
                 poll_interval_sec=args.poll_interval_sec,
                 timeout_sec=args.ingest_timeout_sec,
                 admin_token=args.admin_token,
@@ -1752,6 +1761,7 @@ def main():
                 publisher=publisher,
                 translator=translator,
                 original_lang=args.original_lang,
+                content_type=content_type,
                 poll_interval_sec=args.poll_interval_sec,
                 timeout_sec=args.ingest_timeout_sec,
                 admin_token=args.admin_token,

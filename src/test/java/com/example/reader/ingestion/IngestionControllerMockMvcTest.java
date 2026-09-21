@@ -66,7 +66,7 @@ class IngestionControllerMockMvcTest {
     @Test
     void uploadStoresFileAndSubmitsNormalizedIngestionRequest() throws Exception {
         MockMvc mvc = mockMvc(true, "secret");
-        when(uploadStorage.store(any(MultipartFile.class), eq("A Book"), eq("en")))
+        when(uploadStorage.store(any(MultipartFile.class), eq("A Book"), eq("en"), eq("prose")))
                 .thenReturn("file:/tmp/a-book.epub");
         when(jobService.startJob(any(IngestionRequest.class))).thenReturn(42L);
 
@@ -93,6 +93,7 @@ class IngestionControllerMockMvcTest {
         assertThat(request.fileSpec()).isEqualTo("file:/tmp/a-book.epub");
         assertThat(request.originalLang()).isEqualTo("en");
         assertThat(request.author()).isEqualTo("Author");
+        assertThat(request.contentType()).isEqualTo("prose");
         assertThat(request.description()).isEqualTo("Description");
         assertThat(request.publisher()).isEqualTo("Publisher");
         assertThat(request.translator()).isEqualTo("Translator");

@@ -45,6 +45,7 @@ type EditionDraft = {
     contextChars: string
     model: string
     replaceExisting: boolean
+    contentType: 'prose' | 'play'
 }
 
 type PreparedUploadEdition = Omit<EditionDraft, 'file' | 'mode'> & {
@@ -83,6 +84,7 @@ type IngestionJob = {
     publisher?: string | null
     translator?: string | null
     originalLang?: string | null
+    contentType?: 'prose' | 'play' | null
     bodyOnly?: boolean | null
     replaceExisting?: boolean | null
     maxSourceChars?: number | null
@@ -137,6 +139,7 @@ function createEditionDraft(): EditionDraft {
         contextChars: DEFAULT_GENERATE_CONTEXT_CHARS,
         model: '',
         replaceExisting: true,
+        contentType: 'prose',
     }
 }
 
@@ -390,6 +393,7 @@ export default function AdminIngestionPage() {
             contextChars: job.contextChars == null ? DEFAULT_GENERATE_CONTEXT_CHARS : String(job.contextChars),
             model: job.model ?? '',
             replaceExisting: job.replaceExisting ?? true,
+            contentType: job.contentType === 'play' ? 'play' : 'prose',
         }])
         setFormError(null)
     }
@@ -499,6 +503,7 @@ export default function AdminIngestionPage() {
         appendIfPresent(form, 'author', work.author)
         appendIfPresent(form, 'description', work.description)
         appendIfPresent(form, 'originalLang', work.originalLang)
+        form.append('contentType', edition.contentType)
 
         const response = await csrfFetch('/api/admin/ingest/jobs/upload', {
             method: 'POST',
@@ -891,16 +896,32 @@ export default function AdminIngestionPage() {
                                         </label>
                                     </div>
                                     {edition.mode === 'upload' ? (
-                                        <label className="flex flex-col gap-2 text-sm">
-                                            <span className="text-xs uppercase tracking-[0.18em] muted-copy">EPUB or TXT file</span>
-                                            <input
-                                                type="file"
-                                                accept=".epub,.txt,application/epub+zip,text/plain"
-                                                onChange={event => updateEdition(edition.id, {file: event.target.files?.[0] ?? null})}
-                                                className="file-input"
-                                                required
-                                            />
-                                        </label>
+                                        <div className="space-y-3">
+                                            <label className="flex flex-col gap-2 text-sm">
+                                                <span className="text-xs uppercase tracking-[0.18em] muted-copy">EPUB or TXT file</span>
+                                                <input
+                                                    type="file"
+                                                    accept=".epub,.txt,application/epub+zip,text/plain"
+                                                    onChange={event => updateEdition(edition.id, {file: event.target.files?.[0] ?? null})}
+                                                    className="file-input"
+                                                    required
+                                                />
+                                            </label>
+                                            <label className="flex items-start gap-3 text-sm">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={edition.contentType === 'play'}
+                                                    onChange={event => updateEdition(edition.id, {
+                                                        contentType: event.target.checked ? 'play' : 'prose',
+                                                    })}
+                                                    className="mt-1"
+                                                />
+                                                <span>
+                                                    <span className="theme-heading block font-medium">Play or verse dialogue</span>
+                                                    <span className="muted-copy">Preserve line breaks and treat uppercase character cues as speakers.</span>
+                                                </span>
+                                            </label>
+                                        </div>
                                     ) : (
                                         <div className="space-y-3">
                                             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5">

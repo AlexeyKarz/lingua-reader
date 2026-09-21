@@ -31,7 +31,7 @@ class IngestionUploadStorageTest {
                 "epub-content".getBytes(StandardCharsets.UTF_8)
         );
 
-        String fileSpec = storage.store(file, "Unsafe Book", "en");
+        String fileSpec = storage.store(file, "Unsafe Book", "en", "prose");
 
         Path stored = Path.of(URI.create(fileSpec));
         assertThat(stored).startsWith(tempDir.toAbsolutePath().normalize());
@@ -57,7 +57,7 @@ class IngestionUploadStorageTest {
                 """.getBytes(StandardCharsets.UTF_8)
         );
 
-        String fileSpec = storage.store(file, "Plain Book", "en");
+        String fileSpec = storage.store(file, "Plain Book", "en", "prose");
 
         Path stored = Path.of(URI.create(fileSpec));
         assertThat(stored).startsWith(tempDir.toAbsolutePath().normalize());
@@ -98,7 +98,7 @@ class IngestionUploadStorageTest {
                 "not supported".getBytes(StandardCharsets.UTF_8)
         );
 
-        assertThatThrownBy(() -> storage.store(file, "Book", "en"))
+        assertThatThrownBy(() -> storage.store(file, "Book", "en", "prose"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Only EPUB and TXT files are supported");
     }
@@ -113,13 +113,13 @@ class IngestionUploadStorageTest {
                 "ANNA\nFirst line.\n\nKARL\nSecond line.\n\nANNA\nThird line.".getBytes(StandardCharsets.UTF_8)
         );
 
-        Path stored = Path.of(URI.create(storage.store(file, "Play", "en")));
+        Path stored = Path.of(URI.create(storage.store(file, "Play", "en", "play")));
 
         assertThat(stored.getFileName().toString()).endsWith("-play.txt");
         assertThat(Files.readString(stored)).contains("ANNA", "KARL");
     }
 
     private IngestionUploadStorage storage(IngestionUploadProperties properties) {
-        return new IngestionUploadStorage(properties, new PlainTextEpubConverter(), new PlayTextExtractor());
+        return new IngestionUploadStorage(properties, new PlainTextEpubConverter());
     }
 }

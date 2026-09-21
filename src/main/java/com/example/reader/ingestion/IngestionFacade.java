@@ -39,9 +39,10 @@ public class IngestionFacade {
         }
 
         publish(sink, "extract", "Extracting EPUB content", 0, 0, 0);
-        boolean plainTextPlay = request.fileSpec().toLowerCase().endsWith(".txt");
-        var doc = plainTextPlay ? null : extractor.extract(res);
-        var playDoc = plainTextPlay ? playTextExtractor.extract(res) : null;
+        boolean play = "play".equals(request.contentType());
+        boolean plainText = request.fileSpec().toLowerCase().endsWith(".txt");
+        var doc = play ? null : extractor.extract(res);
+        var playDoc = play ? (plainText ? playTextExtractor.extract(res) : playTextExtractor.extractEpub(res)) : null;
 
         publish(sink, "upsert_entities", "Upserting work and edition", 0, 0, 0);
         long workId = writer.ensureWork(
@@ -58,7 +59,7 @@ public class IngestionFacade {
                 request.translator(),
                 request.year(),
                 request.fileSpec(),
-                plainTextPlay ? "text-play" : "epub3"
+                play ? (plainText ? "text-play" : "epub-play") : "epub3"
         );
 
         int chapterCount = 0;
@@ -66,7 +67,7 @@ public class IngestionFacade {
         int sentenceCount = 0;
 
         publish(sink, "write_segments", "Writing chapters, paragraphs and sentences", 0, 0, 0);
-        if (plainTextPlay) {
+        if (play) {
             long chapterId = writer.insertSegment(editionId, "chapter", 1, null, request.workTitle(), null);
             chapterCount = 1;
             int paragraphOrd = 0;

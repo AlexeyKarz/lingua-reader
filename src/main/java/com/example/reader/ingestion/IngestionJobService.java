@@ -103,7 +103,8 @@ public class IngestionJobService {
                 job.translator(),
                 job.author(),
                 job.description(),
-                job.originalLang()
+                job.originalLang(),
+                job.contentType()
         );
         return startJob(request);
     }

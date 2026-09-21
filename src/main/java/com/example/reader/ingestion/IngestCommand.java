@@ -31,7 +31,8 @@ public class IngestCommand implements CommandLineRunner {
                 flags.getOrDefault("--translator", null),
                 flags.getOrDefault("--author", null),
                 flags.getOrDefault("--description", null),
-                flags.getOrDefault("--original-lang", null)
+                flags.getOrDefault("--original-lang", null),
+                flags.getOrDefault("--content-type", "prose")
         ).withDefaults();
 
         IngestionResult result = ingestionFacade.ingest(request, null);

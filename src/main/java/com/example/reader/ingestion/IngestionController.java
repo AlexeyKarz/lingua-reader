@@ -80,6 +80,7 @@ public class IngestionController {
             @RequestParam(required = false) String author,
             @RequestParam(required = false) String description,
             @RequestParam(required = false) String originalLang,
+            @RequestParam(defaultValue = "prose") String contentType,
             @RequestPart("file") MultipartFile file,
             Authentication authentication,
             HttpServletRequest servletRequest
@@ -93,11 +94,12 @@ public class IngestionController {
                 translator,
                 author,
                 description,
-                originalLang
+                originalLang,
+                contentType
         ).withDefaults();
         metadata.validate();
 
-        String fileSpec = uploadStorage.store(file, metadata.workTitle(), metadata.lang());
+        String fileSpec = uploadStorage.store(file, metadata.workTitle(), metadata.lang(), metadata.contentType());
         IngestionRequest request = new IngestionRequest(
                 metadata.workTitle(),
                 metadata.lang(),
@@ -107,7 +109,8 @@ public class IngestionController {
                 metadata.translator(),
                 metadata.author(),
                 metadata.description(),
-                metadata.originalLang()
+                metadata.originalLang(),
+                metadata.contentType()
         );
         long jobId = jobService.startJob(request);
         events.recordSimple("ingestion_job_submitted", authentication, Map.of("jobId", jobId, "mode", "upload"));

@@ -37,6 +37,7 @@ public class IngestionJobRepository {
               publisher text,
               translator text,
               original_lang varchar(16),
+              content_type varchar(16) not null default 'prose',
               body_only boolean,
               replace_existing boolean,
               max_source_chars integer,
@@ -60,6 +61,10 @@ public class IngestionJobRepository {
         jdbc.getJdbcTemplate().execute("""
             create index if not exists idx_ingestion_job_status
               on ingestion_job(status)
+            """);
+        jdbc.getJdbcTemplate().execute("""
+            alter table ingestion_job
+              add column if not exists content_type varchar(16) not null default 'prose'
             """);
         jdbc.getJdbcTemplate().execute("""
             alter table ingestion_job
@@ -114,6 +119,7 @@ public class IngestionJobRepository {
                 .addValue("publisher", request.publisher())
                 .addValue("translator", request.translator())
                 .addValue("originalLang", request.originalLang())
+                .addValue("contentType", request.contentType())
                 .addValue("bodyOnly", generationRequest == null ? null : generationRequest.bodyOnly())
                 .addValue("replaceExisting", generationRequest == null ? null : generationRequest.replaceExisting())
                 .addValue("maxSourceChars", generationRequest == null ? null : generationRequest.maxSourceChars())
@@ -124,13 +130,13 @@ public class IngestionJobRepository {
         jdbc.update("""
             insert into ingestion_job(
                 status, step, message, work_title, lang, file_spec, pub_year,
-                author, description, publisher, translator, original_lang,
+                author, description, publisher, translator, original_lang, content_type,
                 body_only, replace_existing, max_source_chars, chunk_max_chars, context_chars,
                 generation_model
             )
             values(
                 :status, :step, :message, :workTitle, :lang, :fileSpec, :year,
-                :author, :description, :publisher, :translator, :originalLang,
+                :author, :description, :publisher, :translator, :originalLang, :contentType,
                 :bodyOnly, :replaceExisting, :maxSourceChars, :chunkMaxChars, :contextChars,
                 :model
             )
@@ -211,7 +217,7 @@ public class IngestionJobRepository {
     public IngestionJob findById(long id) {
         return jdbc.query("""
             select id, status, step, message, error, work_title, lang, file_spec,
-                   pub_year, author, description, publisher, translator, original_lang,
+                   pub_year, author, description, publisher, translator, original_lang, content_type,
                    body_only, replace_existing, max_source_chars, chunk_max_chars, context_chars,
                    generation_model,
                    work_id, edition_id, chapters, paragraphs, sentences,
@@ -230,7 +236,7 @@ public class IngestionJobRepository {
     public List<IngestionJob> findRecent(int limit) {
         return jdbc.query("""
             select id, status, step, message, error, work_title, lang, file_spec,
-                   pub_year, author, description, publisher, translator, original_lang,
+                   pub_year, author, description, publisher, translator, original_lang, content_type,
                    body_only, replace_existing, max_source_chars, chunk_max_chars, context_chars,
                    generation_model,
                    work_id, edition_id, chapters, paragraphs, sentences,
@@ -260,6 +266,7 @@ public class IngestionJobRepository {
                 rs.getString("publisher"),
                 rs.getString("translator"),
                 rs.getString("original_lang"),
+                rs.getString("content_type"),
                 (Boolean) rs.getObject("body_only"),
                 (Boolean) rs.getObject("replace_existing"),
                 (Integer) rs.getObject("max_source_chars"),

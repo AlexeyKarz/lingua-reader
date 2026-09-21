@@ -195,6 +195,7 @@ describe('AdminIngestionPage', () => {
     expect(form.get('publisher')).toBe('Press')
     expect(form.get('translator')).toBe('Translator')
     expect(form.get('description')).toBe('Short description')
+    expect(form.get('contentType')).toBe('prose')
     expect(form.get('file')).toBe(file)
 
     expect(await screen.findByText('SUCCEEDED')).toBeTruthy()

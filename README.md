@@ -344,6 +344,13 @@ in the `ingest_model_cache` Docker volume so they do not need to be downloaded
 again for every book. Dictionary files are mounted from the host and are never
 committed or baked into the image.
 
+Uploaded EPUB and TXT files can contain either prose or a play. In the admin UI,
+enable **Play or verse dialogue** for drama or poetry with uppercase speaker
+cues. For the Python runner, add `content=play` to each applicable `--edition`
+spec; `content=prose` is the default. Prose TXT is converted to EPUB, while play
+TXT remains text so its line and speaker structure is preserved. Play EPUB is
+parsed directly in speaker-aware mode.
+
 1. Create an automation token from `/admin` with the `admin:ingest` scope, then
    store it only on the server in `.env`:
 

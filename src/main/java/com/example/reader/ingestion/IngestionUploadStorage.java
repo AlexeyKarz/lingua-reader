@@ -13,16 +13,13 @@ import java.util.UUID;
 public class IngestionUploadStorage {
     private final Path uploadDir;
     private final PlainTextEpubConverter plainTextEpubConverter;
-    private final PlayTextExtractor playTextExtractor;
 
-    public IngestionUploadStorage(IngestionUploadProperties properties, PlainTextEpubConverter plainTextEpubConverter,
-                                  PlayTextExtractor playTextExtractor) {
+    public IngestionUploadStorage(IngestionUploadProperties properties, PlainTextEpubConverter plainTextEpubConverter) {
         this.uploadDir = properties.getDir().toAbsolutePath().normalize();
         this.plainTextEpubConverter = plainTextEpubConverter;
-        this.playTextExtractor = playTextExtractor;
     }
 
-    public String store(MultipartFile file, String title, String lang) {
+    public String store(MultipartFile file, String title, String lang, String contentType) {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("EPUB or TXT file is required");
         }
@@ -37,7 +34,7 @@ public class IngestionUploadStorage {
         try {
             Files.createDirectories(uploadDir);
             byte[] uploadBytes = lowerFilename.endsWith(".txt") ? file.getBytes() : null;
-            boolean playText = uploadBytes != null && playTextExtractor.looksLikePlay(uploadBytes);
+            boolean playText = uploadBytes != null && "play".equalsIgnoreCase(contentType);
             String storedFilename = lowerFilename.endsWith(".txt") && !playText
                     ? stripExtension(safeFilename) + ".epub"
                     : safeFilename;
