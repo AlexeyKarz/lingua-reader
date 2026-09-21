@@ -100,7 +100,7 @@ class LiteraryEditionGenerationServiceIntegrationTest extends PostgresIntegratio
     }
 
     @Test
-    void estimatesGenerationInReadableUnits() {
+    void estimatesGenerationInReadableUnits() throws Exception {
         String title = "CI Test Estimate " + UUID.randomUUID();
         long workId = insertWork(title, "el");
         long sourceEditionId = insertEdition(workId, "el", "test://estimate-el", "text-play");
@@ -120,9 +120,22 @@ class LiteraryEditionGenerationServiceIntegrationTest extends PostgresIntegratio
         assertThat(estimate.sourceWords()).isGreaterThan(0);
         assertThat(estimate.estimatedInputTokens()).isGreaterThan(0);
         assertThat(estimate.sourceParagraphs()).isEqualTo(2);
-        assertThat(estimate.translationBatches()).isEqualTo(1);
+        // One grouped dialogue request plus one cached character-name request.
+        assertThat(estimate.translationBatches()).isEqualTo(2);
         assertThat(estimate.withinSourceLimit()).isTrue();
         assertThat(estimate.summary()).contains("words", "AI requests", "minutes");
+
+        IngestionResult result = service.generate(new GenerateLiteraryEditionRequest(
+                title, "el", "en", null, null, "AI", true, true,
+                10_000, 1_800, 600, null
+        ), null);
+        assertThat(result.paragraphs()).isEqualTo(1);
+        String translatedSpeaker = jdbc.queryForObject(
+                "select speaker from segment where edition_id = ? and level = 'paragraph' limit 1",
+                String.class,
+                result.editionId()
+        );
+        assertThat(translatedSpeaker).isNotEqualTo("ΜΗΔΕΙΑ").contains("LITERARY TRANSLATION STUB");
     }
 
     private long insertWork(String title, String originalLang) {

@@ -144,6 +144,7 @@ public class TranslateService {
             Supplier<String> supplier
     ) {
         return cache.find(operation, source, target, text, cacheProviderName)
+                .filter(this::isCacheable)
                 .orElseGet(() -> {
                     String translated = supplier.get();
                     if (isCacheable(translated)) {
@@ -174,7 +175,24 @@ public class TranslateService {
         return !translated.contains("Showing demo stub output instead")
                 && !translated.startsWith("AI provider is temporarily unavailable")
                 && !translated.startsWith("Daily AI limit reached")
-                && !translated.startsWith("The public demo reached its daily AI limit");
+                && !translated.startsWith("The public demo reached its daily AI limit")
+                && !looksLikeRefusal(translated);
+    }
+
+    private boolean looksLikeRefusal(String translated) {
+        String normalized = translated.toLowerCase(java.util.Locale.ROOT)
+                .replace('’', '\'')
+                .replace('‘', '\'');
+        return normalized.contains("i can't help")
+                || normalized.contains("i cannot help")
+                || normalized.contains("i can't assist")
+                || normalized.contains("i cannot assist")
+                || normalized.contains("sorry, but i")
+                || normalized.contains("извините, я не могу")
+                || normalized.contains("не могу помочь с этой просьбой")
+                || normalized.contains("δεν μπορώ να βοηθήσω")
+                || normalized.contains("je ne peux pas vous aider")
+                || normalized.contains("no puedo ayudar");
     }
 
     private String trimToNull(String value) {

@@ -9,7 +9,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 @Service
 public class LiteraryEditionGenerationService {
@@ -82,6 +85,7 @@ public class LiteraryEditionGenerationService {
         Long generatedChapterId = null;
         Long firstSentenceId = null;
         String previousTranslatedParagraph = "";
+        Map<String, String> translatedSpeakers = new HashMap<>();
 
         for (TranslationBatch batch : batches) {
             SourceParagraph paragraph = batch.paragraphs().getFirst();
@@ -110,14 +114,13 @@ public class LiteraryEditionGenerationService {
                 }
                 String finalContext = context;
                 String requestText = requestChunks.get(i);
-                translatedChunks.add(AdminTranslationContext.call(
-                        () -> translateService.literary(requestText, request.sourceLang(), request.targetLang(), finalContext, request.model())
-                ));
+                translatedChunks.add(translateValidated(requestText, request, finalContext, translatedParagraphs + 1));
             }
             String translatedParagraph = String.join(batch.play() ? "\n" : " ", translatedChunks).trim();
             if (translatedParagraph.isBlank()) {
                 throw new IllegalStateException("AI literary generation returned empty text for paragraph " + paragraph.paragraphOrd());
             }
+            String translatedSpeaker = translateSpeaker(batch.speaker(), source, request, translatedSpeakers);
             long paragraphId = writer.insertSegment(
                     editionId,
                     "paragraph",
@@ -125,7 +128,7 @@ public class LiteraryEditionGenerationService {
                     generatedChapterId,
                     translatedParagraph,
                     "ai-literary:paragraph:" + paragraph.paragraphId(),
-                    batch.speaker()
+                    translatedSpeaker
             );
 
             List<Long> generatedSentenceIds = new ArrayList<>();
@@ -137,7 +140,7 @@ public class LiteraryEditionGenerationService {
                         paragraphId,
                         sentence.text(),
                         "ai-literary:sentence:" + paragraph.paragraphId() + ":" + sentence.ord(),
-                        batch.speaker()
+                        translatedSpeaker
                 );
                 if (firstSentenceId == null) {
                     firstSentenceId = sentenceId;
@@ -189,9 +192,12 @@ public class LiteraryEditionGenerationService {
         int characters = paragraphs.stream().mapToInt(p -> p.text().length()).sum();
         int words = paragraphs.stream().mapToInt(p -> wordCount(p.text())).sum();
         List<TranslationBatch> translationBatches = translationBatches(paragraphs, request.chunkMaxChars());
-        int batches = translationBatches.stream()
+        int contentRequests = translationBatches.stream()
                 .mapToInt(batch -> chunkBatchText(batch, request.chunkMaxChars()).size())
                 .sum();
+        int speakerRequests = (int) paragraphs.stream().map(SourceParagraph::speaker)
+                .filter(speaker -> speaker != null && !speaker.isBlank()).distinct().count();
+        int batches = contentRequests + speakerRequests;
         boolean nonLatin = paragraphs.stream().limit(50).map(SourceParagraph::text)
                 .flatMapToInt(String::codePoints).filter(Character::isLetter)
                 .anyMatch(cp -> cp > 0x024f);
@@ -385,6 +391,68 @@ public class LiteraryEditionGenerationService {
 
     private String formatNumber(int value) {
         return String.format(java.util.Locale.ROOT, "%,d", value);
+    }
+
+    private String translateValidated(
+            String sourceText,
+            GenerateLiteraryEditionRequest request,
+            String context,
+            int passageNumber
+    ) {
+        String lastInvalid = null;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            String attemptContext = attempt == 1 ? context : context
+                    + " | Retry " + attempt
+                    + ": the previous output was a refusal or incomplete. Translate the entire supplied text; output only the translation.";
+            String translated = AdminTranslationContext.call(() -> translateService.literary(
+                    sourceText, request.sourceLang(), request.targetLang(), attemptContext, request.model()
+            ));
+            String problem = invalidTranslationReason(sourceText, translated);
+            if (problem == null) return translated.trim();
+            lastInvalid = problem;
+        }
+        throw new IllegalStateException(
+                "AI returned an invalid translation for passage " + passageNumber + " after 3 attempts: " + lastInvalid
+        );
+    }
+
+    private String translateSpeaker(
+            String speaker,
+            SourceEdition source,
+            GenerateLiteraryEditionRequest request,
+            Map<String, String> translatedSpeakers
+    ) {
+        if (speaker == null || speaker.isBlank()) return speaker;
+        return translatedSpeakers.computeIfAbsent(speaker, sourceSpeaker -> {
+            String context = "Work: " + source.title()
+                    + " | Translate this play character name using its conventional form in the target language."
+                    + " Output only the character name, without explanation or punctuation.";
+            String translated = translateValidated(sourceSpeaker, request, context, 0).strip();
+            boolean uppercase = sourceSpeaker.equals(sourceSpeaker.toUpperCase(Locale.ROOT));
+            return uppercase ? translated.toUpperCase(Locale.ROOT) : translated;
+        });
+    }
+
+    private String invalidTranslationReason(String sourceText, String translated) {
+        if (translated == null || translated.isBlank()) return "empty output";
+        String normalized = translated.toLowerCase(Locale.ROOT).replace('’', '\'').replace('‘', '\'');
+        if (normalized.contains("i can't help")
+                || normalized.contains("i cannot help")
+                || normalized.contains("i can't assist")
+                || normalized.contains("i cannot assist")
+                || normalized.contains("sorry, but i")
+                || normalized.contains("извините, я не могу")
+                || normalized.contains("не могу помочь с этой просьбой")
+                || normalized.contains("δεν μπορώ να βοηθήσω")
+                || normalized.contains("je ne peux pas vous aider")
+                || normalized.contains("no puedo ayudar")) {
+            return "model refusal: " + translated.strip();
+        }
+        if (sourceText.length() >= 400 && translated.strip().length() < sourceText.length() / 4) {
+            return "suspiciously short output (" + translated.strip().length()
+                    + " characters for " + sourceText.length() + " source characters)";
+        }
+        return null;
     }
 
     private void insertGeneratedAlignments(

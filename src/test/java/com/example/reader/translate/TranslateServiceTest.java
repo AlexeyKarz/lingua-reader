@@ -12,6 +12,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -96,5 +97,36 @@ class TranslateServiceTest {
                 argThat(providerKey -> providerKey.endsWith("|literaryModel=gpt-4o")),
                 eq("A better sentence.")
         );
+    }
+
+    @Test
+    void literaryRefusalIsNotCached() {
+        ProviderClient provider = mock(ProviderClient.class);
+        DictionaryService dictionaryService = mock(DictionaryService.class);
+        TranslationCacheRepository cache = mock(TranslationCacheRepository.class);
+        TranslateService service = new TranslateService(provider, dictionaryService, cache);
+        String refusal = "Извините, я не могу помочь с этой просьбой.";
+
+        when(cache.find(eq("literary_sentence"), eq("el"), eq("ru"), anyString(), anyString()))
+                .thenReturn(Optional.empty());
+        when(provider.literary("κείμενο", "el", "ru", "Medea", null)).thenReturn(refusal);
+
+        assertThat(service.literary("κείμενο", "el", "ru", "Medea")).isEqualTo(refusal);
+        verify(cache, never()).save(anyString(), anyString(), anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void literaryIgnoresPreviouslyCachedRefusal() {
+        ProviderClient provider = mock(ProviderClient.class);
+        DictionaryService dictionaryService = mock(DictionaryService.class);
+        TranslationCacheRepository cache = mock(TranslationCacheRepository.class);
+        TranslateService service = new TranslateService(provider, dictionaryService, cache);
+
+        when(cache.find(eq("literary_sentence"), eq("el"), eq("ru"), anyString(), anyString()))
+                .thenReturn(Optional.of("Извините, я не могу помочь с этой просьбой."));
+        when(provider.literary("κείμενο", "el", "ru", "Medea", null)).thenReturn("Переведённый текст");
+
+        assertThat(service.literary("κείμενο", "el", "ru", "Medea")).isEqualTo("Переведённый текст");
+        verify(cache).save(anyString(), anyString(), anyString(), anyString(), anyString(), eq("Переведённый текст"));
     }
 }

@@ -98,7 +98,7 @@ public class OpenAIProviderClient implements ProviderClient {
                 "literary",
                 source,
                 target,
-                () -> callResponses(effectiveModel, literarySystem, userPrompt, literaryMaxCompletionTokens, 0.3)
+                () -> callResponses(effectiveModel, literarySystem, userPrompt, literaryMaxCompletionTokens)
         );
     }
 
@@ -160,13 +160,12 @@ public class OpenAIProviderClient implements ProviderClient {
         }
     }
 
-    private String callResponses(String model, String systemPrompt, String userPrompt, int maxTokens, double temperature) {
+    private String callResponses(String model, String systemPrompt, String userPrompt, int maxTokens) {
         long started = System.currentTimeMillis();
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", model);
         body.put("instructions", systemPrompt);
         body.put("input", userPrompt);
-        body.put("temperature", temperature);
         body.put("max_output_tokens", maxTokens);
         body.put("store", false);
 
