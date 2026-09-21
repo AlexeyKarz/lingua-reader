@@ -84,32 +84,20 @@ export default function App() {
             {label}
         </Link>
     )
-    const isReaderRoute = pathname === '/reader'
-    const headerPositionClass = isReaderRoute ? '' : 'md:sticky md:top-3'
-
     return (
         <div className="page-shell">
             <div className="mx-auto max-w-7xl px-4 py-4 md:px-6 md:py-6">
-                <header className={`surface-panel z-40 mb-5 rounded-[22px] px-3 py-3 md:px-4 ${headerPositionClass} ${isReaderRoute ? 'reader-app-header' : ''}`}>
-                    <div className={isReaderRoute ? 'reader-app-header-inner' : 'flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between'}>
-                        <Link to="/" className="min-w-0">
-                            <h1 className={isReaderRoute
-                                ? 'reader-app-title theme-heading text-xl font-semibold tracking-tight md:text-2xl'
-                                : 'theme-heading text-2xl font-semibold tracking-tight md:text-[1.65rem]'}
-                            >
+                <header className="app-header surface-panel z-40 mb-5 rounded-[24px] px-4 py-4 md:sticky md:top-3 md:px-5">
+                    <div className="app-header-inner">
+                        <Link to="/" className="app-brand min-w-0">
+                            <h1 className="theme-heading text-2xl font-semibold tracking-tight md:text-[1.65rem]">
                                 Multilang Reader
                             </h1>
-                            <p className={isReaderRoute
-                                ? 'hidden'
-                                : 'mt-0.5 hidden max-w-xl text-xs leading-5 muted-copy sm:block'}
-                            >
+                            <p className="mt-0.5 hidden max-w-xl text-xs leading-5 muted-copy sm:block">
                                 Read originals and translations side by side, then save lookups for review.
                             </p>
                         </Link>
-                        <div className={isReaderRoute
-                            ? 'reader-app-header-actions'
-                            : 'flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end'}
-                        >
+                        <div className="app-header-actions">
                             <nav className="nav-shell min-w-0 sm:w-auto">
                                 <NavLink to="/" label="Catalog" />
                                 <NavLink to={readerPath} activePath="/reader" label="Reader" />
@@ -129,7 +117,7 @@ export default function App() {
                             </nav>
                             <button
                                 type="button"
-                                className={isReaderRoute ? 'theme-toggle' : 'theme-toggle self-start sm:self-auto'}
+                                className="theme-toggle shrink-0"
                                 onClick={() => setTheme(current => current === 'light' ? 'dark' : 'light')}
                                 aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
                                 title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}

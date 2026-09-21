@@ -209,6 +209,7 @@ export default function Reader() {
         () => (data?.totalSrc ? Math.max(1, Math.ceil(data.totalSrc / size)) : null),
         [data?.totalSrc, size]
     )
+    const isLastPage = totalPages !== null && page >= totalPages - 1
     const isEmptyPair =
         !!data &&
         data.totalSrc === 0 &&
@@ -359,6 +360,7 @@ export default function Reader() {
 
     useEffect(() => {
         if (!progressReady || !hasReaderParams) return
+        const controller = new AbortController()
         ;(async () => {
             setStatus('loading')
             setErrorMsg(null)
@@ -372,12 +374,19 @@ export default function Reader() {
                     size: String(size),
                     method: `dp-mlMiniLM-v1-${src}-${tgt}`,
                 })
-                const r = await fetch(`/api/reader/pages?${qs}`)
+                const r = await fetch(`/api/reader/pages?${qs}`, { signal: controller.signal })
                 if (!r.ok) {
                     const msg = await r.text().catch(() => '')
                     throw new Error(msg || 'Failed to load page')
                 }
                 const j = (await r.json()) as PageData
+                const fetchedTotalPages = Math.max(1, Math.ceil(j.totalSrc / size))
+                if (page >= fetchedTotalPages) {
+                    const lastPage = fetchedTotalPages - 1
+                    setPage(lastPage)
+                    setJumpInput(String(lastPage + 1))
+                    return
+                }
                 setData(j)
                 setInfo(
                     `Loaded page ${j.page + 1} · ${j.left.length} sentences (src) / ${j.right.length} sentences (tgt)`
@@ -397,6 +406,7 @@ export default function Reader() {
                 rightRefs.current = {}
                 setJumpInput(String(j.page + 1))
             } catch (e) {
+                if (e instanceof DOMException && e.name === 'AbortError') return
                 console.error(e)
                 setData(null)
                 setInfo('Error loading page (check language pair and alignments)')
@@ -404,6 +414,7 @@ export default function Reader() {
                 setStatus('error')
             }
         })()
+        return () => controller.abort()
     }, [bookId, src, tgt, page, size, progressReady, hasReaderParams])
 
     // close notice (no alignment) automatically
@@ -1454,13 +1465,13 @@ export default function Reader() {
             <div className="page-dock">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                     <div className="flex flex-wrap items-center gap-3">
-                        <button className="btn" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page <= 0}>
+                        <button className="btn" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={status === 'loading' || page <= 0}>
                             Prev
                         </button>
                         <div className="surface-panel-strong theme-heading rounded-full px-4 py-2 text-sm font-medium">
                             Page {page + 1}{data?.totalSrc ? ` / ${Math.max(1, Math.ceil(data.totalSrc / size))}` : ''}
                         </div>
-                        <button className="btn" onClick={() => setPage(p => p + 1)}>
+                        <button className="btn" onClick={() => setPage(p => totalPages === null ? p : Math.min(totalPages - 1, p + 1))} disabled={status === 'loading' || totalPages === null || isLastPage}>
                             Next
                         </button>
                     </div>
@@ -1485,7 +1496,7 @@ export default function Reader() {
                                     }
                                 }}
                             />
-                            <button className="btn-secondary" onClick={handleJump}>
+                            <button className="btn-secondary" onClick={handleJump} disabled={status === 'loading' || totalPages === null}>
                                 Go
                             </button>
                             {data?.totalSrc && (
@@ -1506,7 +1517,7 @@ export default function Reader() {
                                     const newPage = Math.floor(currentOffset / val)
                                     setPage(newPage)
                                     setSize(val)
-                                    setJumpInput('1')
+                                    setJumpInput(String(newPage + 1))
                                 }}
                                 className="input pr-8"
                             >

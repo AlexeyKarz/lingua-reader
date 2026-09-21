@@ -183,6 +183,8 @@ test('catalog to reader lookup save to vocabulary', async ({ page }) => {
   await page.getByRole('link', { name: /Read\s+EN\s+→\s+DE \(AI\)/i }).click()
   await expect(page).toHaveURL(/\/reader\?bookId=101&src=en&tgt=de/)
   await expect(page.getByText('Translation (DE - AI)')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled()
+  await expect(page.getByText('Page 1 / 1').first()).toBeVisible()
   await expect(page.getByRole('checkbox', { name: 'Jump to match' })).not.toBeChecked()
   await expect(page.getByRole('button', { name: 'Stack' })).toHaveAttribute('aria-pressed', 'true')
   await page.getByRole('button', { name: 'Split' }).click()

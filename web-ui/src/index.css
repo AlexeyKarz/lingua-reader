@@ -267,6 +267,12 @@ a {
   transform: translateY(-1px);
 }
 
+.btn-secondary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .input {
   @apply rounded-full border px-3 py-2 pr-10 text-sm outline-none transition;
   background: var(--input-bg);
@@ -372,63 +378,50 @@ html[data-theme="dark"] .nav-pill-active {
   color: var(--heading);
 }
 
-.reader-app-header {
-  margin-bottom: 1rem;
-  padding: 0.85rem;
-  border-radius: 1.25rem;
-}
-
-.reader-app-header-inner {
+.app-header-inner {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.85rem;
+  gap: 1.5rem;
 }
 
-.reader-app-header-actions {
+.app-brand {
+  flex: 1 1 auto;
+  padding-left: 0.25rem;
+}
+
+.app-header-actions {
   display: flex;
-  min-width: 0;
+  flex: 0 1 auto;
   align-items: center;
   justify-content: flex-end;
   gap: 0.75rem;
 }
 
-.reader-app-header .nav-shell {
-  gap: 0.35rem;
-  padding: 0.35rem;
-  box-shadow: none;
-}
+@media (max-width: 1023px) {
+  .app-header-inner {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
 
-.reader-app-header .nav-pill {
-  padding: 0.55rem 0.9rem;
-  font-size: 0.86rem;
-}
+  .app-header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
 
-.reader-app-header .theme-toggle {
-  width: 2.35rem;
-  height: 2.35rem;
-  font-size: 0.95rem;
+  .app-header-actions .nav-shell {
+    flex: 1 1 auto;
+  }
 }
 
 @media (max-width: 480px) {
-  .reader-app-title {
-    display: none;
+  .app-header-actions {
+    align-items: stretch;
   }
 
-  .reader-app-header-actions {
-    width: 100%;
-  }
-
-  .reader-app-header .nav-shell {
-    flex: 1 1 auto;
-  }
-
-  .reader-app-header {
-    padding: 0.75rem;
-  }
-
-  .reader-app-header .nav-pill {
-    padding: 0.55rem 0.7rem;
+  .app-header-actions .nav-shell {
+    border-radius: 1.25rem;
   }
 }
 
