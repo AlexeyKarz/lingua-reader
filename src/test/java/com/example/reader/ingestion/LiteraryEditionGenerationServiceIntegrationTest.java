@@ -99,6 +99,32 @@ class LiteraryEditionGenerationServiceIntegrationTest extends PostgresIntegratio
         assertThat(alignmentCount).isEqualTo(2);
     }
 
+    @Test
+    void estimatesGenerationInReadableUnits() {
+        String title = "CI Test Estimate " + UUID.randomUUID();
+        long workId = insertWork(title, "el");
+        long sourceEditionId = insertEdition(workId, "el", "test://estimate-el", "text-play");
+        long chapterId = insertSegment(sourceEditionId, "chapter", 1, null, "Play");
+        long paragraphId = insertSegment(sourceEditionId, "paragraph", 1, chapterId, "Πρώτη γραμμή του έργου.");
+        insertSegment(sourceEditionId, "sentence", 1, paragraphId, "Πρώτη γραμμή του έργου.");
+        jdbc.update("update segment set speaker = 'ΜΗΔΕΙΑ' where id = ?", paragraphId);
+        long secondParagraphId = insertSegment(sourceEditionId, "paragraph", 2, chapterId, "Δεύτερη γραμμή του έργου.");
+        insertSegment(sourceEditionId, "sentence", 1, secondParagraphId, "Δεύτερη γραμμή του έργου.");
+        jdbc.update("update segment set speaker = 'ΜΗΔΕΙΑ' where id = ?", secondParagraphId);
+
+        LiteraryGenerationEstimate estimate = service.estimate(new GenerateLiteraryEditionRequest(
+                title, "el", "en", null, null, null, true, true,
+                10_000, 1_800, 600, null
+        ));
+
+        assertThat(estimate.sourceWords()).isGreaterThan(0);
+        assertThat(estimate.estimatedInputTokens()).isGreaterThan(0);
+        assertThat(estimate.sourceParagraphs()).isEqualTo(2);
+        assertThat(estimate.translationBatches()).isEqualTo(1);
+        assertThat(estimate.withinSourceLimit()).isTrue();
+        assertThat(estimate.summary()).contains("words", "AI requests", "minutes");
+    }
+
     private long insertWork(String title, String originalLang) {
         createdTitles.add(title);
         Long id = jdbc.queryForObject(

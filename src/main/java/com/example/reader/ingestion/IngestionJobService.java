@@ -70,6 +70,11 @@ public class IngestionJobService {
         return jobId;
     }
 
+    public LiteraryGenerationEstimate estimateGeneratedLiterary(GenerateLiteraryEditionRequest request) {
+        if (request == null) throw new IllegalArgumentException("Request body is required");
+        return generationService.estimate(request);
+    }
+
     public IngestionJob getJob(long id) {
         IngestionJob job = jobRepository.findById(id);
         if (job == null) {

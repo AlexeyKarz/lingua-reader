@@ -69,6 +69,19 @@ type StartIngestionResponse = {
     statusUrl: string
 }
 
+type LiteraryEstimate = {
+    sourceCharacters: number
+    sourceWords: number
+    sourceParagraphs: number
+    translationBatches: number
+    estimatedInputTokens: number
+    estimatedOutputTokens: number
+    estimatedMinutes: number
+    withinSourceLimit: boolean
+    summary: string
+    warning: string
+}
+
 type IngestionJob = {
     id: number
     status: string
@@ -291,6 +304,8 @@ export default function AdminIngestionPage() {
     const [retryingJobId, setRetryingJobId] = useState<number | null>(null)
     const [submitting, setSubmitting] = useState(false)
     const [formError, setFormError] = useState<string | null>(null)
+    const [estimates, setEstimates] = useState<Record<string, LiteraryEstimate>>({})
+    const [estimatingId, setEstimatingId] = useState<string | null>(null)
 
     useEffect(() => {
         ;(async () => {
@@ -549,6 +564,40 @@ export default function AdminIngestionPage() {
         }
 
         return await response.json() as StartIngestionResponse
+    }
+
+    async function estimateGeneratedEdition(edition: EditionDraft) {
+        const sourceLang = normalizeLang(edition.sourceLang) || normalizeLang(work.originalLang)
+        if (!work.title.trim() || !sourceLang || !normalizeLang(edition.lang)) {
+            setFormError('Title, source language, and target language are required for an estimate.')
+            return
+        }
+        setEstimatingId(edition.id)
+        setFormError(null)
+        try {
+            const payload = {
+                workTitle: work.title.trim(),
+                sourceLang,
+                targetLang: normalizeLang(edition.lang),
+                bodyOnly: true,
+                maxSourceChars: optionalNumber(edition.maxSourceChars),
+                chunkMaxChars: optionalNumber(edition.chunkMaxChars),
+                contextChars: optionalNumber(edition.contextChars),
+                model: edition.model.trim() || undefined,
+            }
+            const response = await csrfFetch('/api/admin/ingest/jobs/generate-literary/estimate', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload),
+            })
+            if (!response.ok) throw new Error(await responseError(response))
+            const estimate = await response.json() as LiteraryEstimate
+            setEstimates(current => ({...current, [edition.id]: estimate}))
+        } catch (error) {
+            setFormError(error instanceof Error ? error.message : 'Could not estimate this edition.')
+        } finally {
+            setEstimatingId(null)
+        }
     }
 
     async function refreshJob(jobId: number) {
@@ -924,7 +973,7 @@ export default function AdminIngestionPage() {
                                         </div>
                                     ) : (
                                         <div className="space-y-3">
-                                            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5">
+                                            <div className="grid gap-3 md:grid-cols-2">
                                                 <label className="flex flex-col gap-2 text-sm">
                                                     <span className="text-xs uppercase tracking-[0.18em] muted-copy">Source language</span>
                                                     <input
@@ -945,40 +994,44 @@ export default function AdminIngestionPage() {
                                                         placeholder="default"
                                                     />
                                                 </label>
-                                                <label className="flex flex-col gap-2 text-sm">
-                                                    <span className="text-xs uppercase tracking-[0.18em] muted-copy">Max source chars</span>
-                                                    <input
-                                                        type="number"
-                                                        min="1"
-                                                        value={edition.maxSourceChars}
-                                                        onChange={event => updateEdition(edition.id, {maxSourceChars: event.target.value})}
-                                                        className="input"
-                                                        inputMode="numeric"
-                                                    />
-                                                </label>
-                                                <label className="flex flex-col gap-2 text-sm">
-                                                    <span className="text-xs uppercase tracking-[0.18em] muted-copy">Chunk chars</span>
-                                                    <input
-                                                        type="number"
-                                                        min="1"
-                                                        value={edition.chunkMaxChars}
-                                                        onChange={event => updateEdition(edition.id, {chunkMaxChars: event.target.value})}
-                                                        className="input"
-                                                        inputMode="numeric"
-                                                    />
-                                                </label>
-                                                <label className="flex flex-col gap-2 text-sm">
-                                                    <span className="text-xs uppercase tracking-[0.18em] muted-copy">Context chars</span>
-                                                    <input
-                                                        type="number"
-                                                        min="0"
-                                                        value={edition.contextChars}
-                                                        onChange={event => updateEdition(edition.id, {contextChars: event.target.value})}
-                                                        className="input"
-                                                        inputMode="numeric"
-                                                    />
-                                                </label>
                                             </div>
+                                            <div className="flex flex-wrap items-center gap-3">
+                                                <button
+                                                    type="button"
+                                                    className="btn-secondary"
+                                                    disabled={estimatingId === edition.id}
+                                                    onClick={() => void estimateGeneratedEdition(edition)}
+                                                >
+                                                    {estimatingId === edition.id ? 'Estimating…' : 'Estimate size and time'}
+                                                </button>
+                                                <span className="text-xs muted-copy">No AI call is made.</span>
+                                            </div>
+                                            {estimates[edition.id] && (
+                                                <div className={`rounded-[20px] border px-4 py-3 text-sm ${estimates[edition.id].withinSourceLimit ? 'surface-panel-strong' : 'theme-danger'}`}>
+                                                    <div className="theme-heading font-medium">{estimates[edition.id].summary}</div>
+                                                    <div className="mt-1 muted-copy">
+                                                        {estimates[edition.id].sourceParagraphs.toLocaleString()} source passages · approximately {estimates[edition.id].estimatedOutputTokens.toLocaleString()} output tokens
+                                                    </div>
+                                                    <div className="mt-2 text-xs muted-copy">{estimates[edition.id].warning}</div>
+                                                </div>
+                                            )}
+                                            <details className="rounded-[18px] border border-[color:var(--border)] px-3 py-2">
+                                                <summary className="cursor-pointer text-sm font-medium muted-copy">Advanced generation limits</summary>
+                                                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                                                    <label className="flex flex-col gap-2 text-sm">
+                                                        <span className="text-xs uppercase tracking-[0.18em] muted-copy">Maximum source characters</span>
+                                                        <input type="number" min="1" value={edition.maxSourceChars} onChange={event => updateEdition(edition.id, {maxSourceChars: event.target.value})} className="input" inputMode="numeric" />
+                                                    </label>
+                                                    <label className="flex flex-col gap-2 text-sm">
+                                                        <span className="text-xs uppercase tracking-[0.18em] muted-copy">Characters per AI request</span>
+                                                        <input type="number" min="1" value={edition.chunkMaxChars} onChange={event => updateEdition(edition.id, {chunkMaxChars: event.target.value})} className="input" inputMode="numeric" />
+                                                    </label>
+                                                    <label className="flex flex-col gap-2 text-sm">
+                                                        <span className="text-xs uppercase tracking-[0.18em] muted-copy">Previous-text context</span>
+                                                        <input type="number" min="0" value={edition.contextChars} onChange={event => updateEdition(edition.id, {contextChars: event.target.value})} className="input" inputMode="numeric" />
+                                                    </label>
+                                                </div>
+                                            </details>
                                             <label className="flex w-fit items-center gap-2 text-sm muted-copy">
                                                 <input
                                                     type="checkbox"

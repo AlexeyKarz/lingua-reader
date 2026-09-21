@@ -4,6 +4,7 @@ import com.example.reader.translate.AdminTranslationContext;
 import com.example.reader.translate.TranslateService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -29,6 +30,7 @@ public class LiteraryEditionGenerationService {
         this.translateService = translateService;
     }
 
+    @Transactional
     public IngestionResult generate(GenerateLiteraryEditionRequest rawRequest, IngestionProgressSink sink) throws Exception {
         GenerateLiteraryEditionRequest request = rawRequest.withDefaults();
         request.validate();
@@ -41,6 +43,8 @@ public class LiteraryEditionGenerationService {
             throw new IllegalArgumentException("No source paragraphs found for " + request.workTitle() + " [" + request.sourceLang() + "]");
         }
 
+        List<TranslationBatch> batches = translationBatches(paragraphs, request.chunkMaxChars());
+
         int sourceChars = paragraphs.stream().mapToInt(p -> p.text().length()).sum();
         if (sourceChars > request.maxSourceChars()) {
             throw new IllegalArgumentException(
@@ -48,8 +52,8 @@ public class LiteraryEditionGenerationService {
             );
         }
 
-        int estimatedChunks = paragraphs.stream()
-                .mapToInt(p -> chunkText(p.text(), request.chunkMaxChars()).size())
+        int estimatedChunks = batches.stream()
+                .mapToInt(batch -> chunkBatchText(batch, request.chunkMaxChars()).size())
                 .sum();
         publish(
                 sink,
@@ -79,7 +83,8 @@ public class LiteraryEditionGenerationService {
         Long firstSentenceId = null;
         String previousTranslatedParagraph = "";
 
-        for (SourceParagraph paragraph : paragraphs) {
+        for (TranslationBatch batch : batches) {
+            SourceParagraph paragraph = batch.paragraphs().getFirst();
             if (currentSourceChapterId == null || !currentSourceChapterId.equals(paragraph.chapterId())) {
                 generatedChapterId = writer.insertSegment(
                         editionId,
@@ -93,26 +98,23 @@ public class LiteraryEditionGenerationService {
                 chapters++;
             }
 
+            List<String> requestChunks = chunkBatchText(batch, request.chunkMaxChars());
             List<String> translatedChunks = new ArrayList<>();
-            List<String> chunks = chunkText(paragraph.text(), request.chunkMaxChars());
-            for (int i = 0; i < chunks.size(); i++) {
+            for (int i = 0; i < requestChunks.size(); i++) {
                 String context = generationContext(
-                        request,
-                        source,
-                        paragraph,
-                        translatedParagraphs + 1,
-                        paragraphs.size(),
-                        i + 1,
-                        chunks.size(),
-                        previousTranslatedParagraph
+                        request, source, paragraph, translatedParagraphs + 1, batches.size(),
+                        i + 1, requestChunks.size(), previousTranslatedParagraph
                 );
-                String chunk = chunks.get(i);
+                if (batch.play()) {
+                    context += " | This is a play passage. Preserve verse/dialogue line breaks and translate only the spoken lines.";
+                }
+                String finalContext = context;
+                String requestText = requestChunks.get(i);
                 translatedChunks.add(AdminTranslationContext.call(
-                        () -> translateService.literary(chunk, request.sourceLang(), request.targetLang(), context, request.model())
+                        () -> translateService.literary(requestText, request.sourceLang(), request.targetLang(), finalContext, request.model())
                 ));
             }
-
-            String translatedParagraph = String.join(" ", translatedChunks).trim();
+            String translatedParagraph = String.join(batch.play() ? "\n" : " ", translatedChunks).trim();
             if (translatedParagraph.isBlank()) {
                 throw new IllegalStateException("AI literary generation returned empty text for paragraph " + paragraph.paragraphOrd());
             }
@@ -123,7 +125,7 @@ public class LiteraryEditionGenerationService {
                     generatedChapterId,
                     translatedParagraph,
                     "ai-literary:paragraph:" + paragraph.paragraphId(),
-                    paragraph.speaker()
+                    batch.speaker()
             );
 
             List<Long> generatedSentenceIds = new ArrayList<>();
@@ -135,7 +137,7 @@ public class LiteraryEditionGenerationService {
                         paragraphId,
                         sentence.text(),
                         "ai-literary:sentence:" + paragraph.paragraphId() + ":" + sentence.ord(),
-                        paragraph.speaker()
+                        batch.speaker()
                 );
                 if (firstSentenceId == null) {
                     firstSentenceId = sentenceId;
@@ -149,18 +151,18 @@ public class LiteraryEditionGenerationService {
                     editionId,
                     request.sourceLang(),
                     request.targetLang(),
-                    paragraph.paragraphId(),
+                    batch.paragraphs().stream().map(SourceParagraph::paragraphId).toList(),
                     generatedSentenceIds,
                     effectiveBodyStart
             );
 
             previousTranslatedParagraph = translatedParagraph;
             translatedParagraphs++;
-            if (translatedParagraphs % 10 == 0 || translatedParagraphs == paragraphs.size()) {
+            if (translatedParagraphs % 10 == 0 || translatedParagraphs == batches.size()) {
                 publish(
                         sink,
                         "generate_literary",
-                        "Generated paragraph " + translatedParagraphs + " / " + paragraphs.size(),
+                        "Generated passage " + translatedParagraphs + " / " + batches.size(),
                         chapters,
                         translatedParagraphs,
                         sentences
@@ -174,6 +176,43 @@ public class LiteraryEditionGenerationService {
 
         publish(sink, "done", "Generated literary edition", chapters, translatedParagraphs, sentences);
         return new IngestionResult(source.workId(), editionId, chapters, translatedParagraphs, sentences);
+    }
+
+    public LiteraryGenerationEstimate estimate(GenerateLiteraryEditionRequest rawRequest) {
+        GenerateLiteraryEditionRequest request = rawRequest.withDefaults();
+        request.validate();
+        SourceEdition source = sourceEdition(request.workTitle(), request.sourceLang());
+        List<SourceParagraph> paragraphs = sourceParagraphs(source.editionId(), source.bodyStartSegmentId(), request.bodyOnly());
+        if (paragraphs.isEmpty()) {
+            throw new IllegalArgumentException("No source paragraphs found for " + request.workTitle() + " [" + request.sourceLang() + "]");
+        }
+        int characters = paragraphs.stream().mapToInt(p -> p.text().length()).sum();
+        int words = paragraphs.stream().mapToInt(p -> wordCount(p.text())).sum();
+        List<TranslationBatch> translationBatches = translationBatches(paragraphs, request.chunkMaxChars());
+        int batches = translationBatches.stream()
+                .mapToInt(batch -> chunkBatchText(batch, request.chunkMaxChars()).size())
+                .sum();
+        boolean nonLatin = paragraphs.stream().limit(50).map(SourceParagraph::text)
+                .flatMapToInt(String::codePoints).filter(Character::isLetter)
+                .anyMatch(cp -> cp > 0x024f);
+        double charsPerToken = nonLatin ? 2.4 : 4.0;
+        int sourceTokens = (int) Math.ceil(characters / charsPerToken);
+        int repeatedPromptTokens = batches * (180 + (int) Math.ceil(request.contextChars() / charsPerToken));
+        int inputTokens = sourceTokens + repeatedPromptTokens;
+        int outputTokens = (int) Math.ceil(sourceTokens * 1.25);
+        int minutes = Math.max(1, (int) Math.ceil(batches * 2.5 / 60.0));
+        boolean within = characters <= request.maxSourceChars();
+        String summary = "%s words, about %s input tokens, %s AI requests, roughly %s minutes"
+                .formatted(formatNumber(words), formatNumber(inputTokens), formatNumber(batches), formatNumber(minutes));
+        String warning = !within
+                ? "This source exceeds the configured maximum. Increase the advanced source limit before starting."
+                : batches > 250
+                    ? "This source is highly fragmented. Review play batching and estimated cost before starting."
+                    : "Token counts are approximate and depend on the selected model and translation length.";
+        return new LiteraryGenerationEstimate(
+                characters, words, paragraphs.size(), batches, inputTokens, outputTokens,
+                minutes, within, summary, warning
+        );
     }
 
     private SourceEdition sourceEdition(String workTitle, String sourceLang) {
@@ -296,17 +335,71 @@ public class LiteraryEditionGenerationService {
         );
     }
 
+    private List<TranslationBatch> translationBatches(List<SourceParagraph> paragraphs, int maxChars) {
+        List<TranslationBatch> batches = new ArrayList<>();
+        List<SourceParagraph> current = new ArrayList<>();
+        int currentChars = 0;
+
+        for (SourceParagraph paragraph : paragraphs) {
+            boolean play = paragraph.speaker() != null && !paragraph.speaker().isBlank();
+            if (!play) {
+                flushBatch(batches, current);
+                batches.add(new TranslationBatch(List.of(paragraph), paragraph.text(), null, false));
+                currentChars = 0;
+                continue;
+            }
+
+            boolean compatible = current.isEmpty()
+                    || (current.getFirst().chapterId() == paragraph.chapterId()
+                    && current.getFirst().speaker().equals(paragraph.speaker()));
+            int added = paragraph.text().length() + (current.isEmpty() ? 0 : 1);
+            if (!compatible || (!current.isEmpty() && currentChars + added > maxChars)) {
+                flushBatch(batches, current);
+                currentChars = 0;
+            }
+            current.add(paragraph);
+            currentChars += added;
+        }
+        flushBatch(batches, current);
+        return batches;
+    }
+
+    private List<String> chunkBatchText(TranslationBatch batch, int maxChars) {
+        if (batch.play() && batch.text() != null && batch.text().trim().length() <= maxChars) {
+            return List.of(batch.text().trim());
+        }
+        return chunkText(batch.text(), maxChars);
+    }
+
+    private void flushBatch(List<TranslationBatch> batches, List<SourceParagraph> current) {
+        if (current.isEmpty()) return;
+        String text = current.stream().map(SourceParagraph::text).reduce((a, b) -> a + "\n" + b).orElse("");
+        batches.add(new TranslationBatch(List.copyOf(current), text, current.getFirst().speaker(), true));
+        current.clear();
+    }
+
+    private int wordCount(String text) {
+        if (text == null || text.isBlank()) return 0;
+        return text.trim().split("\\s+").length;
+    }
+
+    private String formatNumber(int value) {
+        return String.format(java.util.Locale.ROOT, "%,d", value);
+    }
+
     private void insertGeneratedAlignments(
             long workId,
             long sourceEditionId,
             long generatedEditionId,
             String sourceLang,
             String targetLang,
-            long sourceParagraphId,
+            List<Long> sourceParagraphIds,
             List<Long> generatedSentenceIds,
             Long bodyStartSegmentId
     ) {
-        List<Long> sourceSentenceIds = sourceSentenceIds(sourceParagraphId, bodyStartSegmentId);
+        List<Long> sourceSentenceIds = sourceParagraphIds.stream()
+                .flatMap(id -> sourceSentenceIds(id, bodyStartSegmentId).stream())
+                .toList();
         if (sourceSentenceIds.isEmpty() || generatedSentenceIds.isEmpty()) {
             return;
         }
@@ -525,4 +618,11 @@ public class LiteraryEditionGenerationService {
             String speaker
     ) {
     }
+
+    private record TranslationBatch(
+            List<SourceParagraph> paragraphs,
+            String text,
+            String speaker,
+            boolean play
+    ) {}
 }

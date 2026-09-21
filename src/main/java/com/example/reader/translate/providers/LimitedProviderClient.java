@@ -57,11 +57,17 @@ public class LimitedProviderClient implements ProviderClient {
     public String literary(String text, String source, String target, String bookContext, String modelOverride) {
         QuotaDecision decision = reserve(text, "literary");
         if (!decision.allowed()) {
+            if (AdminTranslationContext.isActive()) {
+                throw new IllegalStateException(decision.message());
+            }
             return quotaFallback(decision, fallback.literary(text, source, target, bookContext));
         }
         try {
             return delegate.literary(text, source, target, bookContext, modelOverride);
         } catch (Exception e) {
+            if (AdminTranslationContext.isActive()) {
+                throw e;
+            }
             return providerFailureFallback(e, fallback.literary(text, source, target, bookContext));
         }
     }

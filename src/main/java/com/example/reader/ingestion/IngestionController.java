@@ -68,6 +68,12 @@ public class IngestionController {
         return new StartIngestionResponse(jobId, "PENDING", "/api/admin/ingest/jobs/" + jobId);
     }
 
+    @Timed(value = "ingestion.jobs.generate_literary.estimate", description = "Estimate literary edition generation")
+    @PostMapping("/jobs/generate-literary/estimate")
+    public LiteraryGenerationEstimate estimateGeneratedLiterary(@RequestBody GenerateLiteraryEditionRequest request) {
+        return jobService.estimateGeneratedLiterary(request);
+    }
+
     @Timed(value = "ingestion.jobs.upload.submit", description = "Upload source file and submit ingestion job")
     @PostMapping(value = "/jobs/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)

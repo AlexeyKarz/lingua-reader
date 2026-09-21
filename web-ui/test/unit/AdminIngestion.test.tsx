@@ -65,6 +65,20 @@ function installFetchMock(history: unknown = defaultHistory) {
     if (url === '/api/admin/ingest/jobs/generate-literary') {
       return jsonResponse({ jobId: 9, status: 'PENDING', statusUrl: '/api/admin/ingest/jobs/9' }, 202)
     }
+    if (url === '/api/admin/ingest/jobs/generate-literary/estimate') {
+      return jsonResponse({
+        sourceCharacters: 76384,
+        sourceWords: 13332,
+        sourceParagraphs: 1898,
+        translationBatches: 172,
+        estimatedInputTokens: 48750,
+        estimatedOutputTokens: 39783,
+        estimatedMinutes: 8,
+        withinSourceLimit: true,
+        summary: '13,332 words, about 48,750 input tokens, 172 AI requests, roughly 8 minutes',
+        warning: '',
+      })
+    }
     if (url === '/api/admin/ingest/jobs?limit=50') {
       return jsonResponse(history)
     }
@@ -228,9 +242,13 @@ describe('AdminIngestionPage', () => {
     fireEvent.change(screen.getByLabelText(/^Language$/i), { target: { value: 'FR' } })
     fireEvent.change(screen.getByLabelText(/^Publisher$/i), { target: { value: 'Generated Press' } })
     fireEvent.change(screen.getByLabelText(/^Model$/i), { target: { value: 'gpt-4o' } })
-    fireEvent.change(screen.getByLabelText(/^Max source chars$/i), { target: { value: '25000' } })
-    fireEvent.change(screen.getByLabelText(/^Chunk chars$/i), { target: { value: '1200' } })
-    fireEvent.change(screen.getByLabelText(/^Context chars$/i), { target: { value: '300' } })
+    fireEvent.change(screen.getByLabelText(/^Maximum source characters$/i), { target: { value: '25000' } })
+    fireEvent.change(screen.getByLabelText(/^Characters per AI request$/i), { target: { value: '1200' } })
+    fireEvent.change(screen.getByLabelText(/^Previous-text context$/i), { target: { value: '300' } })
+
+    fireEvent.click(screen.getByRole('button', { name: /^Estimate size and time$/i }))
+    expect(await screen.findByText(/13,332 words, about 48,750 input tokens/)).toBeTruthy()
+    expect(screen.getByText(/1,898 source passages .* 39,783 output tokens/)).toBeTruthy()
     submitForm()
 
     await waitFor(() => {

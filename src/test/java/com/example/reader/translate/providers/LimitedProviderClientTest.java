@@ -1,6 +1,7 @@
 package com.example.reader.translate.providers;
 
 import com.example.reader.translate.properties.TranslateLimitProperties;
+import com.example.reader.translate.AdminTranslationContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -8,6 +9,7 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class LimitedProviderClientTest {
 
@@ -118,6 +120,16 @@ class LimitedProviderClientTest {
 
         assertThat(result).contains("AI provider is temporarily unavailable or too slow");
         assertThat(result).contains("Explanation stub: Hallo Welt");
+    }
+
+    @Test
+    void administrativeGenerationFailsInsteadOfPersistingStubOutput() {
+        TranslateLimitProperties limits = new TranslateLimitProperties();
+        LimitedProviderClient limited = new LimitedProviderClient(new FailingProvider(), limits);
+
+        assertThatThrownBy(() -> AdminTranslationContext.call(
+                () -> limited.literary("passage", "el", "en", "context")
+        )).isInstanceOf(RuntimeException.class).hasMessageContaining("provider failed");
     }
 
     private static void requestFrom(String ip) {
