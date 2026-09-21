@@ -66,19 +66,26 @@ export function buildReaderPath(session: Pick<LastReaderSession, 'bookId' | 'src
     return `/reader?bookId=${encodeURIComponent(session.bookId)}&src=${encodeURIComponent(session.src)}&tgt=${encodeURIComponent(session.tgt)}`
 }
 
+export function resolveReaderPathForSession(
+    books: CatalogEntry[],
+    session: Pick<LastReaderSession, 'bookId' | 'src' | 'tgt'>
+) {
+    const book = books.find(candidate => String(candidate.workId) === session.bookId)
+    if (
+        book &&
+        book.langs.includes(session.src) &&
+        book.langs.includes(session.tgt) &&
+        session.src !== session.tgt
+    ) {
+        return buildReaderPath(session)
+    }
+    return null
+}
+
 export function resolveReaderPath(books: CatalogEntry[]) {
     const lastSession = readLastReaderSession()
-    if (lastSession) {
-        const lastBook = books.find(book => String(book.workId) === lastSession.bookId)
-        if (
-            lastBook &&
-            lastBook.langs.includes(lastSession.src) &&
-            lastBook.langs.includes(lastSession.tgt) &&
-            lastSession.src !== lastSession.tgt
-        ) {
-            return buildReaderPath(lastSession)
-        }
-    }
+    const lastSessionPath = lastSession ? resolveReaderPathForSession(books, lastSession) : null
+    if (lastSessionPath) return lastSessionPath
 
     const firstReadableBook = books.find(book => book.langs.length >= 2)
     if (!firstReadableBook) return null

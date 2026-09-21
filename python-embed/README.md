@@ -83,10 +83,10 @@ python add_book.py \
   --aligner dp
 ```
 
-The generated edition uses `/api/admin/translate/literary`, so admin ingestion
-must be enabled and `MLR_ADMIN_TOKEN` must be available to the runner. Use
-`--generate-dry-run` to estimate paragraphs, source characters, and request
-chunks before calling the translation provider.
+The generated edition uses secured admin APIs. Prefer an `admin:ingest` scoped
+API token in `MLR_ADMIN_API_TOKEN`; the legacy `MLR_ADMIN_TOKEN` fallback still
+works for older deployments. Use `--generate-dry-run` to estimate paragraphs,
+source characters, and request chunks before calling the translation provider.
 
 ## Environment
 

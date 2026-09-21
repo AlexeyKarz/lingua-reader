@@ -24,6 +24,7 @@ val osxClassifier = when {
 
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
+    implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     // Prometheus registry so /actuator/prometheus exposes metrics
     implementation("io.micrometer:micrometer-registry-prometheus")
@@ -46,6 +47,7 @@ dependencies {
 
     // DB access (Spring JDBC is simple and fast for batch inserts)
     implementation("org.springframework.boot:spring-boot-starter-jdbc")
+    implementation("org.springframework.session:spring-session-jdbc")
 
     // pgvector Java helpers (maps float[] to pgvector type)
     implementation("com.pgvector:pgvector:0.1.6")
@@ -54,6 +56,7 @@ dependencies {
     runtimeOnly("io.netty:netty-resolver-dns-native-macos:$nettyVersion:$osxClassifier")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework.security:spring-security-test")
     testImplementation("org.testcontainers:junit-jupiter:1.20.4")
     testImplementation("org.testcontainers:postgresql:1.20.4")
 }

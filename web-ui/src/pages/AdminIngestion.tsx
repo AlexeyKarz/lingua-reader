@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { csrfFetch } from '../csrfFetch'
 import { type CatalogEntry } from '../readerNavigation'
 
-const ADMIN_TOKEN_KEY = 'mlr:admin-token'
 const DEFAULT_GENERATED_TRANSLATOR = 'AI literary translation'
 const DEFAULT_GENERATE_MAX_SOURCE_CHARS = '250000'
 const LEGACY_GENERATE_MAX_SOURCE_CHARS = 120000
@@ -253,8 +253,8 @@ function formatJobTime(value?: string | null) {
 }
 
 async function responseError(response: Response) {
-    if (response.status === 401) return 'Missing or invalid admin token.'
-    if (response.status === 403) return 'Admin API token is not configured on the server.'
+    if (response.status === 401) return 'Sign in with an admin account to continue.'
+    if (response.status === 403) return 'Your account does not have admin access.'
     if (response.status === 404) return 'Admin ingestion is disabled or this job no longer exists.'
 
     try {
@@ -271,7 +271,6 @@ async function responseError(response: Response) {
 }
 
 export default function AdminIngestionPage() {
-    const [adminToken, setAdminToken] = useState(() => window.sessionStorage.getItem(ADMIN_TOKEN_KEY) ?? '')
     const [catalog, setCatalog] = useState<CatalogEntry[]>([])
     const [selectedWorkId, setSelectedWorkId] = useState('')
     const [work, setWork] = useState<WorkDraft>({
@@ -289,16 +288,6 @@ export default function AdminIngestionPage() {
     const [retryingJobId, setRetryingJobId] = useState<number | null>(null)
     const [submitting, setSubmitting] = useState(false)
     const [formError, setFormError] = useState<string | null>(null)
-
-    useEffect(() => {
-        if (adminToken.trim()) {
-            window.sessionStorage.setItem(ADMIN_TOKEN_KEY, adminToken)
-        } else {
-            window.sessionStorage.removeItem(ADMIN_TOKEN_KEY)
-            setHistory([])
-            setHistoryError(null)
-        }
-    }, [adminToken])
 
     useEffect(() => {
         ;(async () => {
@@ -405,20 +394,11 @@ export default function AdminIngestionPage() {
         setFormError(null)
     }
 
-    async function loadHistory(token = adminToken.trim()) {
-        if (!token) {
-            setHistoryError('Admin token is required.')
-            return
-        }
-
+    async function loadHistory() {
         setHistoryLoading(true)
         setHistoryError(null)
         try {
-            const response = await fetch('/api/admin/ingest/jobs?limit=50', {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            })
+            const response = await fetch('/api/admin/ingest/jobs?limit=50')
             if (!response.ok) {
                 throw new Error(await responseError(response))
             }
@@ -431,20 +411,11 @@ export default function AdminIngestionPage() {
     }
 
     async function rerunHistoryJob(job: IngestionJob) {
-        const token = adminToken.trim()
-        if (!token) {
-            setHistoryError('Admin token is required.')
-            return
-        }
-
         setRetryingJobId(job.id)
         setHistoryError(null)
         try {
-            const response = await fetch(`/api/admin/ingest/jobs/${job.id}/retry`, {
+            const response = await csrfFetch(`/api/admin/ingest/jobs/${job.id}/retry`, {
                 method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
             })
             if (!response.ok) {
                 throw new Error(await responseError(response))
@@ -460,8 +431,8 @@ export default function AdminIngestionPage() {
                 status: started.status,
                 message: 'Retry queued',
             }, ...current])
-            await loadHistory(token)
-            void pollJob(localId, started.jobId, token).then(() => loadHistory(token))
+            await loadHistory()
+            void pollJob(localId, started.jobId).then(() => loadHistory())
         } catch (error) {
             setHistoryError(error instanceof Error ? error.message : 'Could not rerun ingestion job.')
         } finally {
@@ -470,7 +441,6 @@ export default function AdminIngestionPage() {
     }
 
     function validateForm(): string | null {
-        if (!adminToken.trim()) return 'Admin token is required.'
         if (!work.title.trim()) return 'Work title is required.'
         if (!work.originalLang.trim()) return 'Original language is required.'
         if (work.year.trim() && !Number.isInteger(Number(work.year.trim()))) {
@@ -518,7 +488,7 @@ export default function AdminIngestionPage() {
         return null
     }
 
-    async function submitEdition(edition: PreparedUploadEdition, token: string) {
+    async function submitEdition(edition: PreparedUploadEdition) {
         const form = new FormData()
         form.append('workTitle', work.title.trim())
         form.append('lang', edition.lang)
@@ -530,11 +500,8 @@ export default function AdminIngestionPage() {
         appendIfPresent(form, 'description', work.description)
         appendIfPresent(form, 'originalLang', work.originalLang)
 
-        const response = await fetch('/api/admin/ingest/jobs/upload', {
+        const response = await csrfFetch('/api/admin/ingest/jobs/upload', {
             method: 'POST',
-            headers: {
-                Authorization: `Bearer ${token}`,
-            },
             body: form,
         })
 
@@ -545,7 +512,7 @@ export default function AdminIngestionPage() {
         return await response.json() as StartIngestionResponse
     }
 
-    async function submitGeneratedEdition(edition: PreparedGeneratedEdition, token: string) {
+    async function submitGeneratedEdition(edition: PreparedGeneratedEdition) {
         const payload: Record<string, unknown> = {
             workTitle: work.title.trim(),
             sourceLang: edition.sourceLang,
@@ -564,10 +531,9 @@ export default function AdminIngestionPage() {
         if (contextChars !== undefined) payload.contextChars = contextChars
         if (edition.model.trim()) payload.model = edition.model.trim()
 
-        const response = await fetch('/api/admin/ingest/jobs/generate-literary', {
+        const response = await csrfFetch('/api/admin/ingest/jobs/generate-literary', {
             method: 'POST',
             headers: {
-                Authorization: `Bearer ${token}`,
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify(payload),
@@ -580,12 +546,8 @@ export default function AdminIngestionPage() {
         return await response.json() as StartIngestionResponse
     }
 
-    async function refreshJob(jobId: number, token: string) {
-        const response = await fetch(`/api/admin/ingest/jobs/${jobId}`, {
-            headers: {
-                Authorization: `Bearer ${token}`,
-            },
-        })
+    async function refreshJob(jobId: number) {
+        const response = await fetch(`/api/admin/ingest/jobs/${jobId}`)
 
         if (!response.ok) {
             throw new Error(await responseError(response))
@@ -594,11 +556,11 @@ export default function AdminIngestionPage() {
         return await response.json() as IngestionJob
     }
 
-    async function pollJob(localId: string, jobId: number, token: string) {
+    async function pollJob(localId: string, jobId: number) {
         for (let attempt = 0; attempt < 240; attempt += 1) {
             await new Promise(resolve => window.setTimeout(resolve, attempt === 0 ? 600 : 2000))
             try {
-                const job = await refreshJob(jobId, token)
+                const job = await refreshJob(jobId)
                 patchJob(localId, {
                     status: job.status,
                     step: job.step,
@@ -611,7 +573,7 @@ export default function AdminIngestionPage() {
                     sentences: job.sentences,
                 })
                 if (isTerminalStatus(job.status)) {
-                    void loadHistory(token)
+                    void loadHistory()
                     return job
                 }
             } catch (error) {
@@ -666,7 +628,6 @@ export default function AdminIngestionPage() {
         const failedUploadLangs = new Set<string>()
 
         setSubmitting(true)
-        const token = adminToken.trim()
         try {
             for (const edition of uploadEditions) {
                 const localId = createId()
@@ -680,19 +641,19 @@ export default function AdminIngestionPage() {
                 }, ...current])
 
                 try {
-                    const started = await submitEdition(edition, token)
+                    const started = await submitEdition(edition)
                     patchJob(localId, {
                         jobId: started.jobId,
                         status: started.status,
                         message: 'Job queued',
                     })
                     if (requiredUploadSources.has(edition.lang)) {
-                        const terminalJob = await pollJob(localId, started.jobId, token)
+                        const terminalJob = await pollJob(localId, started.jobId)
                         if (terminalJob?.status !== 'SUCCEEDED') {
                             failedUploadLangs.add(edition.lang)
                         }
                     } else {
-                        void pollJob(localId, started.jobId, token)
+                        void pollJob(localId, started.jobId)
                     }
                 } catch (error) {
                     failedUploadLangs.add(edition.lang)
@@ -724,13 +685,13 @@ export default function AdminIngestionPage() {
                 }
 
                 try {
-                    const started = await submitGeneratedEdition(edition, token)
+                    const started = await submitGeneratedEdition(edition)
                     patchJob(localId, {
                         jobId: started.jobId,
                         status: started.status,
                         message: 'Generation job queued',
                     })
-                    void pollJob(localId, started.jobId, token)
+                    void pollJob(localId, started.jobId)
                 } catch (error) {
                     patchJob(localId, {
                         status: 'FAILED',
@@ -740,7 +701,7 @@ export default function AdminIngestionPage() {
             }
         } finally {
             setSubmitting(false)
-            void loadHistory(token)
+            void loadHistory()
         }
     }
 
@@ -754,28 +715,14 @@ export default function AdminIngestionPage() {
                             Book ingestion
                         </h2>
                     </div>
-                    <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-end">
-                        <label className="flex min-w-0 flex-col gap-2 text-sm md:min-w-56">
-                            <span className="text-xs uppercase tracking-[0.18em] muted-copy">
-                                Admin token
-                            </span>
-                            <input
-                                type="password"
-                                value={adminToken}
-                                onChange={event => setAdminToken(event.target.value)}
-                                className="input"
-                                autoComplete="off"
-                            />
-                        </label>
-                        <button
-                            type="button"
-                            className="btn-secondary h-11 w-fit"
-                            onClick={() => void loadHistory()}
-                            disabled={historyLoading || !adminToken.trim()}
-                        >
-                            {historyLoading ? 'Loading...' : 'Load history'}
-                        </button>
-                    </div>
+                    <button
+                        type="button"
+                        className="btn-secondary w-fit"
+                        onClick={() => void loadHistory()}
+                        disabled={historyLoading}
+                    >
+                        {historyLoading ? 'Loading...' : 'Load history'}
+                    </button>
                 </div>
             </section>
 
@@ -1074,7 +1021,7 @@ export default function AdminIngestionPage() {
                         type="button"
                         className="btn-secondary w-fit"
                         onClick={() => void loadHistory()}
-                        disabled={historyLoading || !adminToken.trim()}
+                        disabled={historyLoading}
                     >
                         {historyLoading ? 'Refreshing...' : 'Refresh'}
                     </button>
@@ -1194,7 +1141,7 @@ export default function AdminIngestionPage() {
                                         type="button"
                                         className="btn-secondary text-xs"
                                         onClick={() => {
-                                            void refreshJob(job.jobId as number, adminToken.trim())
+                                            void refreshJob(job.jobId as number)
                                                 .then(serverJob => patchJob(job.localId, {
                                                     status: serverJob.status,
                                                     step: serverJob.step,

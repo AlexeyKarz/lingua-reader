@@ -52,6 +52,13 @@ function installFetchMock(history: unknown = defaultHistory) {
         },
       ])
     }
+    if (url === '/api/auth/csrf') {
+      return jsonResponse({
+        parameterName: '_csrf',
+        headerName: 'X-CSRF-TOKEN',
+        token: 'test-csrf-token',
+      })
+    }
     if (url === '/api/admin/ingest/jobs/upload') {
       return jsonResponse({ jobId: 7, status: 'PENDING', statusUrl: '/api/admin/ingest/jobs/7' }, 202)
     }
@@ -149,11 +156,10 @@ function submitForm() {
 }
 
 describe('AdminIngestionPage', () => {
-  it('submits txt uploads with normalized metadata and bearer token', async () => {
+  it('submits txt uploads with normalized metadata', async () => {
     const fetchMock = installFetchMock()
     render(<AdminIngestionPage />)
 
-    fireEvent.change(screen.getByLabelText(/^Admin token$/i), { target: { value: 'secret' } })
     fireEvent.change(screen.getByLabelText(/^Title$/i), { target: { value: 'Plain Book' } })
     fireEvent.change(screen.getByLabelText(/^Author$/i), { target: { value: 'Writer' } })
     fireEvent.change(screen.getByLabelText(/^Original language$/i), { target: { value: 'EN' } })
@@ -177,7 +183,8 @@ describe('AdminIngestionPage', () => {
     const uploadCall = fetchMock.mock.calls.find(([input]) => String(input) === '/api/admin/ingest/jobs/upload')
     expect(uploadCall).toBeDefined()
     const init = uploadCall?.[1] as RequestInit
-    expect(init.headers).toEqual({ Authorization: 'Bearer secret' })
+    expect(init.headers).toBeInstanceOf(Headers)
+    expect((init.headers as Headers).get('X-CSRF-TOKEN')).toBe('test-csrf-token')
 
     const form = init.body as FormData
     expect(form.get('workTitle')).toBe('Plain Book')
@@ -198,7 +205,6 @@ describe('AdminIngestionPage', () => {
     const fetchMock = installFetchMock()
     render(<AdminIngestionPage />)
 
-    fireEvent.change(screen.getByLabelText(/^Admin token$/i), { target: { value: 'secret' } })
     fireEvent.change(screen.getByLabelText(/^Title$/i), { target: { value: 'Plain Book' } })
     fireEvent.change(screen.getByLabelText(/^Original language$/i), { target: { value: 'en' } })
     fireEvent.change(screen.getByLabelText(/^Language$/i), { target: { value: 'de' } })
@@ -216,7 +222,6 @@ describe('AdminIngestionPage', () => {
     render(<AdminIngestionPage />)
 
     await screen.findByText('Existing Book')
-    fireEvent.change(screen.getByLabelText(/^Admin token$/i), { target: { value: 'secret' } })
     fireEvent.change(screen.getByLabelText(/^Existing work$/i), { target: { value: '4' } })
     fireEvent.click(screen.getByRole('button', { name: 'AI' }))
     fireEvent.change(screen.getByLabelText(/^Language$/i), { target: { value: 'FR' } })
@@ -237,10 +242,9 @@ describe('AdminIngestionPage', () => {
     const generatedCall = fetchMock.mock.calls.find(([input]) => String(input) === '/api/admin/ingest/jobs/generate-literary')
     expect(generatedCall).toBeDefined()
     const init = generatedCall?.[1] as RequestInit
-    expect(init.headers).toEqual({
-      Authorization: 'Bearer secret',
-      'Content-Type': 'application/json',
-    })
+    expect(init.headers).toBeInstanceOf(Headers)
+    expect((init.headers as Headers).get('Content-Type')).toBe('application/json')
+    expect((init.headers as Headers).get('X-CSRF-TOKEN')).toBe('test-csrf-token')
     expect(JSON.parse(String(init.body))).toEqual({
       workTitle: 'Existing Book',
       sourceLang: 'en',
@@ -264,7 +268,6 @@ describe('AdminIngestionPage', () => {
     const fetchMock = installFetchMock()
     render(<AdminIngestionPage />)
 
-    fireEvent.change(screen.getByLabelText(/^Admin token$/i), { target: { value: 'secret' } })
     fireEvent.click(screen.getByRole('button', { name: /^Load history$/i }))
 
     expect(await screen.findByText('Ithaca')).toBeTruthy()
@@ -278,19 +281,13 @@ describe('AdminIngestionPage', () => {
     expect((screen.getByLabelText(/^Language$/i) as HTMLInputElement).value).toBe('el')
     expect((screen.getByLabelText(/^Publisher$/i) as HTMLInputElement).value).toBe('Archive Press')
     expect((screen.getByLabelText(/^Translator$/i) as HTMLInputElement).value).toBe('Original edition')
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/admin/ingest/jobs?limit=50',
-      expect.objectContaining({
-        headers: { Authorization: 'Bearer secret' },
-      })
-    )
+    expect(fetchMock).toHaveBeenCalledWith('/api/admin/ingest/jobs?limit=50')
   })
 
   it('retries failed history jobs as new jobs', async () => {
     const fetchMock = installFetchMock()
     render(<AdminIngestionPage />)
 
-    fireEvent.change(screen.getByLabelText(/^Admin token$/i), { target: { value: 'secret' } })
     fireEvent.click(screen.getByRole('button', { name: /^Load history$/i }))
 
     expect(await screen.findByText('Provider unavailable')).toBeTruthy()
@@ -301,7 +298,6 @@ describe('AdminIngestionPage', () => {
         '/api/admin/ingest/jobs/42/retry',
         expect.objectContaining({
           method: 'POST',
-          headers: { Authorization: 'Bearer secret' },
         })
       )
     })
@@ -340,7 +336,6 @@ describe('AdminIngestionPage', () => {
     ])
     render(<AdminIngestionPage />)
 
-    fireEvent.change(screen.getByLabelText(/^Admin token$/i), { target: { value: 'secret' } })
     fireEvent.click(screen.getByRole('button', { name: /^Load history$/i }))
 
     expect(await screen.findByText('Generated Story')).toBeTruthy()
@@ -352,7 +347,6 @@ describe('AdminIngestionPage', () => {
         '/api/admin/ingest/jobs/50/retry',
         expect.objectContaining({
           method: 'POST',
-          headers: { Authorization: 'Bearer secret' },
         })
       )
     })

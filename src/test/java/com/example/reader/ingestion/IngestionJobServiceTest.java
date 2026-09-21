@@ -1,5 +1,6 @@
 package com.example.reader.ingestion;
 
+import com.example.reader.metrics.ProductEventService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -23,7 +24,8 @@ class IngestionJobServiceTest {
                 mock(IngestionFacade.class),
                 mock(LiteraryEditionGenerationService.class),
                 repository,
-                Runnable::run
+                Runnable::run,
+                mock(ProductEventService.class)
         );
         when(repository.findRecent(anyInt())).thenReturn(List.of());
 
@@ -44,7 +46,8 @@ class IngestionJobServiceTest {
                 ingestionFacade,
                 mock(LiteraryEditionGenerationService.class),
                 repository,
-                Runnable::run
+                Runnable::run,
+                mock(ProductEventService.class)
         );
         when(repository.findById(7L)).thenReturn(new IngestionJob(
                 7L,
@@ -107,7 +110,8 @@ class IngestionJobServiceTest {
                 mock(IngestionFacade.class),
                 generationService,
                 repository,
-                Runnable::run
+                Runnable::run,
+                mock(ProductEventService.class)
         );
         when(repository.findById(9L)).thenReturn(new IngestionJob(
                 9L,
@@ -173,7 +177,8 @@ class IngestionJobServiceTest {
                 mock(IngestionFacade.class),
                 generationService,
                 repository,
-                Runnable::run
+                Runnable::run,
+                mock(ProductEventService.class)
         );
         when(repository.findById(13L)).thenReturn(new IngestionJob(
                 13L,
@@ -225,7 +230,8 @@ class IngestionJobServiceTest {
                 mock(IngestionFacade.class),
                 mock(LiteraryEditionGenerationService.class),
                 repository,
-                Runnable::run
+                Runnable::run,
+                mock(ProductEventService.class)
         );
         when(repository.findById(3L)).thenReturn(new IngestionJob(
                 3L,
@@ -271,7 +277,8 @@ class IngestionJobServiceTest {
                 mock(IngestionFacade.class),
                 generationService,
                 repository,
-                Runnable::run
+                Runnable::run,
+                mock(ProductEventService.class)
         );
         when(repository.findById(11L)).thenReturn(new IngestionJob(
                 11L,
@@ -327,7 +334,8 @@ class IngestionJobServiceTest {
                 ingestionFacade,
                 generationService,
                 repository,
-                Runnable::run
+                Runnable::run,
+                mock(ProductEventService.class)
         );
         when(repository.createGenerated(any(GenerateLiteraryEditionRequest.class))).thenReturn(12L);
         when(generationService.generate(any(GenerateLiteraryEditionRequest.class), any(IngestionProgressSink.class)))
@@ -376,7 +384,8 @@ class IngestionJobServiceTest {
                 mock(IngestionFacade.class),
                 generationService,
                 repository,
-                Runnable::run
+                Runnable::run,
+                mock(ProductEventService.class)
         );
         when(repository.createGenerated(any(GenerateLiteraryEditionRequest.class))).thenReturn(33L);
         when(generationService.generate(any(GenerateLiteraryEditionRequest.class), any(IngestionProgressSink.class)))
@@ -408,7 +417,8 @@ class IngestionJobServiceTest {
                 mock(IngestionFacade.class),
                 mock(LiteraryEditionGenerationService.class),
                 mock(IngestionJobRepository.class),
-                Runnable::run
+                Runnable::run,
+                mock(ProductEventService.class)
         );
 
         assertThatThrownBy(() -> service.startGeneratedLiteraryJob(null))

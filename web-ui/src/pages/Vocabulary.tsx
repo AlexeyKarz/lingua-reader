@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useAuth } from '../authContext'
+import {
+    deleteUserVocabularyItem,
+    fetchUserVocabularyItems,
+    reviewUserVocabularyItem,
+} from '../vocabularyApi'
 import {
     deleteVocabularyItem,
     dueVocabularyItems,
@@ -30,11 +36,14 @@ function nextDueText(item: SavedVocabularyItem) {
 }
 
 export default function VocabularyPage() {
+    const auth = useAuth()
     const [items, setItems] = useState(() => readVocabularyItems())
     const [activeId, setActiveId] = useState<string | null>(null)
     const [answerVisible, setAnswerVisible] = useState(false)
     const [filter, setFilter] = useState<'due' | 'all'>('due')
     const [languageFilter, setLanguageFilter] = useState(ALL_LANGUAGE_FILTER)
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState<string | null>(null)
 
     const languageOptions = useMemo(() => {
         const counts = new Map<string, {key: string; source: string; target: string; count: number}>()
@@ -86,26 +95,77 @@ export default function VocabularyPage() {
         }
     }, [languageFilter, languageOptions])
 
-    function refresh(nextActiveId?: string | null) {
-        const nextItems = readVocabularyItems()
+    useEffect(() => {
+        if (auth.loading) return
+        if (!auth.authenticated) {
+            setItems(readVocabularyItems())
+            setError(null)
+            setLoading(false)
+            return
+        }
+
+        setLoading(true)
+        setError(null)
+        fetchUserVocabularyItems()
+            .then(setItems)
+            .catch(caught => setError(caught instanceof Error ? caught.message : 'Could not load saved vocabulary.'))
+            .finally(() => setLoading(false))
+    }, [auth.authenticated, auth.loading])
+
+    function refreshLocal(nextActiveId?: string | null) {
+        setItems(readVocabularyItems())
+        setActiveId(nextActiveId ?? null)
+        setAnswerVisible(false)
+    }
+
+    async function refreshRemote(nextActiveId?: string | null) {
+        const nextItems = await fetchUserVocabularyItems()
         setItems(nextItems)
         setActiveId(nextActiveId ?? null)
         setAnswerVisible(false)
     }
 
-    function applyReview(grade: 'again' | 'good' | 'known') {
+    async function applyReview(grade: 'again' | 'good' | 'known') {
         if (!activeItem) return
+        setError(null)
+        if (auth.authenticated) {
+            try {
+                await reviewUserVocabularyItem(activeItem, grade)
+                const nextItems = await fetchUserVocabularyItems()
+                const nextDue = dueVocabularyItems(nextItems).find(item =>
+                    item.id !== activeItem.id &&
+                    (languageFilter === ALL_LANGUAGE_FILTER || languageKey(item) === languageFilter)
+                )
+                setItems(nextItems)
+                setActiveId(nextDue?.id ?? null)
+                setAnswerVisible(false)
+            } catch (caught) {
+                setError(caught instanceof Error ? caught.message : 'Could not review vocabulary item.')
+            }
+            return
+        }
+
         reviewVocabularyItem(activeItem, grade)
         const nextDue = dueVocabularyItems().find(item =>
             item.id !== activeItem.id &&
             (languageFilter === ALL_LANGUAGE_FILTER || languageKey(item) === languageFilter)
         )
-        refresh(nextDue?.id ?? null)
+        refreshLocal(nextDue?.id ?? null)
     }
 
-    function removeItem(id: string) {
+    async function removeItem(id: string) {
+        setError(null)
+        if (auth.authenticated) {
+            try {
+                await deleteUserVocabularyItem(id)
+                await refreshRemote(activeId === id ? null : activeId)
+            } catch (caught) {
+                setError(caught instanceof Error ? caught.message : 'Could not delete vocabulary item.')
+            }
+            return
+        }
         deleteVocabularyItem(id)
-        refresh(activeId === id ? null : activeId)
+        refreshLocal(activeId === id ? null : activeId)
     }
 
     return (
@@ -118,7 +178,9 @@ export default function VocabularyPage() {
                             Saved lookups and review
                         </h2>
                         <p className="mt-2 max-w-2xl text-sm leading-6 muted-copy">
-                            Saved words and sentences stay in this browser and can be reviewed without an account.
+                            {auth.authenticated
+                                ? 'Saved words and sentences are stored in your account for review.'
+                                : 'Saved words and sentences stay in this browser and can be reviewed without an account.'}
                         </p>
                     </div>
                     <div className="grid grid-cols-3 gap-2 text-sm">
@@ -139,6 +201,14 @@ export default function VocabularyPage() {
                     </div>
                 </div>
             </section>
+
+            {(loading || error) && (
+                <section className="surface-panel rounded-[28px] px-5 py-4 md:px-6">
+                    <div className={error ? 'theme-danger text-sm' : 'muted-copy text-sm'}>
+                        {error ?? 'Loading saved vocabulary...'}
+                    </div>
+                </section>
+            )}
 
             {activeItem ? (
                 <section className="surface-panel rounded-[28px] px-5 py-5 md:px-6">
@@ -182,13 +252,13 @@ export default function VocabularyPage() {
                             </Link>
                             {answerVisible && (
                                 <>
-                                    <button className="btn-secondary" onClick={() => applyReview('again')}>
+                                    <button className="btn-secondary" onClick={() => void applyReview('again')}>
                                         Again
                                     </button>
-                                    <button className="btn-secondary" onClick={() => applyReview('good')}>
+                                    <button className="btn-secondary" onClick={() => void applyReview('good')}>
                                         Good
                                     </button>
-                                    <button className="btn" onClick={() => applyReview('known')}>
+                                    <button className="btn" onClick={() => void applyReview('known')}>
                                         Known
                                     </button>
                                 </>
@@ -288,7 +358,7 @@ export default function VocabularyPage() {
                             <button
                                 type="button"
                                 className="btn-secondary text-xs"
-                                onClick={() => removeItem(item.id)}
+                                onClick={() => void removeItem(item.id)}
                             >
                                 Delete
                             </button>

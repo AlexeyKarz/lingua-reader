@@ -1,6 +1,9 @@
 package com.example.reader.ingestion;
 
 import com.example.reader.common.ApiErrorHandler;
+import com.example.reader.auth.ApiTokenService;
+import com.example.reader.metrics.AdminAuditService;
+import com.example.reader.metrics.ProductEventService;
 import com.example.reader.security.AdminAccessProperties;
 import com.example.reader.security.AdminApiInterceptor;
 import org.junit.jupiter.api.BeforeEach;
@@ -251,8 +254,13 @@ class IngestionControllerMockMvcTest {
         AdminAccessProperties properties = new AdminAccessProperties();
         properties.setEnabled(enabled);
         properties.setToken(token);
-        return standaloneSetup(new IngestionController(jobService, uploadStorage))
-                .addInterceptors(new AdminApiInterceptor(properties))
+        return standaloneSetup(new IngestionController(
+                        jobService,
+                        uploadStorage,
+                        mock(ProductEventService.class),
+                        mock(AdminAuditService.class)
+                ))
+                .addInterceptors(new AdminApiInterceptor(properties, mock(ApiTokenService.class)))
                 .setControllerAdvice(new ApiErrorHandler())
                 .build();
     }

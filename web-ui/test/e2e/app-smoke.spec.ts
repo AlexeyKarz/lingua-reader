@@ -25,6 +25,23 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
 }
 
 test.beforeEach(async ({ page }) => {
+    const savedVocabulary: unknown[] = []
+    const savedPreferences: Record<string, unknown> = {}
+    let savedProgress: unknown = null
+  await page.route('**/api/me', route => fulfillJson(route, {
+    authenticated: true,
+    user: {
+      id: 1,
+      email: 'admin@example.test',
+      displayName: 'Admin',
+      roles: ['USER', 'ADMIN'],
+    },
+  }))
+  await page.route('**/api/auth/csrf', route => fulfillJson(route, {
+    parameterName: '_csrf',
+    headerName: 'X-CSRF-TOKEN',
+    token: 'test-csrf-token',
+  }))
   await page.route('**/api/catalog/books', route => fulfillJson(route, catalog))
   await page.route('**/api/reader/front-matter?**', route => fulfillJson(route, {
     bookId: '101',
@@ -56,6 +73,106 @@ test.beforeEach(async ({ page }) => {
     translated: 'Hallo',
   }))
   await page.route('**/api/translate/explain', route => fulfillJson(route, { explanation: 'A short explanation.' }))
+  await page.route('**/api/user/vocabulary', async route => {
+    if (route.request().method() === 'POST') {
+      const body = JSON.parse(route.request().postData() ?? '{}')
+      const saved = {
+        ...body,
+        id: 'saved-1',
+        normalizedText: String(body.text ?? '').toLowerCase(),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        review: {
+          status: 'new',
+          dueAt: Date.now(),
+          intervalDays: 0,
+          ease: 2.5,
+          reviewCount: 0,
+        },
+      }
+      savedVocabulary.unshift(saved)
+      await fulfillJson(route, saved)
+      return
+    }
+    await fulfillJson(route, savedVocabulary)
+  })
+  await page.route('**/api/user/preferences', route => fulfillJson(route, savedPreferences))
+  await page.route('**/api/user/preferences/**', async route => {
+    const key = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop() ?? '')
+    const body = JSON.parse(route.request().postData() ?? '{}') as { value?: unknown }
+    savedPreferences[key] = body.value
+    await fulfillJson(route, body.value ?? null)
+  })
+  await page.route('**/api/user/reader-progress/recent?**', route => {
+    if (!savedProgress) {
+      return fulfillJson(route, [])
+    }
+    const progress = savedProgress as {bookId?: string; source?: string; target?: string; page?: number; size?: number}
+    if (!progress.bookId || !progress.source || !progress.target) {
+      return fulfillJson(route, [])
+    }
+    return fulfillJson(route, [progress])
+  })
+  await page.route('**/api/user/reader-progress?**', route => {
+    if (!savedProgress) {
+      return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' })
+    }
+    return fulfillJson(route, savedProgress)
+  })
+  await page.route('**/api/user/reader-progress', async route => {
+    savedProgress = JSON.parse(route.request().postData() ?? '{}')
+    await fulfillJson(route, savedProgress)
+  })
+  await page.route('**/api/admin/metrics/overview', route => fulfillJson(route, {
+    registeredUsers: 1,
+    activeUsersToday: 1,
+    activeUsers7d: 1,
+    translationCallsToday: 4,
+    translationFailuresToday: 0,
+    translationFailureRateToday: 0,
+    cacheHitRateToday: 50,
+    ingestionRunning: 0,
+    ingestionFailedToday: 0,
+    translationP95LatencyMs: 123,
+    topLanguagePair: 'EN -> DE',
+  }))
+  await page.route('**/api/admin/metrics/usage/daily?**', route => fulfillJson(route, [
+    { day: '2026-09-11', value: 2 },
+  ]))
+  await page.route('**/api/admin/metrics/users', route => fulfillJson(route, [
+    { day: '2026-09-11', value: 1 },
+  ]))
+  await page.route('**/api/admin/metrics/translations/daily', route => fulfillJson(route, [
+    { day: '2026-09-11', value: 4 },
+  ]))
+  await page.route('**/api/admin/metrics/translations/operations', route => fulfillJson(route, [
+    { operation: 'word', calls: 2, failures: 0, p95_latency_ms: 80 },
+  ]))
+  await page.route('**/api/admin/metrics/translations/providers', route => fulfillJson(route, [
+    { label: 'OpenAI', calls: 4, failures: 0, p95_latency_ms: 123 },
+  ]))
+  await page.route('**/api/admin/metrics/books', route => fulfillJson(route, [
+    { label: 'Smoke Book', value: 2 },
+  ]))
+  await page.route('**/api/admin/metrics/language-pairs', route => fulfillJson(route, [
+    { label: 'EN -> DE', value: 4 },
+  ]))
+  await page.route('**/api/admin/metrics/reviews', route => fulfillJson(route, [
+    { label: 'known', value: 1 },
+  ]))
+  await page.route('**/api/admin/metrics/ingestion', route => fulfillJson(route, {
+    byStatus: [{ label: 'SUCCEEDED', value: 1 }],
+    averageDurationSeconds: 12,
+    recent: [],
+  }))
+  await page.route('**/api/admin/metrics/errors', route => fulfillJson(route, []))
+  await page.route('**/api/admin/metrics/system', route => fulfillJson(route, {
+    database: 'ok',
+    providerFailures: 0,
+    rawEventRetentionDays: 90,
+    dailyAggregateRetentionDays: 730,
+  }))
+  await page.route('**/api/admin/tokens', route => fulfillJson(route, []))
   await page.route(/\/api\/admin\/ingest\/jobs\?limit=50$/, route => fulfillJson(route, []))
 })
 
@@ -96,11 +213,9 @@ test('catalog to reader lookup save to vocabulary', async ({ page }) => {
 })
 
 test('admin ingestion accepts txt upload and shows completed status', async ({ page }) => {
-  let uploadAuth = ''
   let uploadBody = ''
 
   await page.route('**/api/admin/ingest/jobs/upload', async route => {
-    uploadAuth = route.request().headers().authorization ?? ''
     uploadBody = route.request().postData() ?? ''
     await fulfillJson(route, { jobId: 77, status: 'PENDING', statusUrl: '/api/admin/ingest/jobs/77' }, 202)
   })
@@ -121,7 +236,6 @@ test('admin ingestion accepts txt upload and shows completed status', async ({ p
   }))
 
   await page.goto('/admin/ingest')
-  await page.getByLabel('Admin token').fill('secret')
   await page.getByLabel('Title').fill('Admin TXT Book')
   await page.getByLabel('Original language').fill('en')
   await page.getByLabel('Language', { exact: true }).fill('de')
@@ -133,7 +247,6 @@ test('admin ingestion accepts txt upload and shows completed status', async ({ p
   await page.getByRole('button', { name: 'Start ingestion' }).click()
 
   await expect(page.getByText('SUCCEEDED')).toBeVisible()
-  expect(uploadAuth).toBe('Bearer secret')
   expect(uploadBody).toContain('name="workTitle"')
   expect(uploadBody).toContain('Admin TXT Book')
   expect(uploadBody).toContain('name="originalLang"')
@@ -142,11 +255,9 @@ test('admin ingestion accepts txt upload and shows completed status', async ({ p
 })
 
 test('admin ingestion queues generated literary edition for an existing source', async ({ page }) => {
-  let generationAuth = ''
   let generationBody = ''
 
   await page.route('**/api/admin/ingest/jobs/generate-literary', async route => {
-    generationAuth = route.request().headers().authorization ?? ''
     generationBody = route.request().postData() ?? ''
     await fulfillJson(route, { jobId: 78, status: 'PENDING', statusUrl: '/api/admin/ingest/jobs/78' }, 202)
   })
@@ -167,7 +278,6 @@ test('admin ingestion queues generated literary edition for an existing source',
   }))
 
   await page.goto('/admin/ingest')
-  await page.getByLabel('Admin token').fill('secret')
   await page.getByLabel('Existing work').selectOption('101')
   await page.getByRole('button', { name: 'AI' }).click()
   await page.getByLabel('Language', { exact: true }).fill('fr')
@@ -179,7 +289,6 @@ test('admin ingestion queues generated literary edition for an existing source',
   await page.getByRole('button', { name: 'Start ingestion' }).click()
 
   await expect(page.getByText('2 sentences')).toBeVisible()
-  expect(generationAuth).toBe('Bearer secret')
   expect(JSON.parse(generationBody)).toMatchObject({
     workTitle: 'Smoke Book',
     sourceLang: 'en',
@@ -194,4 +303,14 @@ test('admin ingestion queues generated literary edition for an existing source',
     contextChars: 300,
     model: 'gpt-4o',
   })
+})
+
+test('admin dashboard shows metrics and links to ingestion', async ({ page }) => {
+  await page.goto('/admin')
+
+  await expect(page.getByRole('heading', { name: 'Metrics dashboard' })).toBeVisible()
+  await expect(page.getByText('Translations today')).toBeVisible()
+  await expect(page.getByText('Smoke Book')).toBeVisible()
+  await page.getByRole('link', { name: 'Open ingestion' }).click()
+  await expect(page).toHaveURL(/\/admin\/ingest/)
 })

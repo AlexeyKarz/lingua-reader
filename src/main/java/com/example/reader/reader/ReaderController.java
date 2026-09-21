@@ -1,8 +1,10 @@
 package com.example.reader.reader;
 
+import com.example.reader.metrics.ProductEventService;
 import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,10 +20,12 @@ public class ReaderController {
 
     private final ReaderRepository repo;
     private final MeterRegistry registry;
+    private final ProductEventService events;
 
-    public ReaderController(ReaderRepository repo, MeterRegistry registry) {
+    public ReaderController(ReaderRepository repo, MeterRegistry registry, ProductEventService events) {
         this.repo = repo;
         this.registry = registry;
+        this.events = events;
     }
 
     @Timed(
@@ -54,7 +58,8 @@ public class ReaderController {
             @RequestParam String tgt,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam(required = false) String method
+            @RequestParam(required = false) String method,
+            Authentication authentication
     ) {
         Timer.Sample sample = Timer.start(registry);
         String outcome = "ok";
@@ -189,6 +194,35 @@ public class ReaderController {
             throw e;
         } finally {
             recordReaderMetrics(sample, outcome, hasAlignments, workIdTag, srcEditionTag, tgtEditionTag, resolvedSrc, tgt, resolvedMethod, size);
+            events.record(
+                    "reader_page_viewed",
+                    authentication,
+                    parseLong(workIdTag),
+                    resolvedSrc,
+                    tgt,
+                    "page",
+                    null,
+                    "ok".equals(outcome),
+                    null,
+                    "ok".equals(outcome) ? 200 : 404,
+                    "ok".equals(outcome) ? null : outcome,
+                    size,
+                    null,
+                    Map.of(
+                            "outcome", outcome,
+                            "page", page,
+                            "pageSize", size,
+                            "hasAlignments", hasAlignments
+                    )
+            );
+        }
+    }
+
+    private Long parseLong(String value) {
+        try {
+            return value == null ? null : Long.parseLong(value);
+        } catch (NumberFormatException ignored) {
+            return null;
         }
     }
 

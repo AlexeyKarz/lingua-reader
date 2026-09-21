@@ -1,5 +1,6 @@
 package com.example.reader.ingestion;
 
+import com.example.reader.metrics.ProductEventService;
 import io.micrometer.core.annotation.Timed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -7,6 +8,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executor;
 
 @Service
@@ -20,17 +22,20 @@ public class IngestionJobService {
     private final LiteraryEditionGenerationService generationService;
     private final IngestionJobRepository jobRepository;
     private final Executor ingestionTaskExecutor;
+    private final ProductEventService events;
 
     public IngestionJobService(
             IngestionFacade ingestionFacade,
             LiteraryEditionGenerationService generationService,
             IngestionJobRepository jobRepository,
-            @Qualifier("ingestionTaskExecutor") Executor ingestionTaskExecutor
+            @Qualifier("ingestionTaskExecutor") Executor ingestionTaskExecutor,
+            ProductEventService events
     ) {
         this.ingestionFacade = ingestionFacade;
         this.generationService = generationService;
         this.jobRepository = jobRepository;
         this.ingestionTaskExecutor = ingestionTaskExecutor;
+        this.events = events;
     }
 
     @Timed(value = "ingestion.jobs.start", description = "Start ingestion job")
@@ -112,11 +117,43 @@ public class IngestionJobService {
                     jobRepository.updateProgress(jobId, step, message, chapters, paragraphs, sentences)
             );
             jobRepository.markSucceeded(jobId, result);
+            events.record(
+                    "ingestion_job_succeeded",
+                    null,
+                    result.workId(),
+                    request.originalLang(),
+                    request.lang(),
+                    "ingestion",
+                    null,
+                    true,
+                    null,
+                    200,
+                    null,
+                    null,
+                    null,
+                    Map.of("jobId", jobId, "editionId", result.editionId())
+            );
             log.info("Ingestion job {} completed: workId={}, editionId={}, chapters={}, paragraphs={}, sentences={}",
                     jobId, result.workId(), result.editionId(), result.chapters(), result.paragraphs(), result.sentences());
         } catch (Exception e) {
             String error = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
             jobRepository.markFailed(jobId, error);
+            events.record(
+                    "ingestion_job_failed",
+                    null,
+                    null,
+                    request.originalLang(),
+                    request.lang(),
+                    "ingestion",
+                    null,
+                    false,
+                    null,
+                    500,
+                    e.getClass().getSimpleName(),
+                    null,
+                    null,
+                    Map.of("jobId", jobId)
+            );
             log.error("Ingestion job {} failed: {}", jobId, error, e);
         }
     }
@@ -130,11 +167,43 @@ public class IngestionJobService {
                     jobRepository.updateProgress(jobId, step, message, chapters, paragraphs, sentences)
             );
             jobRepository.markSucceeded(jobId, result);
+            events.record(
+                    "generated_literary_job_succeeded",
+                    null,
+                    result.workId(),
+                    request.sourceLang(),
+                    request.targetLang(),
+                    "generated_literary",
+                    request.model(),
+                    true,
+                    null,
+                    200,
+                    null,
+                    null,
+                    null,
+                    Map.of("jobId", jobId, "editionId", result.editionId())
+            );
             log.info("Literary generation job {} completed: workId={}, editionId={}, chapters={}, paragraphs={}, sentences={}",
                     jobId, result.workId(), result.editionId(), result.chapters(), result.paragraphs(), result.sentences());
         } catch (Exception e) {
             String error = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
             jobRepository.markFailed(jobId, error);
+            events.record(
+                    "generated_literary_job_failed",
+                    null,
+                    null,
+                    request.sourceLang(),
+                    request.targetLang(),
+                    "generated_literary",
+                    request.model(),
+                    false,
+                    null,
+                    500,
+                    e.getClass().getSimpleName(),
+                    null,
+                    null,
+                    Map.of("jobId", jobId)
+            );
             log.error("Literary generation job {} failed: {}", jobId, error, e);
         }
     }

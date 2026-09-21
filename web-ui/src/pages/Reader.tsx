@@ -1,7 +1,17 @@
 import {useCallback, useEffect, useLayoutEffect, useRef, useState, useMemo, type JSX} from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { useAuth } from '../authContext'
+import { csrfFetch } from '../csrfFetch'
 import { resolveReaderPath, LAST_READER_SESSION_KEY, type CatalogEntry } from '../readerNavigation'
-import { saveVocabularyItem } from '../vocabularyStorage'
+import {
+    fetchUserPreferences,
+    fetchUserReaderProgress,
+    saveUserPreference,
+    saveUserReaderProgress,
+    type SavedReaderState,
+} from '../userReaderStateApi'
+import { saveUserVocabularyItem } from '../vocabularyApi'
+import { saveVocabularyItem, type SaveVocabularyInput } from '../vocabularyStorage'
 
 // type Aligned = { left: string[]; right: string[]; bookId: string; src: string; tgt: string }
 
@@ -89,12 +99,6 @@ type WordTranslationResponse = WordDetails & {
     translated?: string
 }
 
-type SavedReaderState = {
-    page: number
-    size: number
-    savedAt: number
-}
-
 const DEFAULT_PAGE_SIZE = 20
 const FOLLOW_ALIGNMENT_KEY = 'mlr:reader-follow-alignment'
 const MOBILE_PANE_LAYOUT_KEY = 'mlr:reader-mobile-pane-layout'
@@ -148,9 +152,8 @@ function readSavedReaderState(bookId: string, src: string, tgt: string): SavedRe
     }
 }
 
-function writeSavedReaderState(bookId: string, src: string, tgt: string, state: SavedReaderState) {
+function writeLastReaderSession(bookId: string, src: string, tgt: string, state: SavedReaderState) {
     try {
-        window.localStorage.setItem(getReaderProgressKey(bookId, src, tgt), JSON.stringify(state))
         window.localStorage.setItem(
             LAST_READER_SESSION_KEY,
             JSON.stringify({ bookId, src, tgt, ...state })
@@ -160,7 +163,17 @@ function writeSavedReaderState(bookId: string, src: string, tgt: string, state: 
     }
 }
 
+function writeSavedReaderState(bookId: string, src: string, tgt: string, state: SavedReaderState) {
+    try {
+        window.localStorage.setItem(getReaderProgressKey(bookId, src, tgt), JSON.stringify(state))
+        writeLastReaderSession(bookId, src, tgt, state)
+    } catch {
+        // Ignore quota/storage failures; reader should still work without persistence.
+    }
+}
+
 export default function Reader() {
+    const auth = useAuth()
     const location = useLocation()
     const navigate = useNavigate()
     const params = useMemo(() => new URLSearchParams(location.search), [location.search])
@@ -182,6 +195,7 @@ export default function Reader() {
     const [jumpError, setJumpError] = useState<string | null>(null)
     const [errorMsg, setErrorMsg] = useState<string | null>(null)
     const [progressReady, setProgressReady] = useState(false)
+    const [readerPreferencesReady, setReaderPreferencesReady] = useState(false)
     const [followAlignment, setFollowAlignment] = useState(() => readBooleanSetting(FOLLOW_ALIGNMENT_KEY, false))
     const [mobilePaneLayout, setMobilePaneLayout] = useState<MobilePaneLayout>(() => readMobilePaneLayout())
 
@@ -310,17 +324,38 @@ export default function Reader() {
             setProgressReady(false)
             return
         }
-        const saved = readSavedReaderState(bookId, src, tgt)
-        const nextPage = saved?.page ?? 0
-        const nextSize = saved?.size ?? DEFAULT_PAGE_SIZE
-
+        if (auth.loading) return
+        let alive = true
         setProgressReady(false)
-        setPage(nextPage)
-        setSize(nextSize)
-        setJumpInput(String(nextPage + 1))
-        setJumpError(null)
-        setProgressReady(true)
-    }, [readerStorageKey, bookId, src, tgt, hasReaderParams])
+
+        ;(async () => {
+            let saved: SavedReaderState | null = null
+            if (auth.authenticated) {
+                try {
+                    saved = await fetchUserReaderProgress(bookId, src, tgt)
+                } catch (caught) {
+                    console.warn('Could not load account reader progress', caught)
+                    saved = readSavedReaderState(bookId, src, tgt)
+                }
+            } else {
+                saved = readSavedReaderState(bookId, src, tgt)
+            }
+
+            if (!alive) return
+            const nextPage = saved?.page ?? 0
+            const nextSize = saved?.size ?? DEFAULT_PAGE_SIZE
+
+            setPage(nextPage)
+            setSize(nextSize)
+            setJumpInput(String(nextPage + 1))
+            setJumpError(null)
+            setProgressReady(true)
+        })()
+
+        return () => {
+            alive = false
+        }
+    }, [readerStorageKey, bookId, src, tgt, hasReaderParams, auth.authenticated, auth.loading, auth.user?.id])
 
     useEffect(() => {
         if (!progressReady || !hasReaderParams) return
@@ -385,29 +420,91 @@ export default function Reader() {
     }, [notice])
 
     useEffect(() => {
-        if (!progressReady || !hasReaderParams) return
-        writeSavedReaderState(bookId, src, tgt, {
+        if (!progressReady || !hasReaderParams || auth.loading) return
+        const state: SavedReaderState = {
             page,
             size,
             savedAt: Date.now(),
-        })
-    }, [bookId, src, tgt, page, size, progressReady, hasReaderParams])
+        }
+        if (auth.authenticated) {
+            writeLastReaderSession(bookId, src, tgt, state)
+            void saveUserReaderProgress({
+                bookId,
+                source: src,
+                target: tgt,
+                page,
+                size,
+            }).catch(caught => {
+                console.warn('Could not save account reader progress', caught)
+            })
+            return
+        }
+        writeSavedReaderState(bookId, src, tgt, state)
+    }, [bookId, src, tgt, page, size, progressReady, hasReaderParams, auth.authenticated, auth.loading])
 
     useEffect(() => {
+        if (auth.loading) return
+        let alive = true
+        setReaderPreferencesReady(false)
+
+        ;(async () => {
+            let nextFollowAlignment = readBooleanSetting(FOLLOW_ALIGNMENT_KEY, false)
+            let nextMobilePaneLayout = readMobilePaneLayout()
+            if (auth.authenticated) {
+                try {
+                    const preferences = await fetchUserPreferences()
+                    if (typeof preferences['reader.followAlignment'] === 'boolean') {
+                        nextFollowAlignment = preferences['reader.followAlignment']
+                    }
+                    if (
+                        preferences['reader.mobilePaneLayout'] === 'stack' ||
+                        preferences['reader.mobilePaneLayout'] === 'split'
+                    ) {
+                        nextMobilePaneLayout = preferences['reader.mobilePaneLayout']
+                    }
+                } catch (caught) {
+                    console.warn('Could not load account reader preferences', caught)
+                }
+            }
+
+            if (!alive) return
+            setFollowAlignment(nextFollowAlignment)
+            setMobilePaneLayout(nextMobilePaneLayout)
+            setReaderPreferencesReady(true)
+        })()
+
+        return () => {
+            alive = false
+        }
+    }, [auth.authenticated, auth.loading, auth.user?.id])
+
+    useEffect(() => {
+        if (!readerPreferencesReady || auth.loading) return
+        if (auth.authenticated) {
+            void saveUserPreference('reader.followAlignment', followAlignment)
+                .catch(caught => console.warn('Could not save account reader preference', caught))
+            return
+        }
         try {
             window.localStorage.setItem(FOLLOW_ALIGNMENT_KEY, String(followAlignment))
         } catch {
-            // Reader settings are convenience-only.
+            // Reader settings are convenience-only for guests.
         }
-    }, [followAlignment])
+    }, [followAlignment, readerPreferencesReady, auth.authenticated, auth.loading])
 
     useEffect(() => {
+        if (!readerPreferencesReady || auth.loading) return
+        if (auth.authenticated) {
+            void saveUserPreference('reader.mobilePaneLayout', mobilePaneLayout)
+                .catch(caught => console.warn('Could not save account reader preference', caught))
+            return
+        }
         try {
             window.localStorage.setItem(MOBILE_PANE_LAYOUT_KEY, mobilePaneLayout)
         } catch {
-            // Reader settings are convenience-only.
+            // Reader settings are convenience-only for guests.
         }
-    }, [mobilePaneLayout])
+    }, [mobilePaneLayout, readerPreferencesReady, auth.authenticated, auth.loading])
 
     // Utility: clamp number into [min, max]
     const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(n, max))
@@ -713,7 +810,7 @@ export default function Reader() {
                         }
                     }
                 } else {
-                    const r = await fetch('/api/translate/sentence', {
+                    const r = await csrfFetch('/api/translate/sentence', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ text, source: sourceLang, target: targetLang })
@@ -722,7 +819,7 @@ export default function Reader() {
                     resultText = j.translated ?? ''
                 }
             } else if (action === 'literary') {
-                const r = await fetch('/api/translate/literary', {
+                const r = await csrfFetch('/api/translate/literary', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -736,7 +833,7 @@ export default function Reader() {
                 resultText = j.translated ?? ''
             } else {
                 const translation = pop.result ?? ''
-                const r = await fetch('/api/translate/explain', {
+                const r = await csrfFetch('/api/translate/explain', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -814,12 +911,12 @@ export default function Reader() {
         setShowFrontRight(v => !v)
     }
 
-    function saveCurrentTranslation() {
+    async function saveCurrentTranslation() {
         if (pop.kind !== 'result' || pop.action === 'explain' || !pop.result?.trim()) return
-        const kind = pop.wordDetails?.dictionary || (pop.text.length <= 40 && !/\s/.test(pop.text))
+        const kind: SaveVocabularyInput['kind'] = pop.wordDetails?.dictionary || (pop.text.length <= 40 && !/\s/.test(pop.text))
             ? 'word'
             : 'sentence'
-        const saved = saveVocabularyItem({
+        const input: SaveVocabularyInput = {
             kind,
             text: pop.text,
             source: pop.sourceLang,
@@ -831,9 +928,16 @@ export default function Reader() {
             author: data?.author,
             page,
             sentenceId: pop.sentenceId,
-        })
-        setLastSavedLookupKey(saved.id)
-        setNotice(`${kind === 'word' ? 'Word' : 'Sentence'} saved for review.`)
+        }
+        try {
+            const saved = auth.authenticated
+                ? await saveUserVocabularyItem(input)
+                : saveVocabularyItem(input)
+            setLastSavedLookupKey(saved.id)
+            setNotice(`${kind === 'word' ? 'Word' : 'Sentence'} saved for review.`)
+        } catch (caught) {
+            setNotice(caught instanceof Error ? caught.message : 'Could not save for review.')
+        }
     }
 
     function normalizeDictionarySurface(value: string | undefined) {
@@ -1488,7 +1592,7 @@ export default function Reader() {
                                         <div className="mt-4 flex flex-wrap items-center gap-2">
                                             <button
                                                 className="btn"
-                                                onClick={saveCurrentTranslation}
+                                                onClick={() => void saveCurrentTranslation()}
                                                 disabled={!!lastSavedLookupKey}
                                             >
                                                 {lastSavedLookupKey ? 'Saved' : 'Save'}

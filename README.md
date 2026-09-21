@@ -9,15 +9,17 @@ Monolith implementation of the multilingual reading assistant used in the **mono
 
 Goal: enable parallel reading (original + publisher translation), word/sentence translation, optional AI explanation, and a small secure deployment suitable for a public CV/demo project.
 
-Saved vocabulary and review are implemented client-side. A reader can save a
-word or sentence after lookup and review it later from the Vocabulary page. The
-data stays in the browser's localStorage, so no account is required for the
-public demo.
+Saved vocabulary, review state, reader progress, and reader preferences are
+stored in the user account after sign-in. Guests still get a local browser
+fallback, and signed-in users can import old local browser data from the banner
+shown after login.
 
 Security note:
 - public runtime endpoints are catalog, reader, and translation/explanation
-- admin ingestion endpoints are disabled by default
-- if admin ingestion is enabled, `/api/admin/**` requires a bearer token
+- browser admin access requires a signed-in user with the `ADMIN` role
+- cookie-authenticated unsafe browser requests use CSRF tokens
+- deployment automation should use scoped API tokens from the Admin dashboard
+- legacy script access to `/api/admin/**` can still be enabled with a static bearer token
 - Prometheus/Grafana are off by default and should not be exposed publicly
 - real provider credentials must be supplied only through local/server environment variables
 
@@ -269,17 +271,13 @@ After that, pushes to `main` or `prod` can deploy automatically.
 
 ### Admin ingestion in production
 
-Keep admin ingestion disabled for normal public demo use:
+Browser admin access uses a database-backed user session. Bootstrap the first
+admin account through server-only environment variables:
 
 ```env
-MLR_ADMIN_ENABLED=false
-```
-
-To ingest new books temporarily, enable it and set a long random token:
-
-```env
-MLR_ADMIN_ENABLED=true
-MLR_ADMIN_TOKEN=<long-random-token>
+MLR_BOOTSTRAP_ADMIN_EMAIL=admin@example.com
+MLR_BOOTSTRAP_ADMIN_PASSWORD=<long-random-password>
+MLR_BOOTSTRAP_ADMIN_DISPLAY_NAME=Admin
 ```
 
 Restart the app after changing `.env`:
@@ -288,17 +286,32 @@ Restart the app after changing `.env`:
 docker compose -f docker-compose.prod.yml --env-file .env up -d app
 ```
 
-Admin requests must include:
+Then sign in through the web UI. The `Admin` navigation item appears only for a
+signed-in admin user and opens `/admin`, which includes metrics, recent
+ingestion health, and automation-token management. The ingestion form remains at
+`/admin/ingest`. Uploaded EPUB or TXT files are submitted with the browser
+session and CSRF protection; no admin token is stored in the browser. TXT uploads
+are converted to minimal EPUBs server-side before the existing ingestion
+pipeline runs.
+
+For scripts or deployment-side ingestion, create an API token in the Admin
+dashboard with the `admin:ingest` scope and pass it as:
 
 ```http
-Authorization: Bearer <long-random-token>
+Authorization: Bearer mlr_...
 ```
 
-The deployed web UI also has a direct admin ingestion page at
-`/admin/ingest`. It is not linked from the public navigation. The page stores
-the admin token in the current browser tab session and submits uploaded EPUB or
-TXT files to the secured admin API. TXT uploads are converted to minimal EPUBs
-server-side before the existing ingestion pipeline runs.
+API tokens are stored hashed, can be revoked, and can be scoped to ingestion,
+metrics, or full admin access.
+
+The old static bearer-token path is still available for trusted scripts and
+ingestion runners that have not been migrated yet. To enable that compatibility
+path, set:
+
+```env
+MLR_ADMIN_ENABLED=true
+MLR_ADMIN_TOKEN=<long-random-token>
+```
 
 Each edition row can also be switched to `AI` mode. In that mode the admin UI
 generates a natural/literary translated edition from an already ingested source
@@ -315,7 +328,8 @@ The default source-character guard is 250,000 characters. Generated editions are
 stored with `format=ai-literary`, which the catalog and reader use to show `(AI)`
 labels.
 
-Disable admin again after ingestion unless you actively need it.
+Disable the legacy bearer-token path again after script-based ingestion unless
+you actively need it.
 
 ### Server-side ingestion runner
 
@@ -330,14 +344,17 @@ in the `ingest_model_cache` Docker volume so they do not need to be downloaded
 again for every book. Dictionary files are mounted from the host and are never
 committed or baked into the image.
 
-1. Temporarily enable admin ingestion in `.env`:
+1. Create an automation token from `/admin` with the `admin:ingest` scope, then
+   store it only on the server in `.env`:
 
 ```env
-MLR_ADMIN_ENABLED=true
-MLR_ADMIN_TOKEN=<long-random-token>
+MLR_ADMIN_ENABLED=false
+MLR_ADMIN_API_TOKEN=mlr_<generated-token>
 ```
 
-2. Recreate the app so the admin settings are applied:
+The runner also still accepts `MLR_ADMIN_TOKEN` for legacy static-token setups.
+
+2. Recreate the app if `.env` changed:
 
 ```bash
 docker compose -f docker-compose.prod.yml --env-file .env up -d --force-recreate app
@@ -427,7 +444,10 @@ server:
 }
 ```
 
-7. Disable admin ingestion again:
+7. Keep the API token server-local. Revoke it from `/admin` when it is no longer
+   needed.
+
+For old static-token deployments, disable legacy admin ingestion again after use:
 
 ```env
 MLR_ADMIN_ENABLED=false
@@ -445,8 +465,14 @@ docker compose -f docker-compose.prod.yml --env-file .env up -d --force-recreate
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `MLR_ADMIN_ENABLED` | `false` | Enables `/api/admin/**` endpoints when set to `true`. |
-| `MLR_ADMIN_TOKEN` | empty | Required bearer token for `/api/admin/**` when admin is enabled. |
+| `MLR_BOOTSTRAP_ADMIN_EMAIL` | empty | Creates the first admin user when no admin exists. |
+| `MLR_BOOTSTRAP_ADMIN_PASSWORD` | empty | Password for the first admin user; must be at least 12 characters. |
+| `MLR_BOOTSTRAP_ADMIN_DISPLAY_NAME` | `Admin` | Display name for the bootstrapped admin user. |
+| `MLR_SESSION_TIMEOUT` | `7d` | Server-side browser session lifetime. |
+| `MLR_SESSION_CLEANUP_CRON` | hourly | Spring Session JDBC cleanup schedule. |
+| `MLR_ADMIN_API_TOKEN` | empty | Scoped API token used by ingestion runner scripts; create it in `/admin`. |
+| `MLR_ADMIN_ENABLED` | `false` | Enables the legacy bearer-token admin API path for trusted scripts. |
+| `MLR_ADMIN_TOKEN` | empty | Legacy bearer token for `/api/admin/**` when token access is enabled. |
 | `MLR_INGESTION_UPLOAD_DIR` | JVM temp dir | Server-side directory for source files uploaded through `/admin/ingest`. |
 | `MLR_INGESTION_MAX_FILE_SIZE` | `50MB` | Maximum uploaded EPUB or TXT size. |
 | `MLR_INGESTION_MAX_REQUEST_SIZE` | `60MB` | Maximum multipart request size for admin ingestion uploads. |
@@ -810,22 +836,19 @@ WHERE title = 'Faust (Part I)';
 
 ## Async ingestion API (app keeps running)
 
-You can ingest while the backend is running (no restart/stop required), but the admin API is disabled by default.
-
-Enable it only for trusted local/private administration:
+You can ingest while the backend is running (no restart/stop required). For
+scripts, create a scoped automation token from `/admin` with `admin:ingest` and
+export it locally:
 
 ```bash
-export MLR_ADMIN_ENABLED=true
-export MLR_ADMIN_TOKEN=dev-admin-token
+export MLR_ADMIN_API_TOKEN=mlr_...
 ```
-
-Then start/restart the backend.
 
 1. Submit job:
 ```bash
 curl -X POST http://localhost:8080/api/admin/ingest/jobs \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer dev-admin-token" \
+  -H "Authorization: Bearer $MLR_ADMIN_API_TOKEN" \
   -d '{
     "workTitle":"A Christmas Carol",
     "lang":"en",
@@ -838,13 +861,15 @@ curl -X POST http://localhost:8080/api/admin/ingest/jobs \
 
 2. Poll status:
 ```bash
-curl -H "Authorization: Bearer dev-admin-token" \
+curl -H "Authorization: Bearer $MLR_ADMIN_API_TOKEN" \
   http://localhost:8080/api/admin/ingest/jobs/1
 ```
 
 Statuses: `PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`.
 
-`python-embed/add_book.py` also supports secured admin ingestion. It reads `MLR_ADMIN_TOKEN` from `.env`/environment or accepts `--admin-token`.
+`python-embed/add_book.py` also supports secured admin ingestion. It reads
+`MLR_ADMIN_API_TOKEN` from `.env`/environment first, then falls back to legacy
+`MLR_ADMIN_TOKEN`, or accepts `--admin-token`.
 
 ## Benchmark plan
 

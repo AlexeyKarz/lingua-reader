@@ -21,8 +21,9 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-if grep -Eq '^[[:space:]]*MLR_ADMIN_ENABLED[[:space:]]*=[[:space:]]*false[[:space:]]*$' "$ENV_FILE"; then
-  echo "Warning: MLR_ADMIN_ENABLED=false in $ENV_FILE; ingestion API calls will fail unless the app is already configured differently." >&2
+if grep -Eq '^[[:space:]]*MLR_ADMIN_ENABLED[[:space:]]*=[[:space:]]*false[[:space:]]*$' "$ENV_FILE" \
+  && ! grep -Eq '^[[:space:]]*(MLR_ADMIN_API_TOKEN|MLR_ADMIN_TOKEN)[[:space:]]*=[[:space:]]*[^[:space:]#]+' "$ENV_FILE"; then
+  echo "Warning: MLR_ADMIN_ENABLED=false and no MLR_ADMIN_API_TOKEN is set in $ENV_FILE; ingestion API calls need an admin:ingest API token." >&2
 fi
 
 manifest="$1"

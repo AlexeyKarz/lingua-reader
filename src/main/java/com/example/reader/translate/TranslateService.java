@@ -117,6 +117,10 @@ public class TranslateService {
         return provider.explain(text, source, target, bookContext);
     }
 
+    public String providerName() {
+        return providerName;
+    }
+
     private String cachedLiteral(String operation, String text, String source, String target) {
         return cachedProvider(operation, text, source, target, () -> provider.literal(text, source, target));
     }

@@ -11,6 +11,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.multipart.MultipartException;
@@ -26,6 +27,18 @@ public class ApiErrorHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String,Object>> badRequest(IllegalArgumentException ex, WebRequest req) {
         return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ApiError> responseStatus(ResponseStatusException ex, WebRequest req) {
+        HttpStatus status = HttpStatus.valueOf(ex.getStatusCode().value());
+        String message = ex.getReason() == null ? defaultMessage(status) : ex.getReason();
+        return ResponseEntity.status(status).body(new ApiError(
+                status.value(),
+                status.getReasonPhrase(),
+                message,
+                requestPath(req)
+        ));
     }
 
     @ExceptionHandler({

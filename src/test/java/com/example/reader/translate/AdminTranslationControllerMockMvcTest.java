@@ -1,5 +1,6 @@
 package com.example.reader.translate;
 
+import com.example.reader.auth.ApiTokenService;
 import com.example.reader.common.ApiErrorHandler;
 import com.example.reader.security.AdminAccessProperties;
 import com.example.reader.security.AdminApiInterceptor;
@@ -71,7 +72,7 @@ class AdminTranslationControllerMockMvcTest {
         properties.setEnabled(enabled);
         properties.setToken(token);
         return standaloneSetup(new AdminTranslationController(service))
-                .addInterceptors(new AdminApiInterceptor(properties))
+                .addInterceptors(new AdminApiInterceptor(properties, mock(ApiTokenService.class)))
                 .setControllerAdvice(new ApiErrorHandler())
                 .build();
     }

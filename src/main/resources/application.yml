@@ -12,6 +12,12 @@ spring:
     url: jdbc:postgresql://localhost:5432/mlr
     username: mlr
     password: mlr_password
+  session:
+    store-type: jdbc
+    timeout: ${MLR_SESSION_TIMEOUT:7d}
+    jdbc:
+      initialize-schema: never
+      cleanup-cron: ${MLR_SESSION_CLEANUP_CRON:0 0 * * * *}
   jpa:
     hibernate:
       ddl-auto: validate   # or update for rapid prototyping
@@ -94,6 +100,11 @@ translate:
   - Do not translate the whole sentence unless needed for clarity; focus on explanation and key phrases."
 
 mlr:
+  auth:
+    bootstrap:
+      adminEmail: ${MLR_BOOTSTRAP_ADMIN_EMAIL:}
+      adminPassword: ${MLR_BOOTSTRAP_ADMIN_PASSWORD:}
+      adminDisplayName: ${MLR_BOOTSTRAP_ADMIN_DISPLAY_NAME:Admin}
   admin:
     enabled: ${MLR_ADMIN_ENABLED:false}
     token: ${MLR_ADMIN_TOKEN:}

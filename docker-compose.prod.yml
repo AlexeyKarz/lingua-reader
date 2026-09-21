@@ -65,6 +65,7 @@ services:
       - postgres
     environment:
       MLR_API_BASE_URL: http://app:8080
+      MLR_ADMIN_API_TOKEN: ${MLR_ADMIN_API_TOKEN:-}
       MLR_ADMIN_TOKEN: ${MLR_ADMIN_TOKEN:-}
       DATABASE_URL: host=postgres port=5432 dbname=${POSTGRES_DB:-mlr} user=${POSTGRES_USER:-mlr} password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       DICTIONARY_DIR: /dictionaries

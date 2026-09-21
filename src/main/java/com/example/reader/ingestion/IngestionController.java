@@ -1,12 +1,17 @@
 package com.example.reader.ingestion;
 
+import com.example.reader.metrics.AdminAuditService;
+import com.example.reader.metrics.ProductEventService;
+import jakarta.servlet.http.HttpServletRequest;
 import io.micrometer.core.annotation.Timed;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/admin/ingest")
@@ -14,17 +19,32 @@ public class IngestionController {
 
     private final IngestionJobService jobService;
     private final IngestionUploadStorage uploadStorage;
+    private final ProductEventService events;
+    private final AdminAuditService audit;
 
-    public IngestionController(IngestionJobService jobService, IngestionUploadStorage uploadStorage) {
+    public IngestionController(
+            IngestionJobService jobService,
+            IngestionUploadStorage uploadStorage,
+            ProductEventService events,
+            AdminAuditService audit
+    ) {
         this.jobService = jobService;
         this.uploadStorage = uploadStorage;
+        this.events = events;
+        this.audit = audit;
     }
 
     @Timed(value = "ingestion.jobs.submit", description = "Submit ingestion jobs")
     @PostMapping("/jobs")
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public StartIngestionResponse submit(@RequestBody IngestionRequest request) {
+    public StartIngestionResponse submit(
+            @RequestBody IngestionRequest request,
+            Authentication authentication,
+            HttpServletRequest servletRequest
+    ) {
         long jobId = jobService.startJob(request);
+        events.recordSimple("ingestion_job_submitted", authentication, Map.of("jobId", jobId, "mode", "file"));
+        audit.record("ingestion_job_submitted", authentication, servletRequest, "ingestion_job", String.valueOf(jobId), Map.of("mode", "file"));
         return new StartIngestionResponse(jobId, "PENDING", "/api/admin/ingest/jobs/" + jobId);
     }
 
@@ -37,8 +57,14 @@ public class IngestionController {
     @Timed(value = "ingestion.jobs.generate_literary.submit", description = "Submit literary edition generation jobs")
     @PostMapping("/jobs/generate-literary")
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public StartIngestionResponse submitGeneratedLiterary(@RequestBody GenerateLiteraryEditionRequest request) {
+    public StartIngestionResponse submitGeneratedLiterary(
+            @RequestBody GenerateLiteraryEditionRequest request,
+            Authentication authentication,
+            HttpServletRequest servletRequest
+    ) {
         long jobId = jobService.startGeneratedLiteraryJob(request);
+        events.recordSimple("generated_literary_job_submitted", authentication, Map.of("jobId", jobId, "mode", "generate"));
+        audit.record("generated_literary_job_submitted", authentication, servletRequest, "ingestion_job", String.valueOf(jobId), Map.of("mode", "generate"));
         return new StartIngestionResponse(jobId, "PENDING", "/api/admin/ingest/jobs/" + jobId);
     }
 
@@ -54,7 +80,9 @@ public class IngestionController {
             @RequestParam(required = false) String author,
             @RequestParam(required = false) String description,
             @RequestParam(required = false) String originalLang,
-            @RequestPart("file") MultipartFile file
+            @RequestPart("file") MultipartFile file,
+            Authentication authentication,
+            HttpServletRequest servletRequest
     ) {
         IngestionRequest metadata = new IngestionRequest(
                 workTitle,
@@ -82,6 +110,8 @@ public class IngestionController {
                 metadata.originalLang()
         );
         long jobId = jobService.startJob(request);
+        events.recordSimple("ingestion_job_submitted", authentication, Map.of("jobId", jobId, "mode", "upload"));
+        audit.record("ingestion_job_submitted", authentication, servletRequest, "ingestion_job", String.valueOf(jobId), Map.of("mode", "upload"));
         return new StartIngestionResponse(jobId, "PENDING", "/api/admin/ingest/jobs/" + jobId);
     }
 
@@ -94,8 +124,10 @@ public class IngestionController {
     @Timed(value = "ingestion.jobs.retry", description = "Retry failed ingestion job")
     @PostMapping("/jobs/{id}/retry")
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public StartIngestionResponse retry(@PathVariable long id) {
+    public StartIngestionResponse retry(@PathVariable long id, Authentication authentication, HttpServletRequest servletRequest) {
         long jobId = jobService.retryJob(id);
+        events.recordSimple("ingestion_job_retried", authentication, Map.of("sourceJobId", id, "jobId", jobId));
+        audit.record("ingestion_job_retried", authentication, servletRequest, "ingestion_job", String.valueOf(jobId), Map.of("sourceJobId", id));
         return new StartIngestionResponse(jobId, "PENDING", "/api/admin/ingest/jobs/" + jobId);
     }
 

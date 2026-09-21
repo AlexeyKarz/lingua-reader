@@ -1,11 +1,21 @@
 import { useEffect, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
-import { buildReaderPath, readLastReaderSession, resolveReaderPath, type CatalogEntry } from './readerNavigation'
+import { useAuth } from './authContext'
+import LocalStateImportBanner from './LocalStateImportBanner'
+import {
+    buildReaderPath,
+    readLastReaderSession,
+    resolveReaderPath,
+    resolveReaderPathForSession,
+    type CatalogEntry,
+} from './readerNavigation'
+import { fetchRecentUserReaderProgress } from './userReaderStateApi'
 
 const THEME_KEY = 'mlr:theme'
 
 export default function App() {
     const { pathname, search } = useLocation()
+    const auth = useAuth()
     const [theme, setTheme] = useState<'light' | 'dark'>(() => {
         const stored = window.localStorage.getItem(THEME_KEY)
         return stored === 'dark' ? 'dark' : 'light'
@@ -25,17 +35,46 @@ export default function App() {
     }, [theme])
 
     useEffect(() => {
+        let cancelled = false
         ;(async () => {
+            let accountProgressPath: string | null = null
+            if (!auth.loading && auth.authenticated) {
+                try {
+                    const recent = await fetchRecentUserReaderProgress(1)
+                    const lastProgress = recent[0]
+                    if (lastProgress) {
+                        accountProgressPath = buildReaderPath({
+                            bookId: lastProgress.bookId,
+                            src: lastProgress.source,
+                            tgt: lastProgress.target,
+                        })
+                    }
+                } catch {
+                    // Fall back to local navigation state and catalog defaults.
+                }
+            }
+
             try {
                 const res = await fetch('/api/catalog/books')
                 if (!res.ok) return
                 const books = (await res.json()) as CatalogEntry[]
-                setReaderPath(resolveReaderPath(books) ?? '/')
+                if (!cancelled) {
+                    const accountSessionPath = accountProgressPath
+                        ? resolveAccountProgressPath(books, accountProgressPath)
+                        : null
+                    setReaderPath(accountSessionPath ?? resolveReaderPath(books) ?? '/')
+                }
             } catch {
-                // Keep the saved-session fallback if the catalog cannot be loaded.
+                if (!cancelled && accountProgressPath) {
+                    setReaderPath(accountProgressPath)
+                }
+                // Otherwise keep the saved-session fallback if the catalog cannot be loaded.
             }
         })()
-    }, [pathname])
+        return () => {
+            cancelled = true
+        }
+    }, [auth.authenticated, auth.loading, auth.user?.id, pathname])
 
     const NavLink = ({ to, label, activePath }: {to:string; label:string; activePath?: string}) => (
         <Link
@@ -75,6 +114,18 @@ export default function App() {
                                 <NavLink to="/" label="Catalog" />
                                 <NavLink to={readerPath} activePath="/reader" label="Reader" />
                                 <NavLink to="/vocabulary" label="Vocabulary" />
+                                {auth.hasRole('ADMIN') && <NavLink to="/admin" label="Admin" />}
+                                {auth.authenticated ? (
+                                    <button
+                                        type="button"
+                                        className="nav-pill"
+                                        onClick={() => void auth.logout()}
+                                    >
+                                        Logout
+                                    </button>
+                                ) : (
+                                    <NavLink to="/login" label="Login" />
+                                )}
                             </nav>
                             <button
                                 type="button"
@@ -88,10 +139,20 @@ export default function App() {
                         </div>
                     </div>
                 </header>
+                <LocalStateImportBanner />
                 <main>
                     <Outlet />
                 </main>
             </div>
         </div>
     )
+}
+
+function resolveAccountProgressPath(books: CatalogEntry[], readerPath: string) {
+    const url = new URL(readerPath, window.location.origin)
+    const bookId = url.searchParams.get('bookId')
+    const src = url.searchParams.get('src')
+    const tgt = url.searchParams.get('tgt')
+    if (!bookId || !src || !tgt) return null
+    return resolveReaderPathForSession(books, { bookId, src, tgt })
 }

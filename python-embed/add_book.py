@@ -168,7 +168,7 @@ def default_api_base_url() -> str:
 def default_admin_token() -> Optional[str]:
     load_dotenv(ROOT / ".env")
     load_dotenv(SCRIPTS_DIR / ".env")
-    token = os.getenv("MLR_ADMIN_TOKEN")
+    token = os.getenv("MLR_ADMIN_API_TOKEN") or os.getenv("MLR_ADMIN_TOKEN")
     return token if token else None
 
 
@@ -1499,7 +1499,7 @@ def main():
     p.add_argument(
         "--admin-token",
         default=default_admin_token(),
-        help="Bearer token for secured admin ingestion API (default: MLR_ADMIN_TOKEN from .env/env)",
+        help="Bearer token for secured admin ingestion API (default: MLR_ADMIN_API_TOKEN or MLR_ADMIN_TOKEN from .env/env)",
     )
     p.add_argument(
         "--poll-interval-sec",

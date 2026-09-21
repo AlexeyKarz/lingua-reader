@@ -5,6 +5,7 @@ import {
   getSourceLang,
   readLastReaderSession,
   resolveReaderPath,
+  resolveReaderPathForSession,
   type CatalogEntry,
 } from '../../src/readerNavigation'
 
@@ -77,5 +78,16 @@ describe('readerNavigation', () => {
   it('builds encoded reader paths', () => {
     expect(buildReaderPath({ bookId: 'A Book', src: 'pt-BR', tgt: 'zh cn' }))
       .toBe('/reader?bookId=A%20Book&src=pt-BR&tgt=zh%20cn')
+  })
+
+  it('validates direct reader sessions against available catalog languages', () => {
+    const books = [book({ workId: 7, langs: ['el', 'en'], originalLang: 'el' })]
+
+    expect(resolveReaderPathForSession(books, { bookId: '7', src: 'el', tgt: 'en' }))
+      .toBe('/reader?bookId=7&src=el&tgt=en')
+    expect(resolveReaderPathForSession(books, { bookId: '7', src: 'el', tgt: 'el' }))
+      .toBeNull()
+    expect(resolveReaderPathForSession(books, { bookId: '7', src: 'el', tgt: 'de' }))
+      .toBeNull()
   })
 })
