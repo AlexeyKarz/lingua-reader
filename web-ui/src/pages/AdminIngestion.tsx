@@ -514,7 +514,13 @@ export default function AdminIngestionPage() {
 
         const preparedLangs = editions.map(edition => normalizeLang(edition.lang)).filter(Boolean)
         if (new Set(preparedLangs).size !== preparedLangs.length) {
-            return 'Use one edition per language in a single submission.'
+            const duplicateLang = preparedLangs.find((lang, index) => preparedLangs.indexOf(lang) !== index) ?? ''
+            const duplicateCards = editions
+                .map((edition, index) => ({lang: normalizeLang(edition.lang), number: index + 1}))
+                .filter(edition => edition.lang === duplicateLang)
+                .map(edition => edition.number)
+            return `${duplicateLang.toUpperCase()} is selected as the edition language on Editions ${duplicateCards.join(' and ')}. `
+                + 'Each card needs a different edition language; AI cards may all use the same source language.'
         }
 
         const submittedUploadLangs = new Set(
@@ -1014,7 +1020,9 @@ export default function AdminIngestionPage() {
                                     </div>
                                     <div className="grid gap-3 md:grid-cols-3">
                                         <label className="flex flex-col gap-2 text-sm">
-                                            <span className="text-xs uppercase tracking-[0.18em] muted-copy">Language</span>
+                                            <span className="text-xs uppercase tracking-[0.18em] muted-copy">
+                                                {edition.mode === 'generate' ? 'Target edition language' : 'Language'}
+                                            </span>
                                             <input
                                                 list="admin-language-options"
                                                 value={edition.lang}

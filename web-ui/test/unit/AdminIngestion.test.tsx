@@ -257,7 +257,7 @@ describe('AdminIngestionPage', () => {
     await screen.findByText('Existing Book')
     fireEvent.change(screen.getByLabelText(/^Existing work$/i), { target: { value: '4' } })
     fireEvent.click(screen.getByRole('button', { name: 'AI' }))
-    fireEvent.change(screen.getByLabelText(/^Language$/i), { target: { value: 'FR' } })
+    fireEvent.change(screen.getByLabelText(/^Target edition language$/i), { target: { value: 'FR' } })
     fireEvent.change(screen.getByLabelText(/^Publisher$/i), { target: { value: 'Generated Press' } })
     fireEvent.change(screen.getByLabelText(/^Model$/i), { target: { value: 'gpt-4o' } })
     fireEvent.change(screen.getByLabelText(/^Maximum source characters$/i), { target: { value: '25000' } })
@@ -301,6 +301,42 @@ describe('AdminIngestionPage', () => {
     expect(screen.getByText('4 sentences')).toBeTruthy()
   })
 
+  it('submits one uploaded source with two AI target languages', async () => {
+    const fetchMock = installFetchMock()
+    render(<AdminIngestionPage />)
+
+    fireEvent.change(screen.getByLabelText(/^Title$/i), { target: { value: 'Three Editions' } })
+    fireEvent.change(screen.getByLabelText(/^Original language$/i), { target: { value: 'es' } })
+    fireEvent.change(screen.getByLabelText(/^Language$/i), { target: { value: 'es' } })
+    fireEvent.change(screen.getByLabelText(/^EPUB or TXT file$/i), {
+      target: { files: [new File(['I\nPrimera estrofa.'], 'poem.txt', { type: 'text/plain' })] },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /^Add edition$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Add edition$/i }))
+    const aiButtons = screen.getAllByRole('button', { name: /^AI$/i })
+    fireEvent.click(aiButtons[1])
+    fireEvent.click(aiButtons[2])
+    const targetLanguages = screen.getAllByLabelText(/^Target edition language$/i)
+    fireEvent.change(targetLanguages[0], { target: { value: 'en' } })
+    fireEvent.change(targetLanguages[1], { target: { value: 'ru' } })
+
+    submitForm()
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.filter(([input]) =>
+        String(input) === '/api/admin/ingest/jobs/generate-literary'
+      )).toHaveLength(2)
+    })
+    expect(fetchMock.mock.calls.filter(([input]) =>
+      String(input) === '/api/admin/ingest/jobs/upload'
+    )).toHaveLength(1)
+    const targets = fetchMock.mock.calls
+      .filter(([input]) => String(input) === '/api/admin/ingest/jobs/generate-literary')
+      .map(call => JSON.parse(String((call[1] as RequestInit).body)).targetLang)
+    expect(targets).toEqual(['en', 'ru'])
+  })
+
   it('ingests a draft source before estimating and does not upload it twice', async () => {
     const fetchMock = installFetchMock()
     render(<AdminIngestionPage />)
@@ -315,8 +351,7 @@ describe('AdminIngestionPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Add edition$/i }))
     const aiButtons = screen.getAllByRole('button', { name: /^AI$/i })
     fireEvent.click(aiButtons[1])
-    const languages = screen.getAllByLabelText(/^Language$/i)
-    fireEvent.change(languages[1], { target: { value: 'ru' } })
+    fireEvent.change(screen.getByLabelText(/^Target edition language$/i), { target: { value: 'ru' } })
 
     fireEvent.click(screen.getByRole('button', { name: /^Estimate size and time$/i }))
 
