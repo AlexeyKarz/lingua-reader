@@ -304,6 +304,7 @@ export default function AdminIngestionPage() {
     const [modelCatalog, setModelCatalog] = useState<LiteraryModelCatalog | null>(null)
     const [modelsLoading, setModelsLoading] = useState(true)
     const formErrorRef = useRef<HTMLDivElement | null>(null)
+    const [submissionMessage, setSubmissionMessage] = useState<string | null>(null)
 
     useEffect(() => {
         if (formError) {
@@ -746,6 +747,7 @@ export default function AdminIngestionPage() {
     async function submitAll(event: FormEvent<HTMLFormElement>) {
         event.preventDefault()
         setFormError(null)
+        setSubmissionMessage(null)
 
         const validationError = validateForm()
         if (validationError) {
@@ -780,6 +782,7 @@ export default function AdminIngestionPage() {
         const failedUploadLangs = new Set<string>()
 
         setSubmitting(true)
+        setSubmissionMessage(`Starting ${preparedEditions.length} edition${preparedEditions.length === 1 ? '' : 's'}…`)
         try {
             for (const edition of uploadEditions) {
                 const localId = createId()
@@ -809,10 +812,12 @@ export default function AdminIngestionPage() {
                     }
                 } catch (error) {
                     failedUploadLangs.add(edition.lang)
+                    const message = error instanceof Error ? error.message : 'Could not submit ingestion job.'
                     patchJob(localId, {
                         status: 'FAILED',
-                        error: error instanceof Error ? error.message : 'Could not submit ingestion job.',
+                        error: message,
                     })
+                    setFormError(`${edition.lang.toUpperCase()} upload failed: ${message}`)
                 }
             }
 
@@ -829,10 +834,12 @@ export default function AdminIngestionPage() {
                 }, ...current])
 
                 if (failedUploadLangs.has(edition.sourceLang)) {
+                    const message = `Skipped because ${edition.sourceLang.toUpperCase()} source ingestion failed or timed out.`
                     patchJob(localId, {
                         status: 'FAILED',
-                        error: `Skipped because ${edition.sourceLang.toUpperCase()} source ingestion failed or timed out.`,
+                        error: message,
                     })
+                    setFormError(`${edition.lang.toUpperCase()} generation failed: ${message}`)
                     continue
                 }
 
@@ -845,14 +852,17 @@ export default function AdminIngestionPage() {
                     })
                     void pollJob(localId, started.jobId)
                 } catch (error) {
+                    const message = error instanceof Error ? error.message : 'Could not submit generation job.'
                     patchJob(localId, {
                         status: 'FAILED',
-                        error: error instanceof Error ? error.message : 'Could not submit generation job.',
+                        error: message,
                     })
+                    setFormError(`${edition.lang.toUpperCase()} generation failed: ${message}`)
                 }
             }
         } finally {
             setSubmitting(false)
+            setSubmissionMessage('Submission requests finished. Follow each edition in the job status panel.')
             void loadHistory()
         }
     }
@@ -1195,6 +1205,11 @@ export default function AdminIngestionPage() {
                         <button type="submit" className="btn" disabled={submitting}>
                             {submitting ? 'Submitting...' : 'Start ingestion'}
                         </button>
+                        {submissionMessage && (
+                            <span role="status" aria-live="polite" className="text-sm muted-copy">
+                                {submissionMessage}
+                            </span>
+                        )}
                         <button
                             type="button"
                             className="btn-secondary"

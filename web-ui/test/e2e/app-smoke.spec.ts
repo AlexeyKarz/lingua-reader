@@ -174,6 +174,13 @@ test.beforeEach(async ({ page }) => {
   }))
   await page.route('**/api/admin/tokens', route => fulfillJson(route, []))
   await page.route(/\/api\/admin\/ingest\/jobs\?limit=50$/, route => fulfillJson(route, []))
+  await page.route('**/api/admin/ingest/literary-models', route => fulfillJson(route, {
+    provider: 'openai',
+    defaultModel: 'gpt-4o-mini',
+    models: ['gpt-4o-mini', 'gpt-5-mini'],
+    live: true,
+    warning: null,
+  }))
 })
 
 test('catalog to reader lookup save to vocabulary', async ({ page }) => {
@@ -282,12 +289,13 @@ test('admin ingestion queues generated literary edition for an existing source',
   await page.goto('/admin/ingest')
   await page.getByLabel('Existing work').selectOption('101')
   await page.getByRole('button', { name: 'AI' }).click()
-  await page.getByLabel('Language', { exact: true }).fill('fr')
+  await page.getByLabel('Target edition language').fill('fr')
   await page.getByLabel('Publisher').fill('Generated Press')
-  await page.getByLabel('Model').fill('gpt-4o')
-  await page.getByLabel('Max source chars').fill('25000')
-  await page.getByLabel('Chunk chars').fill('1200')
-  await page.getByLabel('Context chars').fill('300')
+  await page.getByLabel('Model').selectOption('gpt-4o-mini')
+  await page.getByText('Advanced generation limits').click()
+  await page.getByLabel('Maximum source characters').fill('25000')
+  await page.getByLabel('Characters per AI request').fill('1200')
+  await page.getByLabel('Previous-text context').fill('300')
   await page.getByRole('button', { name: 'Start ingestion' }).click()
 
   await expect(page.getByText('2 sentences')).toBeVisible()
@@ -303,8 +311,56 @@ test('admin ingestion queues generated literary edition for an existing source',
     maxSourceChars: 25000,
     chunkMaxChars: 1200,
     contextChars: 300,
-    model: 'gpt-4o',
+    model: 'gpt-4o-mini',
   })
+})
+
+test('admin ingestion submits one source and two AI targets from the real button click', async ({ page }) => {
+  const generatedTargets: string[] = []
+  let uploadCount = 0
+  let nextJobId = 80
+
+  await page.route('**/api/admin/ingest/jobs/upload', route => {
+    uploadCount += 1
+    return fulfillJson(route, { jobId: 79, status: 'PENDING', statusUrl: '/api/admin/ingest/jobs/79' }, 202)
+  })
+  await page.route('**/api/admin/ingest/jobs/79', route => fulfillJson(route, {
+    id: 79, status: 'SUCCEEDED', workTitle: 'Campos test', lang: 'es', fileSpec: 'file:/tmp/campos.txt',
+    workId: 102, editionId: 204, chapters: 2, paragraphs: 2, sentences: 2,
+  }))
+  await page.route('**/api/admin/ingest/jobs/generate-literary', async route => {
+    const body = JSON.parse(route.request().postData() ?? '{}') as {targetLang: string}
+    generatedTargets.push(body.targetLang)
+    const jobId = nextJobId++
+    return fulfillJson(route, { jobId, status: 'PENDING', statusUrl: `/api/admin/ingest/jobs/${jobId}` }, 202)
+  })
+  await page.route(/\/api\/admin\/ingest\/jobs\/(80|81)$/, route => fulfillJson(route, {
+    id: Number(new URL(route.request().url()).pathname.split('/').pop()),
+    status: 'SUCCEEDED', workTitle: 'Campos test', lang: 'translated',
+    fileSpec: 'ai-literary://es/translated/Campos test', workId: 102, editionId: 205,
+    chapters: 2, paragraphs: 2, sentences: 2,
+  }))
+
+  await page.goto('/admin/ingest')
+  await page.getByLabel('Title').fill('Campos test')
+  await page.getByLabel('Original language').fill('es')
+  await page.getByLabel('Language', { exact: true }).fill('es')
+  await page.getByLabel('EPUB or TXT file').setInputFiles({
+    name: 'campos.txt', mimeType: 'text/plain', buffer: Buffer.from('I\nPrimera estrofa.'),
+  })
+  await page.getByRole('button', { name: 'Add edition' }).click()
+  await page.getByRole('button', { name: 'Add edition' }).click()
+  const aiButtons = page.getByRole('button', { name: 'AI' })
+  await aiButtons.nth(1).click()
+  await aiButtons.nth(2).click()
+  const targets = page.getByLabel('Target edition language')
+  await targets.nth(0).fill('en')
+  await targets.nth(1).fill('ru')
+
+  await page.getByRole('button', { name: 'Start ingestion' }).click()
+
+  await expect.poll(() => uploadCount).toBe(1)
+  await expect.poll(() => generatedTargets).toEqual(['en', 'ru'])
 })
 
 test('admin dashboard shows metrics and links to ingestion', async ({ page }) => {
