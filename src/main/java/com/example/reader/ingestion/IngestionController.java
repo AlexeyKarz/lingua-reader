@@ -2,6 +2,8 @@ package com.example.reader.ingestion;
 
 import com.example.reader.metrics.AdminAuditService;
 import com.example.reader.metrics.ProductEventService;
+import com.example.reader.translate.providers.LiteraryModelCatalog;
+import com.example.reader.translate.providers.ProviderClient;
 import jakarta.servlet.http.HttpServletRequest;
 import io.micrometer.core.annotation.Timed;
 import org.springframework.http.HttpStatus;
@@ -21,17 +23,20 @@ public class IngestionController {
     private final IngestionUploadStorage uploadStorage;
     private final ProductEventService events;
     private final AdminAuditService audit;
+    private final ProviderClient providerClient;
 
     public IngestionController(
             IngestionJobService jobService,
             IngestionUploadStorage uploadStorage,
             ProductEventService events,
-            AdminAuditService audit
+            AdminAuditService audit,
+            ProviderClient providerClient
     ) {
         this.jobService = jobService;
         this.uploadStorage = uploadStorage;
         this.events = events;
         this.audit = audit;
+        this.providerClient = providerClient;
     }
 
     @Timed(value = "ingestion.jobs.submit", description = "Submit ingestion jobs")
@@ -52,6 +57,11 @@ public class IngestionController {
     @GetMapping("/jobs")
     public List<IngestionJob> jobs(@RequestParam(required = false) Integer limit) {
         return jobService.listJobs(limit);
+    }
+
+    @GetMapping("/literary-models")
+    public LiteraryModelCatalog literaryModels() {
+        return providerClient.literaryModels();
     }
 
     @Timed(value = "ingestion.jobs.generate_literary.submit", description = "Submit literary edition generation jobs")

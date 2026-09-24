@@ -36,6 +36,11 @@ public class LimitedProviderClient implements ProviderClient {
     }
 
     @Override
+    public LiteraryModelCatalog literaryModels() {
+        return delegate.literaryModels();
+    }
+
+    @Override
     public String literal(String text, String source, String target) {
         QuotaDecision decision = reserve(text, "literal");
         if (!decision.allowed()) {

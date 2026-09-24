@@ -2,6 +2,16 @@ package com.example.reader.translate.providers;
 
 public interface ProviderClient {
 
+    default LiteraryModelCatalog literaryModels() {
+        return new LiteraryModelCatalog(
+                getClass().getSimpleName(),
+                null,
+                java.util.List.of(),
+                false,
+                "This translation provider does not publish a selectable model list."
+        );
+    }
+
     /**
      * Literal translation, as close as possible to the source wording.
      * Used both for single words and short sentences.

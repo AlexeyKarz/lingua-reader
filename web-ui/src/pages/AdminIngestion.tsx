@@ -8,13 +8,6 @@ const LEGACY_GENERATE_MAX_SOURCE_CHARS = 120000
 const DEFAULT_GENERATE_CHUNK_MAX_CHARS = '1800'
 const DEFAULT_GENERATE_CONTEXT_CHARS = '600'
 const GENERATED_FILE_SPEC_PREFIX = 'ai-literary://'
-const MODEL_NAME_PATTERN = /^[A-Za-z0-9._:/+-]+$/
-const MODEL_OPTIONS = [
-    'gpt-4o-mini',
-    'gpt-4o',
-    'gpt-4.1-mini',
-    'gpt-4.1',
-]
 
 type WorkDraft = {
     title: string
@@ -73,6 +66,14 @@ type LiteraryEstimate = {
     withinSourceLimit: boolean
     summary: string
     warning: string
+}
+
+type LiteraryModelCatalog = {
+    provider: string
+    defaultModel?: string | null
+    models: string[]
+    live: boolean
+    warning?: string | null
 }
 
 type IngestionJob = {
@@ -188,15 +189,11 @@ function optionalNumber(value: string) {
     return value.trim() ? Number(value.trim()) : undefined
 }
 
-function optionalModelError(value: string) {
+function optionalModelError(value: string, models: string[]) {
     const trimmed = value.trim()
     if (!trimmed) return null
-    if (trimmed.length > 128) return 'Model name must be at most 128 characters.'
-    if (!MODEL_NAME_PATTERN.test(trimmed)) {
-        return 'Model name can only use letters, numbers, dot, dash, underscore, colon, slash, or plus.'
-    }
-    if (!MODEL_OPTIONS.includes(trimmed)) {
-        return 'Choose a supported OpenAI model or leave Model blank to use the server default.'
+    if (!models.includes(trimmed)) {
+        return 'Choose a model verified for this API project or use the server default.'
     }
     return null
 }
@@ -304,6 +301,8 @@ export default function AdminIngestionPage() {
     const [estimates, setEstimates] = useState<Record<string, LiteraryEstimate>>({})
     const [estimatingId, setEstimatingId] = useState<string | null>(null)
     const [ingestedDraftIds, setIngestedDraftIds] = useState<Set<string>>(() => new Set())
+    const [modelCatalog, setModelCatalog] = useState<LiteraryModelCatalog | null>(null)
+    const [modelsLoading, setModelsLoading] = useState(true)
 
     useEffect(() => {
         ;(async () => {
@@ -315,7 +314,27 @@ export default function AdminIngestionPage() {
                 setCatalog([])
             }
         })()
+        void loadHistory()
+        void loadLiteraryModels()
     }, [])
+
+    async function loadLiteraryModels() {
+        setModelsLoading(true)
+        try {
+            const response = await fetch('/api/admin/ingest/literary-models')
+            if (!response.ok) throw new Error(await responseError(response))
+            setModelCatalog(await response.json() as LiteraryModelCatalog)
+        } catch (error) {
+            setModelCatalog({
+                provider: 'unknown',
+                models: [],
+                live: false,
+                warning: error instanceof Error ? error.message : 'Could not load available models.',
+            })
+        } finally {
+            setModelsLoading(false)
+        }
+    }
 
     const selectedCatalogWork = useMemo(
         () => catalog.find(item => String(item.workId) === selectedWorkId) ?? null,
@@ -423,7 +442,7 @@ export default function AdminIngestionPage() {
             maxSourceChars: historyMaxSourceChars(job),
             chunkMaxChars: job.chunkMaxChars == null ? DEFAULT_GENERATE_CHUNK_MAX_CHARS : String(job.chunkMaxChars),
             contextChars: job.contextChars == null ? DEFAULT_GENERATE_CONTEXT_CHARS : String(job.contextChars),
-            model: job.model && MODEL_OPTIONS.includes(job.model) ? job.model : '',
+            model: job.model && modelCatalog?.models.includes(job.model) ? job.model : '',
             replaceExisting: job.replaceExisting ?? true,
             contentType: job.contentType === 'play' ? 'play' : 'prose',
             dictionaryWarmup: true,
@@ -519,7 +538,7 @@ export default function AdminIngestionPage() {
                 if (chunkError) return chunkError
                 const contextError = maybeNonNegativeInteger(edition.contextChars, 'Context characters')
                 if (contextError) return contextError
-                const modelError = optionalModelError(edition.model)
+                const modelError = optionalModelError(edition.model, modelCatalog?.models ?? [])
                 if (modelError) return modelError
             }
         }
@@ -600,7 +619,7 @@ export default function AdminIngestionPage() {
             setFormError('Title, source language, and target language are required for an estimate.')
             return
         }
-        const modelError = optionalModelError(edition.model)
+        const modelError = optionalModelError(edition.model, modelCatalog?.models ?? [])
         if (modelError) {
             setFormError(modelError)
             return
@@ -1071,13 +1090,24 @@ export default function AdminIngestionPage() {
                                                 </label>
                                                 <label className="flex flex-col gap-2 text-sm">
                                                     <span className="text-xs uppercase tracking-[0.18em] muted-copy">Model</span>
-                                                    <input
-                                                        list="admin-model-options"
+                                                    <select
                                                         value={edition.model}
                                                         onChange={event => updateEdition(edition.id, {model: event.target.value})}
                                                         className="input"
-                                                        placeholder="default"
-                                                    />
+                                                        disabled={modelsLoading}
+                                                    >
+                                                        <option value="">
+                                                            {modelsLoading
+                                                                ? 'Loading models…'
+                                                                : `Server default${modelCatalog?.defaultModel ? ` (${modelCatalog.defaultModel})` : ''}`}
+                                                        </option>
+                                                        {(modelCatalog?.models ?? []).map(model => (
+                                                            <option key={model} value={model}>{model}</option>
+                                                        ))}
+                                                    </select>
+                                                    {modelCatalog?.warning && (
+                                                        <span className="text-xs theme-danger">{modelCatalog.warning}</span>
+                                                    )}
                                                 </label>
                                             </div>
                                             <div className="flex flex-wrap items-center gap-3">
@@ -1166,12 +1196,6 @@ export default function AdminIngestionPage() {
                     <option key={lang} value={lang} />
                 ))}
             </datalist>
-            <datalist id="admin-model-options">
-                {MODEL_OPTIONS.map(model => (
-                    <option key={model} value={model} />
-                ))}
-            </datalist>
-
             <section className="surface-panel rounded-[28px] px-5 py-5 md:px-6">
                 <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
                     <div>

@@ -14,6 +14,11 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Comparator;
+import java.util.Locale;
+import java.util.Set;
 
 public class OpenAIProviderClient implements ProviderClient {
 
@@ -30,6 +35,12 @@ public class OpenAIProviderClient implements ProviderClient {
     private final String literarySystem;
     private final String explainSystem;
     private final String providerName = "openai";
+    private static final Duration MODEL_CACHE_TTL = Duration.ofMinutes(10);
+    private static final Set<String> UNSUITABLE_MODEL_MARKERS = Set.of(
+            "audio", "chat", "codex", "cyber", "image", "instruct", "realtime", "search", "transcribe", "tts"
+    );
+    private volatile LiteraryModelCatalog cachedLiteraryModels;
+    private volatile Instant literaryModelsCachedAt = Instant.EPOCH;
 
     public OpenAIProviderClient(
             OpenAITranslateProperties props,
@@ -74,6 +85,65 @@ public class OpenAIProviderClient implements ProviderClient {
                 target,
                 () -> callChat(model, literalSystem, userPrompt, maxCompletionTokens, 0.1)
         );
+    }
+
+    @Override
+    public LiteraryModelCatalog literaryModels() {
+        LiteraryModelCatalog cached = cachedLiteraryModels;
+        if (cached != null && literaryModelsCachedAt.plus(MODEL_CACHE_TTL).isAfter(Instant.now())) {
+            return cached;
+        }
+
+        synchronized (this) {
+            cached = cachedLiteraryModels;
+            if (cached != null && literaryModelsCachedAt.plus(MODEL_CACHE_TTL).isAfter(Instant.now())) {
+                return cached;
+            }
+            try {
+                OpenAIModelsResponse response = webClient.get()
+                        .uri("/v1/models")
+                        .retrieve()
+                        .bodyToMono(OpenAIModelsResponse.class)
+                        .timeout(Duration.ofSeconds(timeoutSeconds))
+                        .block();
+                List<String> models = response == null || response.data == null
+                        ? List.of()
+                        : response.data.stream()
+                                .map(item -> item.id)
+                                .filter(this::isSuitableLiteraryModel)
+                                .distinct()
+                                .sorted(Comparator.naturalOrder())
+                                .toList();
+                String warning = models.contains(literaryModel)
+                        ? null
+                        : "The configured default model is not present in the OpenAI models available to this API project.";
+                cached = new LiteraryModelCatalog(providerName, literaryModel, models, true, warning);
+            } catch (Exception error) {
+                log.warn("Could not refresh OpenAI model catalog: {}", error.toString());
+                cached = new LiteraryModelCatalog(
+                        providerName,
+                        literaryModel,
+                        List.of(),
+                        false,
+                        "Could not verify OpenAI models right now. The server default remains available."
+                );
+            }
+            cachedLiteraryModels = cached;
+            literaryModelsCachedAt = Instant.now();
+            return cached;
+        }
+    }
+
+    private boolean isSuitableLiteraryModel(String id) {
+        if (id == null) return false;
+        String normalized = id.toLowerCase(Locale.ROOT);
+        if (!(normalized.startsWith("gpt-4o")
+                || normalized.startsWith("gpt-4.1")
+                || normalized.startsWith("gpt-5")
+                || normalized.startsWith("gpt-6"))) {
+            return false;
+        }
+        return UNSUITABLE_MODEL_MARKERS.stream().noneMatch(normalized::contains);
     }
 
     @Override
@@ -267,5 +337,13 @@ public class OpenAIProviderClient implements ProviderClient {
 
     public static class OpenAIResponsesError {
         public String message;
+    }
+
+    public static class OpenAIModelsResponse {
+        public List<OpenAIModel> data;
+    }
+
+    public static class OpenAIModel {
+        public String id;
     }
 }

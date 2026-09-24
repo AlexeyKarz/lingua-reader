@@ -4,6 +4,7 @@ import com.example.reader.common.ApiErrorHandler;
 import com.example.reader.auth.ApiTokenService;
 import com.example.reader.metrics.AdminAuditService;
 import com.example.reader.metrics.ProductEventService;
+import com.example.reader.translate.providers.ProviderClient;
 import com.example.reader.security.AdminAccessProperties;
 import com.example.reader.security.AdminApiInterceptor;
 import org.junit.jupiter.api.BeforeEach;
@@ -259,7 +260,8 @@ class IngestionControllerMockMvcTest {
                         jobService,
                         uploadStorage,
                         mock(ProductEventService.class),
-                        mock(AdminAuditService.class)
+                        mock(AdminAuditService.class),
+                        mock(ProviderClient.class)
                 ))
                 .addInterceptors(new AdminApiInterceptor(properties, mock(ApiTokenService.class)))
                 .setControllerAdvice(new ApiErrorHandler())

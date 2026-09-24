@@ -59,6 +59,15 @@ function installFetchMock(history: unknown = defaultHistory) {
         token: 'test-csrf-token',
       })
     }
+    if (url === '/api/admin/ingest/literary-models') {
+      return jsonResponse({
+        provider: 'openai',
+        defaultModel: 'gpt-4o-mini',
+        models: ['gpt-4.1', 'gpt-4.1-mini', 'gpt-4o', 'gpt-4o-mini'],
+        live: true,
+        warning: null,
+      })
+    }
     if (url === '/api/admin/ingest/jobs/upload') {
       return jsonResponse({ jobId: 7, status: 'PENDING', statusUrl: '/api/admin/ingest/jobs/7' }, 202)
     }
@@ -322,11 +331,9 @@ describe('AdminIngestionPage', () => {
     expect(fetchMock.mock.calls.filter(([input]) => String(input) === '/api/admin/ingest/jobs/upload')).toHaveLength(1)
   })
 
-  it('loads history and reuses saved metadata', async () => {
+  it('loads history automatically and reuses saved metadata', async () => {
     const fetchMock = installFetchMock()
     render(<AdminIngestionPage />)
-
-    fireEvent.click(screen.getByRole('button', { name: /^Load history$/i }))
 
     expect(await screen.findByText('Ithaca')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /^Use metadata$/i }))
@@ -345,8 +352,6 @@ describe('AdminIngestionPage', () => {
   it('retries failed history jobs as new jobs', async () => {
     const fetchMock = installFetchMock()
     render(<AdminIngestionPage />)
-
-    fireEvent.click(screen.getByRole('button', { name: /^Load history$/i }))
 
     expect(await screen.findByText('Provider unavailable')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /^Retry$/i }))
@@ -393,8 +398,6 @@ describe('AdminIngestionPage', () => {
       },
     ])
     render(<AdminIngestionPage />)
-
-    fireEvent.click(screen.getByRole('button', { name: /^Load history$/i }))
 
     expect(await screen.findByText('Generated Story')).toBeTruthy()
     expect(screen.getByText('model gpt-4o')).toBeTruthy()
