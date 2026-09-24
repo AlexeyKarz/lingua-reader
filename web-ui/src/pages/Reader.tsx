@@ -538,6 +538,33 @@ export default function Reader() {
 
     type ChapterState = { current: number | null }
 
+    function isOrdinalSectionTitle(title: string) {
+        return /^(?:[IVXLCDM]+|\d+)[.)]?$/i.test(title.trim())
+    }
+
+    function renderChapterTitle(title: string, side: 'left' | 'right', chapterId: number) {
+        if (isOrdinalSectionTitle(title)) {
+            return (
+                <div
+                    key={`chap-${side}-${chapterId}`}
+                    className="poetry-section-heading my-6 flex items-center gap-3"
+                    aria-label={`Section ${title.trim()}`}
+                >
+                    <span aria-hidden="true" className="poetry-section-rule" />
+                    <h3 className="shrink-0 font-serif text-base font-semibold tracking-[0.18em]">
+                        {title.trim().toUpperCase()}
+                    </h3>
+                    <span aria-hidden="true" className="poetry-section-rule" />
+                </div>
+            )
+        }
+        return (
+            <h3 key={`chap-${side}-${chapterId}`} className="chapter-label mt-5 mb-3 text-base font-semibold">
+                {title}
+            </h3>
+        )
+    }
+
     function renderSentencesWithChapters(
         sentences: Sentence[] | undefined,
         side: 'left' | 'right',
@@ -554,11 +581,7 @@ export default function Reader() {
             if (chapChanged) {
                 state.current = s.chapterId as number
                 if (s.chapterTitle) {
-                    nodes.push(
-                        <div key={`chap-${side}-${s.chapterId}`} className="chapter-label mt-2 mb-1 text-sm font-semibold">
-                            {s.chapterTitle}
-                        </div>
-                    )
+                    nodes.push(renderChapterTitle(s.chapterTitle, side, s.chapterId as number))
                 }
             }
 

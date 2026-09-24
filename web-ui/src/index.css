@@ -633,6 +633,17 @@ html[data-theme="dark"] .nav-pill-active {
   color: var(--chapter-text);
 }
 
+.poetry-section-heading {
+  color: var(--chapter-text);
+}
+
+.poetry-section-rule {
+  height: 1px;
+  min-width: 1.5rem;
+  flex: 1 1 auto;
+  background: color-mix(in srgb, var(--chapter-text) 28%, transparent);
+}
+
 .left-sentence:hover {
   background: var(--sentence-hover);
 }
