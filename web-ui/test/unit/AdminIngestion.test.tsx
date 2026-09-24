@@ -179,6 +179,15 @@ function submitForm() {
 }
 
 describe('AdminIngestionPage', () => {
+  it('shows application validation instead of silently relying on native required fields', async () => {
+    installFetchMock()
+    render(<AdminIngestionPage />)
+
+    submitForm()
+
+    expect((await screen.findByRole('alert')).textContent).toContain('Work title is required.')
+  })
+
   it('submits txt uploads with normalized metadata', async () => {
     const fetchMock = installFetchMock()
     render(<AdminIngestionPage />)

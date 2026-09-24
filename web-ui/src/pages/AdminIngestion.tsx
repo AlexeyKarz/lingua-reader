@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { csrfFetch } from '../csrfFetch'
 import { type CatalogEntry } from '../readerNavigation'
 
@@ -303,6 +303,13 @@ export default function AdminIngestionPage() {
     const [ingestedDraftIds, setIngestedDraftIds] = useState<Set<string>>(() => new Set())
     const [modelCatalog, setModelCatalog] = useState<LiteraryModelCatalog | null>(null)
     const [modelsLoading, setModelsLoading] = useState(true)
+    const formErrorRef = useRef<HTMLDivElement | null>(null)
+
+    useEffect(() => {
+        if (formError) {
+            formErrorRef.current?.scrollIntoView?.({behavior: 'smooth', block: 'center'})
+        }
+    }, [formError])
 
     useEffect(() => {
         ;(async () => {
@@ -862,7 +869,7 @@ export default function AdminIngestionPage() {
                 </div>
             </section>
 
-            <form className="space-y-5" onSubmit={submitAll}>
+            <form className="space-y-5" onSubmit={submitAll} noValidate>
                 <section className="surface-panel rounded-[28px] px-5 py-5 md:px-6">
                     <div className="flex flex-col gap-4">
                         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -1163,7 +1170,12 @@ export default function AdminIngestionPage() {
                     </div>
 
                     {formError && (
-                        <div className="theme-danger mt-4 rounded-[20px] border px-4 py-3 text-sm">
+                        <div
+                            ref={formErrorRef}
+                            role="alert"
+                            aria-live="assertive"
+                            className="theme-danger mt-4 rounded-[20px] border px-4 py-3 text-sm"
+                        >
                             {formError}
                         </div>
                     )}
