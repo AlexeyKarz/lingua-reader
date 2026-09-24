@@ -84,6 +84,8 @@ public class DictionaryWarmupService {
                 chapters, paragraphs, sentences);
         long scanned = 0;
         int imported = 0;
+        Map<String, Set<String>> baseFormsByTarget = new HashMap<>();
+        targets.forEach(target -> baseFormsByTarget.put(target, new HashSet<>()));
         try (BufferedReader reader = open(dictionary)) {
             String line;
             while ((line = reader.readLine()) != null) {
@@ -112,6 +114,58 @@ public class DictionaryWarmupService {
                     if (entry == null) continue;
                     upsert(sourceLang, target, entry);
                     imported++;
+                    if (!entry.baseNormalized().isBlank() && !entry.baseNormalized().equals(normalized)) {
+                        baseFormsByTarget.get(target).add(entry.baseNormalized());
+                    }
+                }
+            }
+        }
+
+        Set<String> wantedBases = new HashSet<>();
+        for (String target : targets) {
+            Set<String> bases = baseFormsByTarget.get(target);
+            if (bases.isEmpty()) continue;
+            List<String> existing = jdbc.queryForList(
+                    "select distinct normalized from dictionary_entry where source_lang = ? and target_lang = ? and normalized = any (cast(? as text[]))",
+                    String.class, sourceLang, target, bases.toArray(String[]::new)
+            );
+            bases.removeAll(existing);
+            wantedBases.addAll(bases);
+        }
+
+        if (!wantedBases.isEmpty()) {
+            publish(sink, "dictionary", "Scanning base forms for " + wantedBases.size() + " referenced dictionary words",
+                    chapters, paragraphs, sentences);
+            try (BufferedReader reader = open(dictionary)) {
+                String line;
+                long baseScanned = 0;
+                while ((line = reader.readLine()) != null) {
+                    scanned++;
+                    baseScanned++;
+                    if (baseScanned % 250_000 == 0) {
+                        publish(sink, "dictionary", "Base-form pass scanned "
+                                        + String.format(Locale.ROOT, "%,d", baseScanned) + " rows; imported " + imported,
+                                chapters, paragraphs, sentences);
+                    }
+                    if (line.isBlank()) continue;
+                    JsonNode root;
+                    try {
+                        root = mapper.readTree(line);
+                    } catch (Exception ignored) {
+                        continue;
+                    }
+                    String word = text(root, "word");
+                    String normalized = DictionaryNormalizer.normalizeWord(word);
+                    if (!wantedBases.contains(normalized)) continue;
+                    String entryLang = text(root, "lang_code").toLowerCase(Locale.ROOT);
+                    if (!entryLang.isBlank() && !entryLang.equals(sourceLang)) continue;
+                    for (String target : targets) {
+                        if (!baseFormsByTarget.get(target).contains(normalized)) continue;
+                        Entry entry = extract(root, word, normalized, target);
+                        if (entry == null) continue;
+                        upsert(sourceLang, target, entry);
+                        imported++;
+                    }
                 }
             }
         }

@@ -1047,7 +1047,10 @@ export default function Reader() {
         )
         const forms = entries.filter(isDictionaryFormEntry)
         const summaryTranslations = uniqueDictionaryStrings(
-            [...main, ...base].flatMap(entry => entry.translations ?? [])
+            [
+                ...(details.translations ?? []),
+                ...[...main, ...base].flatMap(entry => entry.translations ?? []),
+            ]
         )
 
         return (

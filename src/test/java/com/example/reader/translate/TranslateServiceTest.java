@@ -1,9 +1,12 @@
 package com.example.reader.translate;
 
 import com.example.reader.dictionary.DictionaryService;
+import com.example.reader.dictionary.DictionaryEntry;
+import com.example.reader.dictionary.DictionaryLookupResult;
 import com.example.reader.translate.providers.ProviderClient;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -17,6 +20,31 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TranslateServiceTest {
+
+    @Test
+    void wordAddsProviderTranslationWhenDictionaryOnlyContainsAFormNote() {
+        ProviderClient provider = mock(ProviderClient.class);
+        DictionaryService dictionaryService = mock(DictionaryService.class);
+        TranslationCacheRepository cache = mock(TranslationCacheRepository.class);
+        TranslateService service = new TranslateService(provider, dictionaryService, cache);
+        DictionaryEntry form = new DictionaryEntry(
+                1L, "key", "el", "ru", "ταξείδι", "ταξείδι", "", "noun", "",
+                "ταξίδι", "ταξίδι", List.of("form-of"), List.of("παρωχημένη γραφή του ταξίδι"),
+                List.of(), List.of(), "Kaikki", "https://kaikki.org/"
+        );
+        when(dictionaryService.lookup("ταξείδι", "el", "ru")).thenReturn(new DictionaryLookupResult(
+                true, "ταξείδι\nForm of: ταξίδι", "", "noun", "", "ταξίδι", "ταξίδι",
+                form.definitions(), List.of(), List.of(), List.of(form), "Kaikki", "https://kaikki.org/"
+        ));
+        when(cache.find(eq("word"), eq("el"), eq("ru"), anyString(), anyString())).thenReturn(Optional.empty());
+        when(provider.literal("ταξείδι", "el", "ru")).thenReturn("путешествие");
+
+        WordTranslationResult result = service.word("ταξείδι", "el", "ru");
+
+        assertThat(result.dictionary()).isTrue();
+        assertThat(result.translations()).containsExactly("путешествие");
+        assertThat(result.entries()).containsExactly(form);
+    }
 
     @Test
     void literaryUsesSeparateCacheOperationAndIncludesContextInCacheKey() {

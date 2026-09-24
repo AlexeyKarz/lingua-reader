@@ -34,13 +34,14 @@ class DictionaryWarmupServiceIntegrationTest extends PostgresIntegrationTest {
                 "insert into segment(edition_id, level, ord, text) values (?, 'chapter', 1, 'Play') returning id",
                 Long.class, editionId);
         long paragraphId = jdbc.queryForObject(
-                "insert into segment(edition_id, level, ord, parent_id, text) values (?, 'paragraph', 1, ?, 'Μήδεια κόσμος') returning id",
+                "insert into segment(edition_id, level, ord, parent_id, text) values (?, 'paragraph', 1, ?, 'ταξείδι κόσμος') returning id",
                 Long.class, editionId, chapterId);
-        jdbc.update("insert into segment(edition_id, level, ord, parent_id, text) values (?, 'sentence', 1, ?, 'Μήδεια κόσμος')",
+        jdbc.update("insert into segment(edition_id, level, ord, parent_id, text) values (?, 'sentence', 1, ?, 'ταξείδι κόσμος')",
                 editionId, paragraphId);
 
         Files.writeString(dictionaryDir.resolve("el.jsonl"), """
-                {"word":"Μήδεια","lang_code":"el","pos":"name","senses":[{"glosses":["Medea"],"translations":[{"code":"ru","word":"Медея"}]}]}
+                {"word":"ταξίδι","lang_code":"el","pos":"noun","senses":[{"glosses":["μετακίνηση"],"translations":[{"code":"ru","word":"путешествие"}]}]}
+                {"word":"ταξείδι","lang_code":"el","pos":"noun","senses":[{"glosses":["παρωχημένη γραφή του ταξίδι"],"form_of":[{"word":"ταξίδι"}]}]}
                 {"word":"άσχετο","lang_code":"el","pos":"adj","senses":[{"glosses":["irrelevant"]}]}
                 """);
 
@@ -50,15 +51,18 @@ class DictionaryWarmupServiceIntegrationTest extends PostgresIntegrationTest {
 
         try {
             assertThat(result.terms()).isEqualTo(2);
-            assertThat(result.imported()).isEqualTo(1);
+            assertThat(result.imported()).isEqualTo(2);
             assertThat(jdbc.queryForObject(
-                    "select translations_json->>0 from dictionary_entry where source_lang='el' and target_lang='ru' and normalized='μήδεια'",
-                    String.class)).isEqualTo("Медея");
+                    "select translations_json->>0 from dictionary_entry where source_lang='el' and target_lang='ru' and normalized='ταξίδι'",
+                    String.class)).isEqualTo("путешествие");
+            assertThat(jdbc.queryForObject(
+                    "select base_normalized from dictionary_entry where source_lang='el' and target_lang='ru' and normalized='ταξείδι'",
+                    String.class)).isEqualTo("ταξίδι");
             assertThat(jdbc.queryForObject(
                     "select count(*) from dictionary_entry where source_lang='el' and normalized='άσχετο'",
                     Integer.class)).isZero();
         } finally {
-            jdbc.update("delete from dictionary_entry where source_lang='el' and target_lang='ru' and normalized='μήδεια'");
+            jdbc.update("delete from dictionary_entry where source_lang='el' and target_lang='ru' and normalized in ('ταξείδι', 'ταξίδι')");
             jdbc.update("delete from segment where edition_id = ?", editionId);
             jdbc.update("delete from edition where id = ?", editionId);
             jdbc.update("delete from work where id = ?", workId);

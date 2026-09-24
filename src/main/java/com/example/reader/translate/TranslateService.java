@@ -42,11 +42,20 @@ public class TranslateService {
         log.info("Word translate request: {} -> {} ({} chars)", source, target, text.length());
         DictionaryLookupResult dictionary = dictionaryService.lookup(text, source, target);
         if (dictionary.found()) {
+            java.util.List<String> translations = dictionary.translations();
+            String formatted = dictionary.formattedText();
+            if (translations.isEmpty()) {
+                String providerTranslation = cachedLiteral("word", text, source, target);
+                if (providerTranslation != null && !providerTranslation.isBlank()) {
+                    translations = java.util.List.of(providerTranslation);
+                    formatted = "Translation: " + providerTranslation + "\n\n" + formatted;
+                }
+            }
             return new WordTranslationResult(
                     text,
                     source,
                     target,
-                    dictionary.formattedText(),
+                    formatted,
                     true,
                     dictionary.lemma(),
                     dictionary.partOfSpeech(),
@@ -55,7 +64,7 @@ public class TranslateService {
                     dictionary.baseNormalized(),
                     dictionary.definitions(),
                     dictionary.examples(),
-                    dictionary.translations(),
+                    translations,
                     dictionary.entries(),
                     dictionary.sourceName(),
                     dictionary.sourceUrl()

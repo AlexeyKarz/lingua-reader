@@ -25,6 +25,11 @@ public class DictionaryService {
         }
 
         DictionaryEntry value = entries.getFirst();
+        List<String> translations = entries.stream()
+                .flatMap(entry -> entry.translations().stream())
+                .filter(translation -> translation != null && !translation.isBlank())
+                .distinct()
+                .toList();
         return new DictionaryLookupResult(
                 true,
                 format(entries),
@@ -35,7 +40,7 @@ public class DictionaryService {
                 value.baseNormalized(),
                 value.definitions(),
                 value.examples(),
-                value.translations(),
+                translations,
                 entries,
                 value.sourceName(),
                 value.sourceUrl()
