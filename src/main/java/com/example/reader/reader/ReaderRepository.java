@@ -30,15 +30,7 @@ public class ReaderRepository {
     }
 
     private EditionIds findEditionIdsByTitle(String workTitle, String srcLang, String tgtLang) {
-        String sql = """
-            select w.id as work_id,
-                   max(case when e.lang = :src then e.id end) as src_id,
-                   max(case when e.lang = :tgt then e.id end) as tgt_id
-            from work w
-            join edition e on e.work_id = w.id
-            where w.title = :title
-            group by w.id
-            """;
+        String sql = editionPairSql("w.title = :title");
 
         var params = new MapSqlParameterSource()
                 .addValue("title", workTitle)
@@ -58,15 +50,7 @@ public class ReaderRepository {
     }
 
     private EditionIds findEditionIdsByWorkId(long workId, String srcLang, String tgtLang) {
-        String sql = """
-            select w.id as work_id,
-                   max(case when e.lang = :src then e.id end) as src_id,
-                   max(case when e.lang = :tgt then e.id end) as tgt_id
-            from work w
-            join edition e on e.work_id = w.id
-            where w.id = :id
-            group by w.id
-            """;
+        String sql = editionPairSql("w.id = :id");
 
         var params = new MapSqlParameterSource()
                 .addValue("id", workId)
@@ -83,6 +67,32 @@ public class ReaderRepository {
             }
             return new EditionIds(wid, srcId, tgtId);
         });
+    }
+
+    private String editionPairSql(String workPredicate) {
+        return """
+            with selected_work as (
+              select w.id from work w where %s limit 1
+            ), target as (
+              select e.id
+              from edition e join selected_work w on w.id = e.work_id
+              where e.lang = :tgt order by e.id desc limit 1
+            ), aligned_source as (
+              select a.edition_src_id as id
+              from alignment a
+              join target t on t.id = a.edition_tgt_id
+              join edition e on e.id = a.edition_src_id and e.lang = :src
+              order by a.id desc limit 1
+            ), latest_source as (
+              select e.id
+              from edition e join selected_work w on w.id = e.work_id
+              where e.lang = :src order by e.id desc limit 1
+            )
+            select w.id as work_id,
+                   coalesce((select id from aligned_source), (select id from latest_source)) as src_id,
+                   (select id from target) as tgt_id
+            from selected_work w
+            """.formatted(workPredicate);
     }
 
     public WorkMeta fetchWorkMeta(long workId) {

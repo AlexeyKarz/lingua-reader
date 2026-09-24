@@ -16,12 +16,15 @@ public class IngestionFacade {
     private final ResourceLoader loader;
     private final EpubExtractor extractor;
     private final PlayTextExtractor playTextExtractor;
+    private final PlainTextExtractor plainTextExtractor;
     private final SegmentWriter writer;
 
-    public IngestionFacade(ResourceLoader loader, EpubExtractor extractor, PlayTextExtractor playTextExtractor, SegmentWriter writer) {
+    public IngestionFacade(ResourceLoader loader, EpubExtractor extractor, PlayTextExtractor playTextExtractor,
+                           PlainTextExtractor plainTextExtractor, SegmentWriter writer) {
         this.loader = loader;
         this.extractor = extractor;
         this.playTextExtractor = playTextExtractor;
+        this.plainTextExtractor = plainTextExtractor;
         this.writer = writer;
     }
 
@@ -41,7 +44,7 @@ public class IngestionFacade {
         publish(sink, "extract", "Extracting EPUB content", 0, 0, 0);
         boolean play = "play".equals(request.contentType());
         boolean plainText = request.fileSpec().toLowerCase().endsWith(".txt");
-        var doc = play ? null : extractor.extract(res);
+        var doc = play ? null : (plainText ? plainTextExtractor.extract(res) : extractor.extract(res));
         var playDoc = play ? (plainText ? playTextExtractor.extract(res) : playTextExtractor.extractEpub(res)) : null;
 
         publish(sink, "upsert_entities", "Upserting work and edition", 0, 0, 0);
@@ -59,7 +62,7 @@ public class IngestionFacade {
                 request.translator(),
                 request.year(),
                 request.fileSpec(),
-                play ? (plainText ? "text-play" : "epub-play") : "epub3"
+                play ? (plainText ? "text-play" : "epub-play") : (plainText ? "text-prose" : "epub3")
         );
 
         int chapterCount = 0;

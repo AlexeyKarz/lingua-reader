@@ -155,6 +155,42 @@ class CatalogReaderIntegrationTest extends PostgresIntegrationTest {
         assertThat(json.get("targetAiGenerated").asBoolean()).isTrue();
     }
 
+    @Test
+    void readerUsesSourceEditionAlignedToSelectedTargetInsteadOfNewestSourceEdition() throws Exception {
+        long workId = insertWork("CI Test Reader Edition Pair " + UUID.randomUUID(), "es");
+        long alignedSource = insertEdition(workId, "es");
+        long english = insertAiEdition(workId, "en");
+
+        long sourceChapter = insertSegment(alignedSource, "chapter", 0, null, "I");
+        long sourceParagraph = insertSegment(alignedSource, "paragraph", 0, sourceChapter, "Texto fuente");
+        long sourceSentence = insertSegment(alignedSource, "sentence", 0, sourceParagraph, "Texto fuente.");
+        long targetChapter = insertSegment(english, "chapter", 0, null, "I");
+        long targetParagraph = insertSegment(english, "paragraph", 0, targetChapter, "Target text");
+        long targetSentence = insertSegment(english, "sentence", 0, targetParagraph, "Target text.");
+        jdbc.update("update edition set body_start_segment_id = ? where id = ?", sourceSentence, alignedSource);
+        jdbc.update("update edition set body_start_segment_id = ? where id = ?", targetSentence, english);
+        insertAlignment(workId, alignedSource, english, sourceSentence, targetSentence, "ai-literary-v1-es-en");
+
+        long newerSource = insertEdition(workId, "es", "test://newer/es", "epub", null);
+        long newerChapter = insertSegment(newerSource, "chapter", 0, null, "I");
+        long newerParagraph = insertSegment(newerSource, "paragraph", 0, newerChapter, "New source");
+        long newerSentence = insertSegment(newerSource, "sentence", 0, newerParagraph, "New source.");
+        jdbc.update("update edition set body_start_segment_id = ? where id = ?", newerSentence, newerSource);
+
+        String body = mockMvc.perform(get("/api/reader/pages")
+                        .param("bookId", String.valueOf(workId))
+                        .param("src", "es")
+                        .param("tgt", "en")
+                        .param("page", "0")
+                        .param("size", "10"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        JsonNode json = objectMapper.readTree(body);
+        assertThat(json.get("left").get(0).get("text").asText()).isEqualTo("Texto fuente.");
+        assertThat(json.get("alignments")).hasSize(1);
+    }
+
     private JsonNode findCatalogEntry(String body, long workId) throws Exception {
         JsonNode root = objectMapper.readTree(body);
         return StreamSupport.stream(root.spliterator(), false)

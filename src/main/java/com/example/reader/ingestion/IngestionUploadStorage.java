@@ -12,11 +12,9 @@ import java.util.UUID;
 @Service
 public class IngestionUploadStorage {
     private final Path uploadDir;
-    private final PlainTextEpubConverter plainTextEpubConverter;
 
-    public IngestionUploadStorage(IngestionUploadProperties properties, PlainTextEpubConverter plainTextEpubConverter) {
+    public IngestionUploadStorage(IngestionUploadProperties properties) {
         this.uploadDir = properties.getDir().toAbsolutePath().normalize();
-        this.plainTextEpubConverter = plainTextEpubConverter;
     }
 
     public String store(MultipartFile file, String title, String lang, String contentType) {
@@ -33,20 +31,12 @@ public class IngestionUploadStorage {
 
         try {
             Files.createDirectories(uploadDir);
-            byte[] uploadBytes = lowerFilename.endsWith(".txt") ? file.getBytes() : null;
-            boolean playText = uploadBytes != null && "play".equalsIgnoreCase(contentType);
-            String storedFilename = lowerFilename.endsWith(".txt") && !playText
-                    ? stripExtension(safeFilename) + ".epub"
-                    : safeFilename;
+            String storedFilename = safeFilename;
             Path target = uploadDir.resolve(UUID.randomUUID() + "-" + storedFilename).normalize();
             if (!target.startsWith(uploadDir)) {
                 throw new IllegalArgumentException("Invalid upload filename");
             }
-            if (lowerFilename.endsWith(".txt") && !playText) {
-                plainTextEpubConverter.convert(uploadBytes, target, title, lang);
-            } else {
-                file.transferTo(target);
-            }
+            file.transferTo(target);
             return target.toUri().toString();
         } catch (IOException e) {
             throw new IllegalStateException("Could not store uploaded file", e);
@@ -65,8 +55,4 @@ public class IngestionUploadStorage {
         return sanitized;
     }
 
-    private String stripExtension(String filename) {
-        int lastDot = filename.lastIndexOf('.');
-        return lastDot > 0 ? filename.substring(0, lastDot) : filename;
-    }
 }

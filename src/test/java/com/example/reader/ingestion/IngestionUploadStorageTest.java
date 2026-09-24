@@ -2,14 +2,12 @@ package com.example.reader.ingestion;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.springframework.core.io.FileSystemResource;
 import org.springframework.mock.web.MockMultipartFile;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.zip.ZipFile;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -40,7 +38,7 @@ class IngestionUploadStorageTest {
     }
 
     @Test
-    void convertsPlainTextUploadsToEpub() throws Exception {
+    void storesPlainTextForDirectParsing() throws Exception {
         IngestionUploadProperties properties = new IngestionUploadProperties();
         properties.setDir(tempDir);
         IngestionUploadStorage storage = storage(properties);
@@ -61,18 +59,34 @@ class IngestionUploadStorageTest {
 
         Path stored = Path.of(URI.create(fileSpec));
         assertThat(stored).startsWith(tempDir.toAbsolutePath().normalize());
-        assertThat(stored.getFileName().toString()).endsWith("-plain-book.epub");
-        try (ZipFile zip = new ZipFile(stored.toFile())) {
-            assertThat(zip.getEntry("mimetype")).isNotNull();
-            assertThat(zip.getEntry("META-INF/container.xml")).isNotNull();
-            assertThat(zip.getEntry("OEBPS/content.opf")).isNotNull();
-            assertThat(zip.getEntry("OEBPS/text.xhtml")).isNotNull();
-        }
-
-        EpubExtractor.Doc doc = new EpubExtractor().extract(new FileSystemResource(stored));
+        assertThat(stored.getFileName().toString()).endsWith("-plain-book.txt");
+        EpubExtractor.Doc doc = new PlainTextExtractor().extract(new org.springframework.core.io.FileSystemResource(stored));
         assertThat(doc.chapters()).isNotEmpty();
         assertThat(doc.chapters().stream().flatMap(chapter -> chapter.paragraphs().stream()).map(EpubExtractor.Para::text))
                 .contains("First paragraph.", "Second paragraph with <unsafe> characters & punctuation.");
+    }
+
+    @Test
+    void keepsRomanNumeralsAsTxtChapterHeadings() throws Exception {
+        Path text = tempDir.resolve("poem.txt");
+        Files.writeString(text, """
+                I
+                First stanza line one.
+                First stanza line two.
+
+                II
+                Second stanza.
+                """);
+
+        EpubExtractor.Doc doc = new PlainTextExtractor().extract(
+                new org.springframework.core.io.FileSystemResource(text)
+        );
+
+        assertThat(doc.chapters()).extracting(EpubExtractor.Chapter::title).containsExactly("I", "II");
+        assertThat(doc.chapters().getFirst().paragraphs()).extracting(EpubExtractor.Para::text)
+                .containsExactly("First stanza line one. First stanza line two.");
+        assertThat(doc.chapters().get(1).paragraphs()).extracting(EpubExtractor.Para::text)
+                .containsExactly("Second stanza.");
     }
 
     @Test
@@ -120,6 +134,6 @@ class IngestionUploadStorageTest {
     }
 
     private IngestionUploadStorage storage(IngestionUploadProperties properties) {
-        return new IngestionUploadStorage(properties, new PlainTextEpubConverter());
+        return new IngestionUploadStorage(properties);
     }
 }
