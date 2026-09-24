@@ -430,13 +430,16 @@ export default function AdminIngestionPage() {
     function applyJobMetadata(job: IngestionJob) {
         const mode = jobMode(job)
         const sourceLang = generatedSourceLang(job)
-        setSelectedWorkId(job.workId == null ? '' : String(job.workId))
+        const catalogWork = catalog.find(item =>
+            (job.workId != null && item.workId === job.workId) || item.title === job.workTitle
+        ) ?? null
+        setSelectedWorkId(catalogWork ? String(catalogWork.workId) : (job.workId == null ? '' : String(job.workId)))
         setWork({
-            title: job.workTitle,
-            author: job.author ?? '',
-            originalLang: job.originalLang || sourceLang || (mode === 'upload' ? job.lang : ''),
-            year: job.year == null ? '' : String(job.year),
-            description: job.description ?? '',
+            title: catalogWork?.title ?? job.workTitle,
+            author: job.author || catalogWork?.author || '',
+            originalLang: job.originalLang || catalogWork?.originalLang || sourceLang || (mode === 'upload' ? job.lang : ''),
+            year: job.year == null ? (catalogWork?.year == null ? '' : String(catalogWork.year)) : String(job.year),
+            description: job.description || catalogWork?.description || '',
         })
         setEditions([{
             ...createEditionDraft(),

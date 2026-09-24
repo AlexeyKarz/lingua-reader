@@ -45,7 +45,7 @@ function installFetchMock(history: unknown = defaultHistory) {
           workId: 4,
           title: 'Existing Book',
           author: 'Existing Author',
-          description: null,
+          description: 'Existing description',
           year: 1901,
           langs: ['en', 'de'],
           originalLang: 'en',
@@ -455,5 +455,30 @@ describe('AdminIngestionPage', () => {
         })
       )
     })
+  })
+
+  it('restores author and description from the catalog for generated-job metadata', async () => {
+    installFetchMock([{
+      id: 60,
+      status: 'SUCCEEDED',
+      workTitle: 'Existing Book',
+      lang: 'fr',
+      fileSpec: 'ai-literary://en/fr/Existing Book',
+      author: null,
+      description: null,
+      originalLang: 'en',
+      workId: 4,
+      editionId: 12,
+      chapters: 1,
+      paragraphs: 2,
+      sentences: 3,
+    }])
+    render(<AdminIngestionPage />)
+
+    expect(await screen.findByText('AI from EN')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /^Use metadata$/i }))
+
+    expect((screen.getByLabelText(/^Author$/i) as HTMLInputElement).value).toBe('Existing Author')
+    expect((screen.getByLabelText(/^Description$/i) as HTMLTextAreaElement).value).toBe('Existing description')
   })
 })
