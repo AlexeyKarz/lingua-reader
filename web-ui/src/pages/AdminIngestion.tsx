@@ -428,6 +428,14 @@ export default function AdminIngestionPage() {
         setJobs(current => current.map(job => job.localId === localId ? {...job, ...patch} : job))
     }
 
+    function appendFormError(message: string) {
+        setFormError(current => {
+            if (!current) return message
+            if (current.includes(message)) return current
+            return `${current}\n${message}`
+        })
+    }
+
     function applyJobMetadata(job: IngestionJob) {
         const mode = jobMode(job)
         const sourceLang = generatedSourceLang(job)
@@ -779,7 +787,7 @@ export default function AdminIngestionPage() {
             (edition): edition is PreparedGeneratedEdition => edition.mode === 'generate'
         )
         const requiredUploadSources = new Set(generatedEditions.map(edition => edition.sourceLang))
-        const failedUploadLangs = new Set<string>()
+        const failedUploadLangs = new Map<string, string>()
 
         setSubmitting(true)
         setSubmissionMessage(`Starting ${preparedEditions.length} edition${preparedEditions.length === 1 ? '' : 's'}…`)
@@ -805,19 +813,21 @@ export default function AdminIngestionPage() {
                     if (requiredUploadSources.has(edition.lang)) {
                         const terminalJob = await pollJob(localId, started.jobId)
                         if (terminalJob?.status !== 'SUCCEEDED') {
-                            failedUploadLangs.add(edition.lang)
+                            const reason = terminalJob?.error || terminalJob?.message || 'Source ingestion failed or timed out.'
+                            failedUploadLangs.set(edition.lang, reason)
+                            appendFormError(`${edition.lang.toUpperCase()} upload failed: ${reason}`)
                         }
                     } else {
                         void pollJob(localId, started.jobId)
                     }
                 } catch (error) {
-                    failedUploadLangs.add(edition.lang)
                     const message = error instanceof Error ? error.message : 'Could not submit ingestion job.'
+                    failedUploadLangs.set(edition.lang, message)
                     patchJob(localId, {
                         status: 'FAILED',
                         error: message,
                     })
-                    setFormError(`${edition.lang.toUpperCase()} upload failed: ${message}`)
+                    appendFormError(`${edition.lang.toUpperCase()} upload failed: ${message}`)
                 }
             }
 
@@ -833,13 +843,14 @@ export default function AdminIngestionPage() {
                     message: 'Preparing generated edition',
                 }, ...current])
 
-                if (failedUploadLangs.has(edition.sourceLang)) {
-                    const message = `Skipped because ${edition.sourceLang.toUpperCase()} source ingestion failed or timed out.`
+                const sourceFailure = failedUploadLangs.get(edition.sourceLang)
+                if (sourceFailure) {
+                    const message = `Skipped because ${edition.sourceLang.toUpperCase()} source failed: ${sourceFailure}`
                     patchJob(localId, {
                         status: 'FAILED',
                         error: message,
                     })
-                    setFormError(`${edition.lang.toUpperCase()} generation failed: ${message}`)
+                    appendFormError(`${edition.lang.toUpperCase()} generation failed: ${message}`)
                     continue
                 }
 
@@ -857,7 +868,7 @@ export default function AdminIngestionPage() {
                         status: 'FAILED',
                         error: message,
                     })
-                    setFormError(`${edition.lang.toUpperCase()} generation failed: ${message}`)
+                    appendFormError(`${edition.lang.toUpperCase()} generation failed: ${message}`)
                 }
             }
         } finally {

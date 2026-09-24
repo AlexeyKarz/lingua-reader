@@ -629,6 +629,10 @@ html[data-theme="dark"] .nav-pill-active {
   color: var(--warn-text);
 }
 
+[role="alert"] {
+  white-space: pre-line;
+}
+
 .chapter-label {
   color: var(--chapter-text);
 }
