@@ -120,9 +120,18 @@ class UserReaderStateControllerIntegrationTest extends PostgresIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").value("split"));
 
+        mvc.perform(put("/api/user/preferences/reader.visualAlignment")
+                        .with(csrf())
+                        .cookie(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").value(true));
+
         mvc.perform(get("/api/user/preferences").cookie(session))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.['reader.followAlignment']").value(true))
+                .andExpect(jsonPath("$.['reader.visualAlignment']").value(true))
                 .andExpect(jsonPath("$.['reader.mobilePaneLayout']").value("split"));
     }
 

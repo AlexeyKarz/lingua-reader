@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import re
+import argparse
 from datetime import datetime, timezone
 from typing import List, Tuple
 
@@ -55,22 +56,40 @@ def get_conn() -> psycopg.Connection:
 def fetch_unembedded_sentences(
         conn: psycopg.Connection,
         limit: int,
+        work: str | None,
+        langs: List[str],
+        body_only: bool,
 ) -> List[Tuple[int, str]]:
     """
     Fetch a batch of sentence-level segments that don't yet have an embedding row.
     Returns list of (segment_id, text).
     """
-    sql = """
+    filters = []
+    params: list[object] = []
+    if work:
+        filters.append("w.title = %s")
+        params.append(work)
+    if langs:
+        filters.append("ed.lang = any(%s)")
+        params.append(langs)
+    if body_only:
+        filters.append("(ed.body_start_segment_id is null or s.id >= ed.body_start_segment_id)")
+    scope = "" if not filters else " and " + " and ".join(filters)
+    sql = f"""
         select s.id, s.text
         from segment s
+        join edition ed on ed.id = s.edition_id
+        join work w on w.id = ed.work_id
         left join embedding e on e.segment_id = s.id
         where s.level = 'sentence'
           and e.segment_id is null
+          {scope}
         order by s.id
         limit %s
     """
+    params.append(limit)
     with conn.cursor() as cur:
-        cur.execute(sql, (limit,))
+        cur.execute(sql, params)
         rows = cur.fetchall()
     return [(r[0], r[1]) for r in rows]
 
@@ -104,7 +123,22 @@ def upsert_embeddings(
 # Main embedding loop
 # -------------------------
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Embed sentence segments that do not yet have vectors.")
+    parser.add_argument("--work", help="Restrict embedding to one exact work title")
+    parser.add_argument(
+        "--lang", action="append", default=[],
+        help="Restrict embedding to an edition language; repeat for multiple languages",
+    )
+    parser.add_argument(
+        "--body-only", action="store_true",
+        help="Skip segments before each edition's body_start_segment_id",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
     log("embed_model_load", model=MODEL_NAME)
     model = SentenceTransformer(MODEL_NAME)
 
@@ -118,7 +152,7 @@ def main():
         total_processed = 0
 
         while True:
-            rows = fetch_unembedded_sentences(conn, BATCH_SIZE)
+            rows = fetch_unembedded_sentences(conn, BATCH_SIZE, args.work, args.lang, args.body_only)
             if not rows:
                 log("embed_done", total_processed=total_processed)
                 break

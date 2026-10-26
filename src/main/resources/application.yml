@@ -49,6 +49,7 @@ translate:
     apiKey: ${OPENAI_API_KEY:}
     model: ${OPENAI_MODEL:gpt-4o-mini}
     literaryModel: ${OPENAI_LITERARY_MODEL:${OPENAI_MODEL:gpt-4o-mini}}
+    ocrCleanupModel: ${OPENAI_OCR_CLEANUP_MODEL:gpt-5.6-luna}
     timeoutSeconds: ${OPENAI_TIMEOUT_SECONDS:30}
     maxCompletionTokens: ${OPENAI_MAX_COMPLETION_TOKENS:300}
     literaryMaxCompletionTokens: ${OPENAI_LITERARY_MAX_COMPLETION_TOKENS:700}
@@ -115,3 +116,11 @@ mlr:
   ingestion:
     upload:
       dir: ${MLR_INGESTION_UPLOAD_DIR:${java.io.tmpdir}/multilang-reader/ingestion-uploads}
+      # Metadata and repeated target-language fields are individual multipart parts.
+      max-part-count: ${MLR_INGESTION_MAX_PART_COUNT:50}
+    pdf:
+      ocr:
+        enabled: ${MLR_PDF_OCR_ENABLED:true}
+        executable: ${MLR_PDF_OCR_EXECUTABLE:tesseract}
+        dpi: ${MLR_PDF_OCR_DPI:200}
+        page-timeout: ${MLR_PDF_OCR_PAGE_TIMEOUT:120s}

@@ -17,14 +17,16 @@ public class IngestionFacade {
     private final EpubExtractor extractor;
     private final PlayTextExtractor playTextExtractor;
     private final PlainTextExtractor plainTextExtractor;
+    private final PdfExtractor pdfExtractor;
     private final SegmentWriter writer;
 
     public IngestionFacade(ResourceLoader loader, EpubExtractor extractor, PlayTextExtractor playTextExtractor,
-                           PlainTextExtractor plainTextExtractor, SegmentWriter writer) {
+                           PlainTextExtractor plainTextExtractor, PdfExtractor pdfExtractor, SegmentWriter writer) {
         this.loader = loader;
         this.extractor = extractor;
         this.playTextExtractor = playTextExtractor;
         this.plainTextExtractor = plainTextExtractor;
+        this.pdfExtractor = pdfExtractor;
         this.writer = writer;
     }
 
@@ -35,17 +37,19 @@ public class IngestionFacade {
         IngestionRequest request = rawRequest.withDefaults();
         request.validate();
 
-        publish(sink, "resolve_resource", "Resolving EPUB resource", 0, 0, 0);
+        publish(sink, "resolve_resource", "Resolving book resource", 0, 0, 0);
         Resource res = resolveResource(request.fileSpec());
         if (!res.exists()) {
-            throw new IllegalArgumentException("EPUB not found: " + request.fileSpec());
+            throw new IllegalArgumentException("Book file not found: " + request.fileSpec());
         }
 
-        publish(sink, "extract", "Extracting EPUB content", 0, 0, 0);
+        publish(sink, "extract", "Extracting book content", 0, 0, 0);
         boolean play = "play".equals(request.contentType());
         boolean plainText = request.fileSpec().toLowerCase().endsWith(".txt");
-        var doc = play ? null : (plainText ? plainTextExtractor.extract(res) : extractor.extract(res));
-        var playDoc = play ? (plainText ? playTextExtractor.extract(res) : playTextExtractor.extractEpub(res)) : null;
+        boolean pdf = request.fileSpec().toLowerCase().endsWith(".pdf");
+        boolean aiCleanup = Boolean.TRUE.equals(request.ocrCleanup());
+        var doc = play ? null : (pdf ? pdfExtractor.extract(res, request.lang(), aiCleanup, request.ocrCleanupModel()) : plainText ? plainTextExtractor.extract(res) : extractor.extract(res));
+        var playDoc = play ? (pdf ? pdfExtractor.extractPlay(res, request.lang(), aiCleanup, request.ocrCleanupModel()) : plainText ? playTextExtractor.extract(res) : playTextExtractor.extractEpub(res)) : null;
 
         publish(sink, "upsert_entities", "Upserting work and edition", 0, 0, 0);
         long workId = writer.ensureWork(
@@ -62,7 +66,8 @@ public class IngestionFacade {
                 request.translator(),
                 request.year(),
                 request.fileSpec(),
-                play ? (plainText ? "text-play" : "epub-play") : (plainText ? "text-prose" : "epub3")
+                play ? (pdf ? (aiCleanup ? "pdf-ocr-ai-play" : "pdf-play") : plainText ? "text-play" : "epub-play")
+                        : (pdf ? (aiCleanup ? "pdf-ocr-ai-prose" : "pdf-prose") : plainText ? "text-prose" : "epub3")
         );
 
         int chapterCount = 0;

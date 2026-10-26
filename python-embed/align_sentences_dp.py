@@ -118,6 +118,36 @@ def fetch_edition_ids_and_body_start(conn, work_title, src_lang, tgt_lang):
     return int(work_id), int(src_id), int(tgt_id), src_body, tgt_body
 
 
+def set_body_start_by_text(conn, edition_id: int, fragment: str) -> int:
+    normalized = re.sub(r"[^\w]+", "", fragment.lower())
+    if not normalized:
+        raise RuntimeError("Body-start text must contain letters or numbers")
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            select id
+            from segment
+            where edition_id = %s
+              and level = 'sentence'
+              and regexp_replace(lower(text), '[^[:alnum:]]+', '', 'g') like %s
+            order by id
+            limit 1
+            """,
+            (edition_id, f"%{normalized}%"),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise RuntimeError(
+                f"Could not find body-start sentence containing '{fragment}' in edition {edition_id}"
+            )
+        segment_id = int(row[0])
+        cur.execute(
+            "update edition set body_start_segment_id = %s where id = %s",
+            (segment_id, edition_id),
+        )
+    return segment_id
+
+
 
 def fetch_sentences_with_vecs(conn, edition_id: int, body_start_id: Optional[int]):
     """
@@ -302,6 +332,7 @@ def write_alignments(
         pairs: List[Tuple[int, int, float]],
         method_name: str,
         min_score: float,
+        replace_existing: bool,
 ) -> int:
     """
     Insert / upsert alignments into the existing alignment table:
@@ -334,6 +365,17 @@ def write_alignments(
 
     kept = 0
     with conn.cursor() as cur:
+        if replace_existing:
+            cur.execute(
+                """
+                delete from alignment
+                where work_id = %s
+                  and edition_src_id = %s
+                  and edition_tgt_id = %s
+                """,
+                (work_id, src_edition_id, tgt_edition_id),
+            )
+            log("align_existing_deleted", count=cur.rowcount)
         for src_seg_id, tgt_seg_id, score in pairs:
             if score < min_score:
                 continue
@@ -387,6 +429,18 @@ def parse_args():
         default=0.2,
         help="Penalty for 2-1 / 1-2 merges (default: 0.2)",
     )
+    p.add_argument(
+        "--replace-existing",
+        action="store_true",
+        help="Delete existing alignments for this exact edition pair before writing the new result",
+    )
+    p.add_argument("--src-start-text", help="Sentence fragment marking the source edition body start")
+    p.add_argument("--tgt-start-text", help="Sentence fragment marking the target edition body start")
+    p.add_argument(
+        "--set-starts-only",
+        action="store_true",
+        help="Set the requested body starts and exit without reading embeddings or aligning",
+    )
     return p.parse_args()
 
 
@@ -396,6 +450,18 @@ def main():
     conn = get_conn()
     try:
         work_id, src_ed, tgt_ed, src_body, tgt_body = fetch_edition_ids_and_body_start(conn, args.work, args.src, args.tgt)
+        if args.src_start_text:
+            src_body = set_body_start_by_text(conn, src_ed, args.src_start_text)
+            log("body_start_set", lang=args.src, edition_id=src_ed, segment_id=src_body)
+        if args.tgt_start_text:
+            tgt_body = set_body_start_by_text(conn, tgt_ed, args.tgt_start_text)
+            log("body_start_set", lang=args.tgt, edition_id=tgt_ed, segment_id=tgt_body)
+        if args.set_starts_only:
+            if not args.src_start_text and not args.tgt_start_text:
+                raise RuntimeError("--set-starts-only requires --src-start-text and/or --tgt-start-text")
+            conn.commit()
+            log("body_starts_done", work=args.work, src_body_start=src_body, tgt_body_start=tgt_body)
+            return
         log(
             "align_start",
             work=args.work,
@@ -424,7 +490,9 @@ def main():
 
         suffix = f"-{args.src}-{args.tgt}"
         method_name = args.method if args.method.endswith(suffix) else f"{args.method}{suffix}"
-        kept = write_alignments(conn, work_id, src_ed, tgt_ed, pairs, method_name, args.min_score)
+        kept = write_alignments(
+            conn, work_id, src_ed, tgt_ed, pairs, method_name, args.min_score, args.replace_existing
+        )
         log("align_done", kept=kept, method=method_name)
     finally:
         conn.close()

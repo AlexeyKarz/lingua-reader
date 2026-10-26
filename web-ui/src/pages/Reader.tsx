@@ -101,6 +101,7 @@ type WordTranslationResponse = WordDetails & {
 
 const DEFAULT_PAGE_SIZE = 20
 const FOLLOW_ALIGNMENT_KEY = 'mlr:reader-follow-alignment'
+const VISUAL_ALIGNMENT_KEY = 'mlr:reader-visual-alignment'
 const MOBILE_PANE_LAYOUT_KEY = 'mlr:reader-mobile-pane-layout'
 
 type MobilePaneLayout = 'stack' | 'split'
@@ -197,6 +198,7 @@ export default function Reader() {
     const [progressReady, setProgressReady] = useState(false)
     const [readerPreferencesReady, setReaderPreferencesReady] = useState(false)
     const [followAlignment, setFollowAlignment] = useState(() => readBooleanSetting(FOLLOW_ALIGNMENT_KEY, false))
+    const [visualAlignment, setVisualAlignment] = useState(() => readBooleanSetting(VISUAL_ALIGNMENT_KEY, false))
     const [mobilePaneLayout, setMobilePaneLayout] = useState<MobilePaneLayout>(() => readMobilePaneLayout())
 
     const rangeRef = useRef<Range | null>(null)
@@ -221,7 +223,8 @@ export default function Reader() {
     const [alignMap, setAlignMap] = useState<Map<number, number>>(new Map())
     const [highlightRightId, setHighlightRightId] = useState<number | null>(null)
 
-    // right-side sentence refs for scrolling
+    // Sentence refs support scrolling and optional visual passage alignment.
+    const leftRefs = useRef<Record<number, HTMLParagraphElement | null>>({})
     const rightRefs = useRef<Record<number, HTMLParagraphElement | null>>({})
 
     const alignedRightIds = useMemo(() => {
@@ -403,6 +406,7 @@ export default function Reader() {
                 setAlignMap(m)
                 setHighlightRightId(null)
                 // reset refs
+                leftRefs.current = {}
                 rightRefs.current = {}
                 setJumpInput(String(j.page + 1))
             } catch (e) {
@@ -460,12 +464,16 @@ export default function Reader() {
 
         ;(async () => {
             let nextFollowAlignment = readBooleanSetting(FOLLOW_ALIGNMENT_KEY, false)
+            let nextVisualAlignment = readBooleanSetting(VISUAL_ALIGNMENT_KEY, false)
             let nextMobilePaneLayout = readMobilePaneLayout()
             if (auth.authenticated) {
                 try {
                     const preferences = await fetchUserPreferences()
                     if (typeof preferences['reader.followAlignment'] === 'boolean') {
                         nextFollowAlignment = preferences['reader.followAlignment']
+                    }
+                    if (typeof preferences['reader.visualAlignment'] === 'boolean') {
+                        nextVisualAlignment = preferences['reader.visualAlignment']
                     }
                     if (
                         preferences['reader.mobilePaneLayout'] === 'stack' ||
@@ -480,6 +488,7 @@ export default function Reader() {
 
             if (!alive) return
             setFollowAlignment(nextFollowAlignment)
+            setVisualAlignment(nextVisualAlignment)
             setMobilePaneLayout(nextMobilePaneLayout)
             setReaderPreferencesReady(true)
         })()
@@ -502,6 +511,20 @@ export default function Reader() {
             // Reader settings are convenience-only for guests.
         }
     }, [followAlignment, readerPreferencesReady, auth.authenticated, auth.loading])
+
+    useEffect(() => {
+        if (!readerPreferencesReady || auth.loading) return
+        if (auth.authenticated) {
+            void saveUserPreference('reader.visualAlignment', visualAlignment)
+                .catch(caught => console.warn('Could not save account reader preference', caught))
+            return
+        }
+        try {
+            window.localStorage.setItem(VISUAL_ALIGNMENT_KEY, String(visualAlignment))
+        } catch {
+            // Reader settings are convenience-only for guests.
+        }
+    }, [visualAlignment, readerPreferencesReady, auth.authenticated, auth.loading])
 
     useEffect(() => {
         if (!readerPreferencesReady || auth.loading) return
@@ -599,9 +622,8 @@ export default function Reader() {
                     key={s.id}
                     data-sentence-id={s.id}
                     ref={el => {
-                        if (side === 'right') {
-                            rightRefs.current[s.id] = el
-                        }
+                        if (side === 'left') leftRefs.current[s.id] = el
+                        else rightRefs.current[s.id] = el
                     }}
                     className={
                         'mb-3 transition-colors ' +
@@ -617,6 +639,75 @@ export default function Reader() {
 
         return nodes
     }
+
+    useLayoutEffect(() => {
+        const resetSpacing = () => {
+            Object.values(leftRefs.current).forEach(element => {
+                if (element) element.style.paddingTop = ''
+            })
+            Object.values(rightRefs.current).forEach(element => {
+                if (element) element.style.paddingTop = ''
+            })
+        }
+
+        let frame = 0
+        const alignVisiblePassages = () => {
+            window.cancelAnimationFrame(frame)
+            frame = window.requestAnimationFrame(() => {
+                resetSpacing()
+                if (!visualAlignment || !data || !leftRef.current || !rightRef.current) return
+
+                const leftPaneRect = leftRef.current.getBoundingClientRect()
+                const rightPaneRect = rightRef.current.getBoundingClientRect()
+                const panesAreSideBySide = Math.abs(leftPaneRect.left - rightPaneRect.left) > 20
+                if (!panesAreSideBySide) return
+
+                const rightOrder = new Map(data.right.map((sentence, index) => [sentence.id, index]))
+                const linksByLeft = new Map<number, number[]>()
+                data.alignments.forEach(link => {
+                    const links = linksByLeft.get(link.leftId) ?? []
+                    links.push(link.rightId)
+                    linksByLeft.set(link.leftId, links)
+                })
+
+                const usedRightIds = new Set<number>()
+
+                data.left.forEach(leftSentence => {
+                    const rightIds = (linksByLeft.get(leftSentence.id) ?? [])
+                        .filter(id => !usedRightIds.has(id))
+                        .sort((a, b) => (rightOrder.get(a) ?? Number.MAX_SAFE_INTEGER) - (rightOrder.get(b) ?? Number.MAX_SAFE_INTEGER))
+                    const rightId = rightIds[0]
+                    if (rightId === undefined) return
+
+                    const leftElement = leftRefs.current[leftSentence.id]
+                    const rightElement = rightRefs.current[rightId]
+                    if (!leftElement || !rightElement) return
+                    usedRightIds.add(rightId)
+
+                    const leftTop = leftElement.getBoundingClientRect().top
+                    const rightTop = rightElement.getBoundingClientRect().top
+                    const difference = leftTop - rightTop
+
+                    if (Math.abs(difference) < 1) return
+                    if (difference > 0) {
+                        rightElement.style.paddingTop = `${difference}px`
+                    } else {
+                        const padding = -difference
+                        leftElement.style.paddingTop = `${padding}px`
+                    }
+                })
+            })
+        }
+
+        alignVisiblePassages()
+        window.addEventListener('resize', alignVisiblePassages)
+        void document.fonts?.ready.then(alignVisiblePassages)
+        return () => {
+            window.cancelAnimationFrame(frame)
+            window.removeEventListener('resize', alignVisiblePassages)
+            resetSpacing()
+        }
+    }, [data, visualAlignment, mobilePaneLayout, expandedGroups, showFrontLeft, showFrontRight])
 
     // Compute popover coords after it (re)renders or when selection rect changes.
     useLayoutEffect(() => {
@@ -1283,23 +1374,37 @@ export default function Reader() {
                             />
                             <span>Jump to match</span>
                         </label>
-                        <div className="reader-segmented" role="group" aria-label="Small-screen pane layout">
-                            <button
-                                type="button"
-                                className={mobilePaneLayout === 'stack' ? 'reader-segmented-active' : ''}
-                                aria-pressed={mobilePaneLayout === 'stack'}
-                                onClick={() => setMobilePaneLayout('stack')}
-                            >
-                                Stack
-                            </button>
-                            <button
-                                type="button"
-                                className={mobilePaneLayout === 'split' ? 'reader-segmented-active' : ''}
-                                aria-pressed={mobilePaneLayout === 'split'}
-                                onClick={() => setMobilePaneLayout('split')}
-                            >
-                                Split
-                            </button>
+                        <label
+                            className="reader-toggle-option"
+                            title="Add spacing so matched passages begin at the same height in side-by-side view"
+                        >
+                            <input
+                                type="checkbox"
+                                checked={visualAlignment}
+                                onChange={event => setVisualAlignment(event.target.checked)}
+                            />
+                            <span>Align passages</span>
+                        </label>
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium muted-copy">Mobile layout</span>
+                            <div className="reader-segmented" role="group" aria-label="Mobile layout">
+                                <button
+                                    type="button"
+                                    className={mobilePaneLayout === 'stack' ? 'reader-segmented-active' : ''}
+                                    aria-pressed={mobilePaneLayout === 'stack'}
+                                    onClick={() => setMobilePaneLayout('stack')}
+                                >
+                                    Stack
+                                </button>
+                                <button
+                                    type="button"
+                                    className={mobilePaneLayout === 'split' ? 'reader-segmented-active' : ''}
+                                    aria-pressed={mobilePaneLayout === 'split'}
+                                    onClick={() => setMobilePaneLayout('split')}
+                                >
+                                    Split
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1489,8 +1594,8 @@ export default function Reader() {
             </div>
 
             <div className="page-dock">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="flex flex-wrap items-center gap-3">
+                <div className="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between">
+                    <div className="flex shrink-0 flex-wrap items-center gap-3">
                         <button className="btn" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={status === 'loading' || page <= 0}>
                             Prev
                         </button>
@@ -1502,9 +1607,9 @@ export default function Reader() {
                         </button>
                     </div>
 
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-                        <div className="flex flex-wrap items-center gap-2 text-sm">
-                            <label className="text-xs uppercase tracking-[0.18em] muted-copy">Jump to</label>
+                    <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
+                        <div className="flex shrink-0 flex-nowrap items-center gap-2 text-sm">
+                            <label className="whitespace-nowrap text-xs uppercase tracking-[0.18em] muted-copy">Jump to</label>
                             <input
                                 type="text"
                                 inputMode="numeric"
@@ -1514,7 +1619,8 @@ export default function Reader() {
                                     setJumpInput(e.target.value)
                                     setJumpError(null)
                                 }}
-                                className="input w-[4.5rem] text-center"
+                                aria-label="Page number"
+                                className="input w-[4.5rem] shrink-0 px-3 text-center"
                                 onKeyDown={e => {
                                     if (e.key === 'Enter') {
                                         e.preventDefault()
@@ -1522,11 +1628,11 @@ export default function Reader() {
                                     }
                                 }}
                             />
-                            <button className="btn-secondary" onClick={handleJump} disabled={status === 'loading' || totalPages === null}>
+                            <button className="btn-secondary shrink-0" onClick={handleJump} disabled={status === 'loading' || totalPages === null}>
                                 Go
                             </button>
                             {data?.totalSrc && (
-                                <span className="text-xs muted-copy">
+                                <span className="whitespace-nowrap text-xs muted-copy">
                                     of {Math.max(1, Math.ceil(data.totalSrc / size))}
                                 </span>
                             )}

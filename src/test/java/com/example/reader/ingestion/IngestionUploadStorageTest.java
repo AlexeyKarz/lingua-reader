@@ -107,14 +107,29 @@ class IngestionUploadStorageTest {
         IngestionUploadStorage storage = storage(properties);
         MockMultipartFile file = new MockMultipartFile(
                 "file",
-                "book.pdf",
-                "application/pdf",
+                "book.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 "not supported".getBytes(StandardCharsets.UTF_8)
         );
 
         assertThatThrownBy(() -> storage.store(file, "Book", "en", "prose"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Only EPUB and TXT files are supported");
+                .hasMessageContaining("Only EPUB, TXT, and PDF files are supported");
+    }
+
+    @Test
+    void storesPdfForDirectParsing() throws Exception {
+        IngestionUploadProperties properties = new IngestionUploadProperties();
+        properties.setDir(tempDir);
+        IngestionUploadStorage storage = storage(properties);
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "book.pdf", "application/pdf", "%PDF-test".getBytes(StandardCharsets.UTF_8)
+        );
+
+        Path stored = Path.of(URI.create(storage.store(file, "Book", "el", "prose")));
+
+        assertThat(stored.getFileName().toString()).endsWith("-book.pdf");
+        assertThat(Files.readString(stored)).isEqualTo("%PDF-test");
     }
 
     @Test

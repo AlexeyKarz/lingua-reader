@@ -14,8 +14,17 @@ public record IngestionRequest(
         String originalLang,
         String contentType,
         Boolean dictionaryWarmup,
-        List<String> dictionaryTargetLangs
+        List<String> dictionaryTargetLangs,
+        Boolean ocrCleanup,
+        String ocrCleanupModel
 ) {
+    public IngestionRequest(String workTitle, String lang, String fileSpec, Integer year,
+                            String publisher, String translator, String author, String description,
+                            String originalLang, String contentType, Boolean dictionaryWarmup,
+                            List<String> dictionaryTargetLangs) {
+        this(workTitle, lang, fileSpec, year, publisher, translator, author, description,
+                originalLang, contentType, dictionaryWarmup, dictionaryTargetLangs, false, null);
+    }
     public IngestionRequest(String workTitle, String lang, String fileSpec, Integer year,
                             String publisher, String translator, String author,
                             String description, String originalLang) {
@@ -67,7 +76,9 @@ public record IngestionRequest(
                 normalizedOriginalLang,
                 normalizedContentType,
                 normalizedDictionaryWarmup,
-                normalizedDictionaryTargets
+                normalizedDictionaryTargets,
+                Boolean.TRUE.equals(ocrCleanup),
+                trimToNull(ocrCleanupModel)
         );
     }
 
@@ -86,6 +97,14 @@ public record IngestionRequest(
         }
         if (Boolean.TRUE.equals(dictionaryWarmup) && (dictionaryTargetLangs == null || dictionaryTargetLangs.isEmpty())) {
             throw new IllegalArgumentException("dictionaryTargetLangs is required when dictionaryWarmup is enabled");
+        }
+        // Multipart metadata is validated before the uploaded file has been persisted and
+        // therefore uses this sentinel. The completed request is validated again with the
+        // real stored filename by the job service.
+        if (Boolean.TRUE.equals(ocrCleanup)
+                && !"uploaded-source".equals(fileSpec)
+                && !fileSpec.toLowerCase().endsWith(".pdf")) {
+            throw new IllegalArgumentException("AI OCR cleanup is available only for PDF files");
         }
     }
 

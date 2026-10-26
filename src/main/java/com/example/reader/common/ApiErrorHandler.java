@@ -50,7 +50,8 @@ public class ApiErrorHandler {
             MultipartException.class
     })
     public ResponseEntity<ApiError> validationErrors(Exception ex, WebRequest req) {
-        return build(HttpStatus.BAD_REQUEST, ex, req, false);
+        log.warn("Request validation failed: path={} reason={}", requestPath(req), ex.getMessage());
+        return build(HttpStatus.BAD_REQUEST, ex, req, true);
     }
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)

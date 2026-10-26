@@ -110,6 +110,24 @@ public class OllamaProviderClient implements ProviderClient {
         );
     }
 
+    @Override
+    public String cleanOcr(String text, String language, String modelOverride) {
+        String effectiveModel = effectiveLiteraryModel(modelOverride);
+        String prompt = """
+                Correct only clear OCR recognition errors in the following %s literary text.
+                Preserve historical spelling, dialect, names, meaning, punctuation, paragraph
+                boundaries, and style. Do not translate, modernize, summarize, explain, or invent.
+                When uncertain, retain the original. Output only the corrected text.
+
+                OCR text:
+                %s
+                """.formatted(language, text);
+        return ProviderMetrics.record(
+                registry, providerName, effectiveModel, "ocr_cleanup", language, language,
+                () -> generate(effectiveModel, prompt)
+        );
+    }
+
     private String generate(String model, String prompt) {
         Map<String, Object> body = Map.of(
                 "model", model,

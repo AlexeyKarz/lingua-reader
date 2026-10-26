@@ -24,6 +24,8 @@ public record IngestionJob(
         Integer chunkMaxChars,
         Integer contextChars,
         String model,
+        Boolean ocrCleanup,
+        String ocrCleanupModel,
         Long workId,
         Long editionId,
         int chapters,
@@ -45,7 +47,7 @@ public record IngestionJob(
         this(id, status, step, message, error, workTitle, lang, fileSpec, year,
                 author, description, publisher, translator, originalLang, "prose",
                 bodyOnly, replaceExisting, maxSourceChars, chunkMaxChars, contextChars,
-                model, workId, editionId, chapters, paragraphs, sentences,
+                model, false, null, workId, editionId, chapters, paragraphs, sentences,
                 createdAt, startedAt, finishedAt);
     }
 }

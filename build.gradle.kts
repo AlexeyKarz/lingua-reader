@@ -38,6 +38,8 @@ dependencies {
     // parsing EPUB → XHTML/text
     implementation("org.apache.tika:tika-core:2.9.1")
     implementation("org.apache.tika:tika-parsers-standard-package:2.9.1")
+    implementation("org.apache.pdfbox:pdfbox:2.0.29")
+    implementation("com.github.jai-imageio:jai-imageio-jpeg2000:1.4.0")
 
     // HTML parsing for chapter/paragraph extraction
     implementation("org.jsoup:jsoup:1.18.1")

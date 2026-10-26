@@ -115,7 +115,9 @@ public class IngestionJobService {
                 job.originalLang(),
                 job.contentType(),
                 false,
-                List.of()
+                List.of(),
+                job.ocrCleanup(),
+                job.ocrCleanupModel()
         );
         return startJob(request);
     }

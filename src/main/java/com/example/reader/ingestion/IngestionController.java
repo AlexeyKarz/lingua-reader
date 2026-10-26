@@ -99,6 +99,8 @@ public class IngestionController {
             @RequestParam(defaultValue = "prose") String contentType,
             @RequestParam(defaultValue = "false") boolean dictionaryWarmup,
             @RequestParam(required = false) List<String> dictionaryTargetLangs,
+            @RequestParam(defaultValue = "false") boolean ocrCleanup,
+            @RequestParam(required = false) String ocrCleanupModel,
             @RequestPart("file") MultipartFile file,
             Authentication authentication,
             HttpServletRequest servletRequest
@@ -115,7 +117,9 @@ public class IngestionController {
                 originalLang,
                 contentType,
                 dictionaryWarmup,
-                dictionaryTargetLangs
+                dictionaryTargetLangs,
+                ocrCleanup,
+                ocrCleanupModel
         ).withDefaults();
         metadata.validate();
 
@@ -132,7 +136,9 @@ public class IngestionController {
                 metadata.originalLang(),
                 metadata.contentType(),
                 metadata.dictionaryWarmup(),
-                metadata.dictionaryTargetLangs()
+                metadata.dictionaryTargetLangs(),
+                metadata.ocrCleanup(),
+                metadata.ocrCleanupModel()
         );
         long jobId = jobService.startJob(request);
         events.recordSimple("ingestion_job_submitted", authentication, Map.of("jobId", jobId, "mode", "upload"));

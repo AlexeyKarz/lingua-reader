@@ -11,6 +11,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +29,7 @@ public class OpenAIProviderClient implements ProviderClient {
     private final MeterRegistry registry;
     private final String model;
     private final String literaryModel;
+    private final String ocrCleanupModel;
     private final int timeoutSeconds;
     private final int maxCompletionTokens;
     private final int literaryMaxCompletionTokens;
@@ -56,6 +58,8 @@ public class OpenAIProviderClient implements ProviderClient {
         this.literaryModel = props.getLiteraryModel() == null || props.getLiteraryModel().isBlank()
                 ? props.getModel()
                 : props.getLiteraryModel();
+        this.ocrCleanupModel = props.getOcrCleanupModel() == null || props.getOcrCleanupModel().isBlank()
+                ? this.literaryModel : props.getOcrCleanupModel();
         this.maxCompletionTokens = props.getMaxCompletionTokens();
         this.literaryMaxCompletionTokens = props.getLiteraryMaxCompletionTokens();
         this.webClient = builder
@@ -173,6 +177,47 @@ public class OpenAIProviderClient implements ProviderClient {
     }
 
     @Override
+    public String cleanOcr(String text, String language, String modelOverride) {
+        return cleanOcr(text, null, language, modelOverride);
+    }
+
+    @Override
+    public String cleanOcr(String text, byte[] pageImagePng, String language, String modelOverride) {
+        String effectiveModel = modelOverride == null || modelOverride.isBlank()
+                ? ocrCleanupModel : modelOverride.trim();
+        String instructions = """
+                Correct OCR errors by comparing the OCR text to the supplied page image when present.
+                Return only the corrected text. Transcribe what is visibly printed, preserving the
+                language, historical spelling, accents, dialect, names, punctuation, paragraph
+                boundaries, verse line breaks, and style. Fix only clear recognition errors, broken
+                words, character confusions, and accidental spacing. Never translate, modernize,
+                paraphrase, summarize, censor, explain, or infer a different word merely because it
+                fits the context. When the image is ambiguous, keep the OCR text.
+                """;
+        String input = "Language: " + language + "\nOCR text:\n" + text;
+        Object responseInput = input;
+        if (pageImagePng != null && pageImagePng.length > 0) {
+            responseInput = List.of(Map.of(
+                    "role", "user",
+                    "content", List.of(
+                            Map.of("type", "input_text", "text", input),
+                            Map.of(
+                                    "type", "input_image",
+                                    "image_url", "data:image/png;base64," + Base64.getEncoder().encodeToString(pageImagePng),
+                                    "detail", "high"
+                            )
+                    )
+            ));
+        }
+        Object finalInput = responseInput;
+        return ProviderMetrics.record(
+                registry, providerName, effectiveModel, "ocr_cleanup", language, language,
+                () -> callResponses(effectiveModel, instructions, finalInput,
+                        Math.max(literaryMaxCompletionTokens, 2500), true)
+        );
+    }
+
+    @Override
     public String explain(String text, String source, String target, String bookContext) {
         log.info("Calling OpenAI explain {} -> {} ({} chars, ctx {} chars)",
                 source, target, text.length(), bookContext == null ? 0 : bookContext.length());
@@ -231,13 +276,29 @@ public class OpenAIProviderClient implements ProviderClient {
     }
 
     private String callResponses(String model, String systemPrompt, String userPrompt, int maxTokens) {
+        return callResponses(model, systemPrompt, (Object) userPrompt, maxTokens, false);
+    }
+
+    private String callResponses(
+            String model,
+            String systemPrompt,
+            Object responseInput,
+            int maxTokens,
+            boolean minimizeReasoning
+    ) {
         long started = System.currentTimeMillis();
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", model);
         body.put("instructions", systemPrompt);
-        body.put("input", userPrompt);
+        body.put("input", responseInput);
         body.put("max_output_tokens", maxTokens);
         body.put("store", false);
+        // OCR cleanup is a constrained transcription task. Without this, reasoning models can
+        // spend the full output allowance thinking and return no (or truncated) corrected text.
+        String normalizedModel = model.toLowerCase(Locale.ROOT);
+        if (minimizeReasoning && (normalizedModel.startsWith("gpt-5") || normalizedModel.startsWith("gpt-6"))) {
+            body.put("reasoning", Map.of("effort", "none"));
+        }
 
         try {
             OpenAIResponsesResponse response = this.webClient

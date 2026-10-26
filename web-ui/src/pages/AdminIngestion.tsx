@@ -32,6 +32,8 @@ type EditionDraft = {
     replaceExisting: boolean
     contentType: 'prose' | 'play'
     dictionaryWarmup: boolean
+    ocrCleanup: boolean
+    ocrCleanupModel: string
 }
 
 type PreparedUploadEdition = Omit<EditionDraft, 'file' | 'mode'> & {
@@ -98,6 +100,8 @@ type IngestionJob = {
     chunkMaxChars?: number | null
     contextChars?: number | null
     model?: string | null
+    ocrCleanup?: boolean | null
+    ocrCleanupModel?: string | null
     workId?: number | null
     editionId?: number | null
     chapters: number
@@ -148,6 +152,8 @@ function createEditionDraft(): EditionDraft {
         replaceExisting: true,
         contentType: 'prose',
         dictionaryWarmup: true,
+        ocrCleanup: false,
+        ocrCleanupModel: '',
     }
 }
 
@@ -157,7 +163,7 @@ function normalizeLang(value: string) {
 
 function isSupportedBookFile(file: File) {
     const lowerName = file.name.toLowerCase()
-    return lowerName.endsWith('.epub') || lowerName.endsWith('.txt')
+    return lowerName.endsWith('.epub') || lowerName.endsWith('.txt') || lowerName.endsWith('.pdf')
 }
 
 function appendIfPresent(form: FormData, key: string, value: string) {
@@ -271,7 +277,9 @@ async function responseError(response: Response) {
         const contentType = response.headers.get('content-type') ?? ''
         if (contentType.includes('application/json')) {
             const body = await response.json() as {error?: string; message?: string}
-            return body.error ?? body.message ?? `${response.status} ${response.statusText}`
+            // Spring's structured errors use a generic `error` value such as
+            // "Bad Request" and put the actionable explanation in `message`.
+            return body.message ?? body.error ?? `${response.status} ${response.statusText}`
         }
         const text = await response.text()
         return text || `${response.status} ${response.statusText}`
@@ -465,6 +473,9 @@ export default function AdminIngestionPage() {
             replaceExisting: job.replaceExisting ?? true,
             contentType: job.contentType === 'play' ? 'play' : 'prose',
             dictionaryWarmup: true,
+            ocrCleanup: job.ocrCleanup ?? false,
+            ocrCleanupModel: job.ocrCleanupModel && modelCatalog?.models.includes(job.ocrCleanupModel)
+                ? job.ocrCleanupModel : '',
         }])
         setIngestedDraftIds(new Set())
         setEstimates({})
@@ -545,9 +556,9 @@ export default function AdminIngestionPage() {
         for (const edition of editions) {
             if (!normalizeLang(edition.lang)) return 'Every edition needs a language.'
             if (edition.mode === 'upload') {
-                if (!edition.file) return 'Every uploaded edition needs an EPUB or TXT file.'
+                if (!edition.file) return 'Every uploaded edition needs an EPUB, TXT, or PDF file.'
                 if (!isSupportedBookFile(edition.file)) {
-                    return 'Only EPUB and TXT files are supported.'
+                    return 'Only EPUB, TXT, and PDF files are supported.'
                 }
             } else {
                 const sourceLang = normalizeLang(edition.sourceLang) || normalizeLang(work.originalLang)
@@ -590,6 +601,10 @@ export default function AdminIngestionPage() {
         if (edition.dictionaryWarmup && dictionaryTargets.length > 0) {
             form.append('dictionaryWarmup', 'true')
             dictionaryTargets.forEach(lang => form.append('dictionaryTargetLangs', lang))
+        }
+        if (edition.ocrCleanup) {
+            form.append('ocrCleanup', 'true')
+            appendIfPresent(form, 'ocrCleanupModel', edition.ocrCleanupModel)
         }
 
         const response = await csrfFetch('/api/admin/ingest/jobs/upload', {
@@ -657,7 +672,7 @@ export default function AdminIngestionPage() {
             )
             if (!selectedCatalogLangs.has(sourceLang) && draftSource && !ingestedDraftIds.has(draftSource.id)) {
                 if (!draftSource.file || !isSupportedBookFile(draftSource.file)) {
-                    throw new Error(`Add a valid EPUB or TXT file for the ${sourceLang.toUpperCase()} source before estimating.`)
+                    throw new Error(`Add a valid EPUB, TXT, or PDF file for the ${sourceLang.toUpperCase()} source before estimating.`)
                 }
                 const localId = createId()
                 setJobs(current => [{
@@ -675,7 +690,7 @@ export default function AdminIngestionPage() {
                     file: draftSource.file,
                 })
                 patchJob(localId, {jobId: started.jobId, status: started.status, message: 'Source ingestion queued'})
-                const terminalJob = await pollJob(localId, started.jobId)
+                const terminalJob = await pollJob(localId, started.jobId, 2400)
                 if (terminalJob?.status !== 'SUCCEEDED') {
                     throw new Error(`Could not estimate because ${sourceLang.toUpperCase()} source ingestion failed.`)
                 }
@@ -717,8 +732,8 @@ export default function AdminIngestionPage() {
         return await response.json() as IngestionJob
     }
 
-    async function pollJob(localId: string, jobId: number) {
-        for (let attempt = 0; attempt < 240; attempt += 1) {
+    async function pollJob(localId: string, jobId: number, maxAttempts = 240) {
+        for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
             await new Promise(resolve => window.setTimeout(resolve, attempt === 0 ? 600 : 2000))
             try {
                 const job = await refreshJob(jobId)
@@ -811,7 +826,9 @@ export default function AdminIngestionPage() {
                         message: 'Job queued',
                     })
                     if (requiredUploadSources.has(edition.lang)) {
-                        const terminalJob = await pollJob(localId, started.jobId)
+                        // OCR for a full scanned PDF may take substantially longer
+                        // than extracting TXT/EPUB or a text-layer PDF.
+                        const terminalJob = await pollJob(localId, started.jobId, 2400)
                         if (terminalJob?.status !== 'SUCCEEDED') {
                             const reason = terminalJob?.error || terminalJob?.message || 'Source ingestion failed or timed out.'
                             failedUploadLangs.set(edition.lang, reason)
@@ -1076,15 +1093,49 @@ export default function AdminIngestionPage() {
                                     {edition.mode === 'upload' ? (
                                         <div className="space-y-3">
                                             <label className="flex flex-col gap-2 text-sm">
-                                                <span className="text-xs uppercase tracking-[0.18em] muted-copy">EPUB or TXT file</span>
+                                                <span className="text-xs uppercase tracking-[0.18em] muted-copy">EPUB, TXT, or PDF file</span>
                                                 <input
                                                     type="file"
-                                                    accept=".epub,.txt,application/epub+zip,text/plain"
+                                                    accept=".epub,.txt,.pdf,application/epub+zip,text/plain,application/pdf"
                                                     onChange={event => updateEdition(edition.id, {file: event.target.files?.[0] ?? null})}
                                                     className="file-input"
                                                     required
                                                 />
                                             </label>
+                                            {edition.file?.name.toLowerCase().endsWith('.pdf') && (
+                                                <div className="rounded-2xl border border-[var(--border)] p-4 space-y-3">
+                                                    <label className="flex items-start gap-3 text-sm">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={edition.ocrCleanup}
+                                                            onChange={event => updateEdition(edition.id, {
+                                                                ocrCleanup: event.target.checked,
+                                                            })}
+                                                            className="mt-1"
+                                                        />
+                                                        <span>
+                                                            <span className="theme-heading block font-medium">Clean scanned PDF text with AI</span>
+                                                            <span className="muted-copy">Optional. Compares each page image with its OCR text, keeps the raw OCR beside the upload, and rejects corrections that rewrite too much.</span>
+                                                        </span>
+                                                    </label>
+                                                    {edition.ocrCleanup && (
+                                                        <label className="flex flex-col gap-2 text-sm">
+                                                            <span className="text-xs uppercase tracking-[0.18em] muted-copy">Cleanup model</span>
+                                                            <select
+                                                                className="input"
+                                                                value={edition.ocrCleanupModel}
+                                                                onChange={event => updateEdition(edition.id, {ocrCleanupModel: event.target.value})}
+                                                            >
+                                                                <option value="">Provider default (OpenAI: gpt-5.6-luna)</option>
+                                                                {(modelCatalog?.models ?? []).map(model => (
+                                                                    <option key={model} value={model}>{model}</option>
+                                                                ))}
+                                                            </select>
+                                                            <span className="muted-copy">Vision cleanup runs once per OCR page. A full novel may take considerable time and image-token usage.</span>
+                                                        </label>
+                                                    )}
+                                                </div>
+                                            )}
                                             <label className="flex items-start gap-3 text-sm">
                                                 <input
                                                     type="checkbox"

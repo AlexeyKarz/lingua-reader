@@ -16,6 +16,7 @@ public class OpenAITranslateProperties {
      */
     private String model;
     private String literaryModel;
+    private String ocrCleanupModel = "gpt-5.6-luna";
 
     /**
      * Timeout in seconds.
@@ -36,6 +37,8 @@ public class OpenAITranslateProperties {
 
     public String getLiteraryModel() { return literaryModel; }
     public void setLiteraryModel(String literaryModel) { this.literaryModel = literaryModel; }
+    public String getOcrCleanupModel() { return ocrCleanupModel; }
+    public void setOcrCleanupModel(String ocrCleanupModel) { this.ocrCleanupModel = ocrCleanupModel; }
 
     public int getTimeoutSeconds() { return timeoutSeconds; }
     public void setTimeoutSeconds(int timeoutSeconds) { this.timeoutSeconds = timeoutSeconds; }

@@ -202,7 +202,7 @@ describe('AdminIngestionPage', () => {
     fireEvent.change(screen.getByLabelText(/^Translator$/i), { target: { value: 'Translator' } })
 
     const file = new File(['Chapter 1\n\nHello world.'], 'plain-book.txt', { type: 'text/plain' })
-    fireEvent.change(screen.getByLabelText(/^EPUB or TXT file$/i), { target: { files: [file] } })
+    fireEvent.change(screen.getByLabelText(/^EPUB, TXT, or PDF file$/i), { target: { files: [file] } })
     submitForm()
 
     await waitFor(() => {
@@ -241,13 +241,38 @@ describe('AdminIngestionPage', () => {
     fireEvent.change(screen.getByLabelText(/^Title$/i), { target: { value: 'Plain Book' } })
     fireEvent.change(screen.getByLabelText(/^Original language$/i), { target: { value: 'en' } })
     fireEvent.change(screen.getByLabelText(/^Language$/i), { target: { value: 'de' } })
-    fireEvent.change(screen.getByLabelText(/^EPUB or TXT file$/i), {
-      target: { files: [new File(['bad'], 'plain-book.pdf', { type: 'application/pdf' })] },
+    fireEvent.change(screen.getByLabelText(/^EPUB, TXT, or PDF file$/i), {
+      target: { files: [new File(['bad'], 'plain-book.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })] },
     })
     submitForm()
 
-    expect(await screen.findByText('Only EPUB and TXT files are supported.')).toBeTruthy()
+    expect(await screen.findByText('Only EPUB, TXT, and PDF files are supported.')).toBeTruthy()
     expect(fetchMock.mock.calls.filter(([input]) => String(input) === '/api/admin/ingest/jobs/upload')).toHaveLength(0)
+  })
+
+  it('submits optional AI cleanup settings for a scanned PDF', async () => {
+    const fetchMock = installFetchMock()
+    render(<AdminIngestionPage />)
+
+    fireEvent.change(screen.getByLabelText(/^Title$/i), { target: { value: 'Scanned Book' } })
+    fireEvent.change(screen.getByLabelText(/^Original language$/i), { target: { value: 'el' } })
+    fireEvent.change(screen.getByLabelText(/^Language$/i), { target: { value: 'el' } })
+    fireEvent.change(screen.getByLabelText(/^EPUB, TXT, or PDF file$/i), {
+      target: { files: [new File(['pdf'], 'scan.pdf', { type: 'application/pdf' })] },
+    })
+    fireEvent.click(screen.getByLabelText(/Clean scanned PDF text with AI/i))
+    const cleanupModel = screen.getByLabelText(/Cleanup model/i) as HTMLSelectElement
+    await waitFor(() => expect(cleanupModel.options.length).toBeGreaterThan(1))
+    fireEvent.change(cleanupModel, { target: { value: 'gpt-4o-mini' } })
+    submitForm()
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(
+      ([input]) => String(input) === '/api/admin/ingest/jobs/upload'
+    )).toBe(true))
+    const uploadCall = fetchMock.mock.calls.find(([input]) => String(input) === '/api/admin/ingest/jobs/upload')
+    const form = uploadCall?.[1]?.body as FormData
+    expect(form.get('ocrCleanup')).toBe('true')
+    expect(form.get('ocrCleanupModel')).toBe('gpt-4o-mini')
   })
 
   it('submits generated literary editions against an existing source language', async () => {
@@ -308,7 +333,7 @@ describe('AdminIngestionPage', () => {
     fireEvent.change(screen.getByLabelText(/^Title$/i), { target: { value: 'Three Editions' } })
     fireEvent.change(screen.getByLabelText(/^Original language$/i), { target: { value: 'es' } })
     fireEvent.change(screen.getByLabelText(/^Language$/i), { target: { value: 'es' } })
-    fireEvent.change(screen.getByLabelText(/^EPUB or TXT file$/i), {
+    fireEvent.change(screen.getByLabelText(/^EPUB, TXT, or PDF file$/i), {
       target: { files: [new File(['I\nPrimera estrofa.'], 'poem.txt', { type: 'text/plain' })] },
     })
 
@@ -344,7 +369,7 @@ describe('AdminIngestionPage', () => {
     fireEvent.change(screen.getByLabelText(/^Title$/i), { target: { value: 'Medea' } })
     fireEvent.change(screen.getByLabelText(/^Original language$/i), { target: { value: 'el' } })
     fireEvent.change(screen.getByLabelText(/^Language$/i), { target: { value: 'el' } })
-    fireEvent.change(screen.getByLabelText(/^EPUB or TXT file$/i), {
+    fireEvent.change(screen.getByLabelText(/^EPUB, TXT, or PDF file$/i), {
       target: { files: [new File(['ΜΗΔΕΙΑ\nπρώτη γραμμή'], 'medea.txt', { type: 'text/plain' })] },
     })
     fireEvent.click(screen.getByLabelText(/^Play or verse dialogue/i))

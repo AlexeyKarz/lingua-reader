@@ -44,6 +44,8 @@ public class IngestionJobRepository {
               chunk_max_chars integer,
               context_chars integer,
               generation_model text,
+              ocr_cleanup boolean,
+              ocr_cleanup_model text,
               work_id bigint,
               edition_id bigint,
               chapters integer not null default 0,
@@ -94,6 +96,14 @@ public class IngestionJobRepository {
             alter table ingestion_job
               add column if not exists generation_model text
             """);
+        jdbc.getJdbcTemplate().execute("""
+            alter table ingestion_job
+              add column if not exists ocr_cleanup boolean
+            """);
+        jdbc.getJdbcTemplate().execute("""
+            alter table ingestion_job
+              add column if not exists ocr_cleanup_model text
+            """);
     }
 
     public long create(IngestionRequest request) {
@@ -126,19 +136,21 @@ public class IngestionJobRepository {
                 .addValue("chunkMaxChars", generationRequest == null ? null : generationRequest.chunkMaxChars())
                 .addValue("contextChars", generationRequest == null ? null : generationRequest.contextChars())
                 .addValue("model", generationRequest == null ? null : generationRequest.model());
+        params.addValue("ocrCleanup", request.ocrCleanup())
+                .addValue("ocrCleanupModel", request.ocrCleanupModel());
 
         jdbc.update("""
             insert into ingestion_job(
                 status, step, message, work_title, lang, file_spec, pub_year,
                 author, description, publisher, translator, original_lang, content_type,
                 body_only, replace_existing, max_source_chars, chunk_max_chars, context_chars,
-                generation_model
+                generation_model, ocr_cleanup, ocr_cleanup_model
             )
             values(
                 :status, :step, :message, :workTitle, :lang, :fileSpec, :year,
                 :author, :description, :publisher, :translator, :originalLang, :contentType,
                 :bodyOnly, :replaceExisting, :maxSourceChars, :chunkMaxChars, :contextChars,
-                :model
+                :model, :ocrCleanup, :ocrCleanupModel
             )
             returning id
             """, params, key);
@@ -219,7 +231,7 @@ public class IngestionJobRepository {
             select id, status, step, message, error, work_title, lang, file_spec,
                    pub_year, author, description, publisher, translator, original_lang, content_type,
                    body_only, replace_existing, max_source_chars, chunk_max_chars, context_chars,
-                   generation_model,
+                   generation_model, ocr_cleanup, ocr_cleanup_model,
                    work_id, edition_id, chapters, paragraphs, sentences,
                    created_at, started_at, finished_at
             from ingestion_job
@@ -238,7 +250,7 @@ public class IngestionJobRepository {
             select id, status, step, message, error, work_title, lang, file_spec,
                    pub_year, author, description, publisher, translator, original_lang, content_type,
                    body_only, replace_existing, max_source_chars, chunk_max_chars, context_chars,
-                   generation_model,
+                   generation_model, ocr_cleanup, ocr_cleanup_model,
                    work_id, edition_id, chapters, paragraphs, sentences,
                    created_at, started_at, finished_at
             from ingestion_job
@@ -273,6 +285,8 @@ public class IngestionJobRepository {
                 (Integer) rs.getObject("chunk_max_chars"),
                 (Integer) rs.getObject("context_chars"),
                 rs.getString("generation_model"),
+                (Boolean) rs.getObject("ocr_cleanup"),
+                rs.getString("ocr_cleanup_model"),
                 (Long) rs.getObject("work_id"),
                 (Long) rs.getObject("edition_id"),
                 rs.getInt("chapters"),

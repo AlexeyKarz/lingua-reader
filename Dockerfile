@@ -11,6 +11,11 @@ RUN java -Djarmode=layertools -jar app.jar extract
 
 FROM eclipse-temurin:23-jre
 WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        tesseract-ocr tesseract-ocr-deu tesseract-ocr-ell tesseract-ocr-eng \
+        tesseract-ocr-fra tesseract-ocr-rus tesseract-ocr-spa \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=extractor /app/dependencies/ ./
 COPY --from=extractor /app/snapshot-dependencies/ ./
 COPY --from=extractor /app/spring-boot-loader/ ./

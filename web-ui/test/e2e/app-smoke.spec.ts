@@ -59,12 +59,21 @@ test.beforeEach(async ({ page }) => {
     description: 'A browser smoke-test fixture.',
     page: 0,
     size: 20,
-    totalSrc: 1,
-    totalTgt: 1,
+    totalSrc: 2,
+    totalTgt: 2,
     targetAiGenerated: true,
-    left: [{ id: 1, text: 'Hello world.', chapterId: 11, chapterTitle: 'Chapter 1' }],
-    right: [{ id: 2, text: 'Hallo Welt.', chapterId: 12, chapterTitle: 'Kapitel 1' }],
-    alignments: [{ leftId: 1, rightId: 2, score: 0.99 }],
+    left: [
+      { id: 1, text: `Hello world. ${'This source passage is deliberately longer. '.repeat(18)}`, chapterId: 11, chapterTitle: 'Chapter 1' },
+      { id: 3, text: 'The next source passage.' },
+    ],
+    right: [
+      { id: 2, text: 'Hallo Welt.', chapterId: 12, chapterTitle: 'Kapitel 1' },
+      { id: 4, text: 'Der nächste Zielabschnitt.' },
+    ],
+    alignments: [
+      { leftId: 1, rightId: 2, score: 0.99 },
+      { leftId: 3, rightId: 4, score: 0.99 },
+    ],
   }))
   await page.route('**/api/translate/sentence', route => fulfillJson(route, { translated: 'Hallo Welt.' }))
   await page.route('**/api/translate/literary', route => fulfillJson(route, { translated: 'Natural Hallo Welt.' }))
@@ -193,9 +202,14 @@ test('catalog to reader lookup save to vocabulary', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled()
   await expect(page.getByText('Page 1 / 1').first()).toBeVisible()
   await expect(page.getByRole('checkbox', { name: 'Jump to match' })).not.toBeChecked()
+  await expect(page.getByRole('checkbox', { name: 'Align passages' })).not.toBeChecked()
   await expect(page.getByRole('button', { name: 'Stack' })).toHaveAttribute('aria-pressed', 'true')
   await page.getByRole('button', { name: 'Split' }).click()
   await expect(page.locator('.reader-pane-grid-mobile-split')).toBeVisible()
+  await page.getByRole('checkbox', { name: 'Align passages' }).check()
+  await expect.poll(() => page.locator('[data-sentence-id="4"]').evaluate(element => (
+    Number.parseFloat((element as HTMLElement).style.paddingTop || '0')
+  ))).toBeGreaterThan(0)
   await expect(page.locator('[data-sentence-id="1"]')).toContainText('Hello world.')
   await page.locator('[data-sentence-id="1"]').click()
   await expect(page.locator('[data-sentence-id="2"]')).toHaveClass(/right-sentence-highlight/)
@@ -248,7 +262,7 @@ test('admin ingestion accepts txt upload and shows completed status', async ({ p
   await page.getByLabel('Title').fill('Admin TXT Book')
   await page.getByLabel('Original language').fill('en')
   await page.getByLabel('Language', { exact: true }).fill('de')
-  await page.getByLabel('EPUB or TXT file').setInputFiles({
+  await page.getByLabel('EPUB, TXT, or PDF file').setInputFiles({
     name: 'admin-book.txt',
     mimeType: 'text/plain',
     buffer: Buffer.from('Chapter 1\n\nHello from txt.'),
@@ -345,7 +359,7 @@ test('admin ingestion submits one source and two AI targets from the real button
   await page.getByLabel('Title').fill('Campos test')
   await page.getByLabel('Original language').fill('es')
   await page.getByLabel('Language', { exact: true }).fill('es')
-  await page.getByLabel('EPUB or TXT file').setInputFiles({
+  await page.getByLabel('EPUB, TXT, or PDF file').setInputFiles({
     name: 'campos.txt', mimeType: 'text/plain', buffer: Buffer.from('I\nPrimera estrofa.'),
   })
   await page.getByRole('button', { name: 'Add edition' }).click()

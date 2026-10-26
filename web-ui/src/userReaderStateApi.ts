@@ -20,6 +20,7 @@ export type UserReaderProgress = ReaderProgressInput & {
 
 export type UserPreferences = {
     'reader.followAlignment'?: boolean
+    'reader.visualAlignment'?: boolean
     'reader.mobilePaneLayout'?: 'stack' | 'split'
 }
 

@@ -218,7 +218,7 @@ class IngestionControllerMockMvcTest {
                         .param("lang", "el"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.message").value("Request validation failed"))
+                .andExpect(jsonPath("$.message").value("Required part 'file' is not present."))
                 .andExpect(jsonPath("$.path").value("/api/admin/ingest/jobs/upload"));
 
         verifyNoInteractions(uploadStorage, jobService);

@@ -90,6 +90,22 @@ public class LimitedProviderClient implements ProviderClient {
         }
     }
 
+    @Override
+    public String cleanOcr(String text, String language, String modelOverride) {
+        if (!AdminTranslationContext.isActive()) {
+            throw new IllegalStateException("OCR cleanup is available only during admin ingestion");
+        }
+        return delegate.cleanOcr(text, language, modelOverride);
+    }
+
+    @Override
+    public String cleanOcr(String text, byte[] pageImagePng, String language, String modelOverride) {
+        if (!AdminTranslationContext.isActive()) {
+            throw new IllegalStateException("OCR cleanup is available only during admin ingestion");
+        }
+        return delegate.cleanOcr(text, pageImagePng, language, modelOverride);
+    }
+
     private QuotaDecision reserve(String text, String action) {
         if (!limits.isEnabled()) {
             return QuotaDecision.permitted();

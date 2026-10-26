@@ -28,6 +28,14 @@ public interface ProviderClient {
         return literary(text, source, target, bookContext);
     }
 
+    default String cleanOcr(String text, String language, String modelOverride) {
+        throw new UnsupportedOperationException("The configured translation provider does not support OCR cleanup");
+    }
+
+    default String cleanOcr(String text, byte[] pageImagePng, String language, String modelOverride) {
+        return cleanOcr(text, language, modelOverride);
+    }
+
     /**
      * Explanatory translation: grammar, nuance, etc.
      * Can include longer / structured output.

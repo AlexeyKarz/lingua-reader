@@ -861,6 +861,35 @@ WHERE title = 'Faust (Part I)';
 - `--body-start 'lang=xx,text="first sentence fragment"'` lets the script set `body_start_segment_id` by matching the first sentence containing the fragment per language, so front matter is skipped in alignment/paging.
 - Catalog language order follows edition insertion order (array_agg ordered by edition id), so pass editions to `add_book.py` in your preferred source→target order (first = source/left, second = target/right).
 
+### Realign an existing book without reingestion
+
+Set `edition.body_start_segment_id` for each edition, then reuse the stored sentence
+segments and embeddings. `embed_sentences.py` is idempotent and can now be scoped to
+one work; it creates only missing vectors and never scans or extracts the source files:
+
+```bash
+cd python-embed
+export DATABASE_URL="postgresql://mlr:mlr_password@localhost:5432/mlr"
+
+python align_sentences_dp.py \
+  --work "The Hobbit" --src el --tgt en \
+  --src-start-text "Μέσα στή γῆ, σέ μιά τρύπα" \
+  --tgt-start-text "In a hole in the ground" \
+  --set-starts-only
+
+python embed_sentences.py --work "The Hobbit" --lang el --lang en --body-only
+python align_sentences_dp.py \
+  --work "The Hobbit" --src el --tgt en \
+  --method dp-mlMiniLM-v1 --replace-existing
+```
+
+If all sentence embeddings already exist, skip `embed_sentences.py`. The
+`--replace-existing` flag removes obsolete alignment rows for only the selected
+edition pair after alignment computation succeeds; it does not delete segments or
+embeddings. The start-text options find the first matching stored sentence and set
+`body_start_segment_id`; `--set-starts-only` makes that a separate fast operation so
+`--body-only` embedding can skip front matter.
+
 ## Async ingestion API (app keeps running)
 
 You can ingest while the backend is running (no restart/stop required). For

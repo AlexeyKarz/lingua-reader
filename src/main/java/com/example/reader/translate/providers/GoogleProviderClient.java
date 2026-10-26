@@ -118,6 +118,22 @@ public class GoogleProviderClient implements ProviderClient {
         );
     }
 
+    @Override
+    public String cleanOcr(String text, String language, String modelOverride) {
+        String effectiveModel = effectiveLiteraryModel(modelOverride);
+        String system = """
+                Correct only clear OCR recognition errors. Preserve language, historical spelling,
+                dialect, names, meaning, punctuation, paragraph boundaries, and style. Never
+                translate, modernize, summarize, explain, or invent. Output only corrected text.
+                """;
+        return ProviderMetrics.record(
+                registry, providerName, effectiveModel, "ocr_cleanup", language, language,
+                () -> callGenerateContent(effectiveModel, system,
+                        "Language: " + language + "\nOCR text:\n" + text,
+                        0.1, Math.max(literaryMaxOutputTokens, 2500))
+        );
+    }
+
     private String callGenerateContent(String model, String system, String user, double temperature, int maxOutputTokens) {
         long started = System.currentTimeMillis();
 

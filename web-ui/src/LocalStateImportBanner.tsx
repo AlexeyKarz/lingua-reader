@@ -10,6 +10,7 @@ import { readVocabularyItems } from './vocabularyStorage'
 
 const READER_PROGRESS_PREFIX = 'mlr:reader-progress:'
 const FOLLOW_ALIGNMENT_KEY = 'mlr:reader-follow-alignment'
+const VISUAL_ALIGNMENT_KEY = 'mlr:reader-visual-alignment'
 const MOBILE_PANE_LAYOUT_KEY = 'mlr:reader-mobile-pane-layout'
 
 type LocalStateSnapshot = LocalStateImportInput
@@ -188,6 +189,10 @@ function readLocalPreferences(): UserPreferences {
         const followAlignment = window.localStorage.getItem(FOLLOW_ALIGNMENT_KEY)
         if (followAlignment === 'true' || followAlignment === 'false') {
             preferences['reader.followAlignment'] = followAlignment === 'true'
+        }
+        const visualAlignment = window.localStorage.getItem(VISUAL_ALIGNMENT_KEY)
+        if (visualAlignment === 'true' || visualAlignment === 'false') {
+            preferences['reader.visualAlignment'] = visualAlignment === 'true'
         }
         const mobilePaneLayout = window.localStorage.getItem(MOBILE_PANE_LAYOUT_KEY)
         if (mobilePaneLayout === 'stack' || mobilePaneLayout === 'split') {

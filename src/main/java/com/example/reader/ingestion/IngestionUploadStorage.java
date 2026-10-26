@@ -19,14 +19,14 @@ public class IngestionUploadStorage {
 
     public String store(MultipartFile file, String title, String lang, String contentType) {
         if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException("EPUB or TXT file is required");
+            throw new IllegalArgumentException("EPUB, TXT, or PDF file is required");
         }
 
         String originalFilename = file.getOriginalFilename() == null ? "book.epub" : file.getOriginalFilename();
         String safeFilename = sanitizeFilename(originalFilename);
         String lowerFilename = safeFilename.toLowerCase(Locale.ROOT);
-        if (!lowerFilename.endsWith(".epub") && !lowerFilename.endsWith(".txt")) {
-            throw new IllegalArgumentException("Only EPUB and TXT files are supported");
+        if (!lowerFilename.endsWith(".epub") && !lowerFilename.endsWith(".txt") && !lowerFilename.endsWith(".pdf")) {
+            throw new IllegalArgumentException("Only EPUB, TXT, and PDF files are supported");
         }
 
         try {

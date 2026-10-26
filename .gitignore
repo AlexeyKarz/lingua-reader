@@ -37,6 +37,7 @@ bin/
 ### Python environmental variables and virtual environment ###
 /python-embed/.env
 /python-embed/.venv/
+/python-embed/.model-cache/
 __pycache__/
 *.py[cod]
 

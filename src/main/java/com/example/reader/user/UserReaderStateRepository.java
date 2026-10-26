@@ -172,9 +172,9 @@ public class UserReaderStateRepository {
             throw new IllegalArgumentException("preference value is required");
         }
         return switch (normalized) {
-            case "reader.followAlignment" -> {
+            case "reader.followAlignment", "reader.visualAlignment" -> {
                 if (!value.isBoolean()) {
-                    throw new IllegalArgumentException("reader.followAlignment must be boolean");
+                    throw new IllegalArgumentException(normalized + " must be boolean");
                 }
                 yield normalized;
             }
