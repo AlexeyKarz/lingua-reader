@@ -3,6 +3,7 @@ package com.example.reader.auth;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
@@ -16,6 +17,7 @@ import org.springframework.security.web.authentication.AnonymousAuthenticationFi
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.util.StringUtils;
 
 @Configuration
@@ -26,7 +28,11 @@ public class SecurityConfiguration {
     SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             SecurityContextRepository securityContextRepository,
-            AdminApiAuthenticationFilter adminApiAuthenticationFilter
+            AdminApiAuthenticationFilter adminApiAuthenticationFilter,
+            ObjectProvider<ClientRegistrationRepository> clientRegistrations,
+            GoogleOidcUserService googleOidcUserService,
+            OAuth2LoginSuccessHandler oauth2SuccessHandler,
+            OAuth2LoginFailureHandler oauth2FailureHandler
     ) throws Exception {
         http
                 .csrf(csrf -> csrf
@@ -57,6 +63,14 @@ public class SecurityConfiguration {
                         .requestMatchers("/api/user/**").authenticated()
                         .anyRequest().permitAll()
                 );
+
+        if (clientRegistrations.getIfAvailable() != null) {
+            http.oauth2Login(oauth -> oauth
+                    .userInfoEndpoint(userInfo -> userInfo.oidcUserService(googleOidcUserService))
+                    .successHandler(oauth2SuccessHandler)
+                    .failureHandler(oauth2FailureHandler)
+            );
+        }
 
         return http.build();
     }

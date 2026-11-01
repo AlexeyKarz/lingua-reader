@@ -269,6 +269,41 @@ docker compose -f docker-compose.prod.yml --env-file .env up -d --build
 
 After that, pushes to `main` or `prod` can deploy automatically.
 
+### Google sign-in
+
+Google OpenID Connect can create ordinary reader accounts automatically while
+leaving catalog browsing and rate-limited translation available anonymously.
+Set the following server-side values:
+
+```env
+MLR_GOOGLE_OAUTH_ENABLED=true
+MLR_GOOGLE_OAUTH_CLIENT_ID=<google-client-id>
+MLR_GOOGLE_OAUTH_CLIENT_SECRET=<google-client-secret>
+MLR_GOOGLE_ADMIN_EMAILS=your-google-account@example.com
+```
+
+In Google Cloud Console, create an OAuth 2.0 **Web application** client and add
+this authorized redirect URI (replace the host with the production origin):
+
+```text
+https://reader.example.com/login/oauth2/code/google
+```
+
+For local testing, use the exact origin through which the browser opens the UI,
+for example `http://localhost:8080/login/oauth2/code/google` for Docker or
+`http://localhost:5173/login/oauth2/code/google` for the Vite development server.
+If the Google consent screen is still in testing mode, add the accounts that may
+sign in as test users.
+
+Google accounts must provide a verified email. On first sign-in, the app creates
+a local user and stores the stable Google subject in `oauth_identity`. If the
+verified email already belongs to a local account, Google is linked to that
+account instead. Emails listed in `MLR_GOOGLE_ADMIN_EMAILS` receive `ADMIN` on
+successful Google sign-in. Multiple admin emails may be comma-separated.
+
+The bootstrap email/password login remains available as a recovery mechanism.
+Do not expose the OAuth client secret to the browser or commit it to Git.
+
 ### Admin ingestion in production
 
 Browser admin access uses a database-backed user session. Bootstrap the first
@@ -475,6 +510,10 @@ docker compose -f docker-compose.prod.yml --env-file .env up -d --force-recreate
 | `MLR_BOOTSTRAP_ADMIN_EMAIL` | empty | Creates the first admin user when no admin exists. |
 | `MLR_BOOTSTRAP_ADMIN_PASSWORD` | empty | Password for the first admin user; must be at least 12 characters. |
 | `MLR_BOOTSTRAP_ADMIN_DISPLAY_NAME` | `Admin` | Display name for the bootstrapped admin user. |
+| `MLR_GOOGLE_OAUTH_ENABLED` | `false` | Enables Google OpenID Connect login. |
+| `MLR_GOOGLE_OAUTH_CLIENT_ID` | empty | Google OAuth web client ID. |
+| `MLR_GOOGLE_OAUTH_CLIENT_SECRET` | empty | Google OAuth web client secret; server-side only. |
+| `MLR_GOOGLE_ADMIN_EMAILS` | empty | Comma-separated verified Google emails promoted to admin on sign-in. |
 | `MLR_SESSION_TIMEOUT` | `7d` | Server-side browser session lifetime. |
 | `MLR_SESSION_CLEANUP_CRON` | hourly | Spring Session JDBC cleanup schedule. |
 | `MLR_ADMIN_API_TOKEN` | empty | Scoped API token used by ingestion runner scripts; create it in `/admin`. |

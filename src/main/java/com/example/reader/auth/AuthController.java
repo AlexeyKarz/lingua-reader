@@ -18,10 +18,12 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Map;
+import java.io.IOException;
 
 @RestController
 public class AuthController {
@@ -32,6 +34,7 @@ public class AuthController {
     private final ProductEventService events;
     private final AdminAuditService audit;
     private final LoginAttemptLimiter loginAttemptLimiter;
+    private final GoogleOidcProperties googleOidc;
 
     public AuthController(
             AuthenticationManager authenticationManager,
@@ -40,7 +43,8 @@ public class AuthController {
             UserRepository users,
             ProductEventService events,
             AdminAuditService audit,
-            LoginAttemptLimiter loginAttemptLimiter
+            LoginAttemptLimiter loginAttemptLimiter,
+            GoogleOidcProperties googleOidc
     ) {
         this.authenticationManager = authenticationManager;
         this.securityContextRepository = securityContextRepository;
@@ -49,6 +53,7 @@ public class AuthController {
         this.events = events;
         this.audit = audit;
         this.loginAttemptLimiter = loginAttemptLimiter;
+        this.googleOidc = googleOidc;
     }
 
     @GetMapping("/api/me")
@@ -63,6 +68,26 @@ public class AuthController {
                 "headerName", token.getHeaderName(),
                 "token", token.getToken()
         );
+    }
+
+    @GetMapping("/api/auth/providers")
+    public Map<String, Boolean> providers() {
+        return Map.of("google", googleOidc.isConfigured());
+    }
+
+    @GetMapping("/api/auth/oauth2/google")
+    public void googleLogin(
+            @RequestParam(name = "next", defaultValue = "/") String next,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) throws IOException {
+        if (!googleOidc.isConfigured()) {
+            response.sendError(HttpStatus.SERVICE_UNAVAILABLE.value(), "Google sign-in is not configured");
+            return;
+        }
+        String safeNext = OAuth2LoginSuccessHandler.isSafeRelativePath(next) ? next : "/";
+        request.getSession(true).setAttribute(OAuth2LoginSuccessHandler.NEXT_SESSION_ATTRIBUTE, safeNext);
+        response.sendRedirect("/oauth2/authorization/google");
     }
 
     @PostMapping("/api/auth/login")

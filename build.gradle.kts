@@ -25,6 +25,7 @@ val osxClassifier = when {
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-security")
+    implementation("org.springframework.boot:spring-boot-starter-oauth2-client")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     // Prometheus registry so /actuator/prometheus exposes metrics
     implementation("io.micrometer:micrometer-registry-prometheus")

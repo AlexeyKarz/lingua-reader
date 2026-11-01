@@ -86,6 +86,48 @@ public class UserRepository {
                         .addValue("role", normalizeRole(role)));
     }
 
+    public Optional<String> findEmailByOauthIdentity(String provider, String subject) {
+        List<String> emails = jdbc.query("""
+                select u.email
+                from oauth_identity i
+                join app_user u on u.id = i.user_id
+                where i.provider = :provider
+                  and i.subject = :subject
+                """,
+                new MapSqlParameterSource()
+                        .addValue("provider", provider)
+                        .addValue("subject", subject),
+                (rs, rowNum) -> rs.getString("email"));
+        return emails.stream().findFirst();
+    }
+
+    public void linkOauthIdentity(long userId, String provider, String subject, String email) {
+        jdbc.update("""
+                insert into oauth_identity(provider, subject, user_id, email_at_link)
+                values(:provider, :subject, :userId, :email)
+                on conflict(provider, subject) do update
+                set last_login_at = now()
+                """,
+                new MapSqlParameterSource()
+                        .addValue("provider", provider)
+                        .addValue("subject", subject)
+                        .addValue("userId", userId)
+                        .addValue("email", normalizeEmail(email)));
+    }
+
+    public void updateDisplayNameIfMissing(long userId, String displayName) {
+        jdbc.update("""
+                update app_user
+                set display_name = :displayName,
+                    updated_at = now()
+                where id = :userId
+                  and (display_name is null or btrim(display_name) = '')
+                """,
+                new MapSqlParameterSource()
+                        .addValue("userId", userId)
+                        .addValue("displayName", trimToNull(displayName)));
+    }
+
     public void recordLogin(String email) {
         jdbc.update("""
                 update app_user

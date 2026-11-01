@@ -219,6 +219,14 @@ export default function Reader() {
         data.left.length === 0 &&
         data.right.length === 0
 
+    useEffect(() => {
+        const title = data?.title?.trim()
+        document.title = title ? `MLR — ${title}` : 'Multilang Reader'
+        return () => {
+            document.title = 'Multilang Reader'
+        }
+    }, [data?.title])
+
     // map leftId -> rightId for current page
     const [alignMap, setAlignMap] = useState<Map<number, number>>(new Map())
     const [highlightRightId, setHighlightRightId] = useState<number | null>(null)

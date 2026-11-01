@@ -110,6 +110,11 @@ mlr:
       adminEmail: ${MLR_BOOTSTRAP_ADMIN_EMAIL:}
       adminPassword: ${MLR_BOOTSTRAP_ADMIN_PASSWORD:}
       adminDisplayName: ${MLR_BOOTSTRAP_ADMIN_DISPLAY_NAME:Admin}
+    google:
+      enabled: ${MLR_GOOGLE_OAUTH_ENABLED:false}
+      clientId: ${MLR_GOOGLE_OAUTH_CLIENT_ID:}
+      clientSecret: ${MLR_GOOGLE_OAUTH_CLIENT_SECRET:}
+      adminEmails: ${MLR_GOOGLE_ADMIN_EMAILS:}
   admin:
     enabled: ${MLR_ADMIN_ENABLED:false}
     token: ${MLR_ADMIN_TOKEN:}

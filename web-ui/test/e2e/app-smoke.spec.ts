@@ -42,6 +42,7 @@ test.beforeEach(async ({ page }) => {
     headerName: 'X-CSRF-TOKEN',
     token: 'test-csrf-token',
   }))
+  await page.route('**/api/auth/providers', route => fulfillJson(route, { google: true }))
   await page.route('**/api/catalog/books', route => fulfillJson(route, catalog))
   await page.route('**/api/reader/front-matter?**', route => fulfillJson(route, {
     bookId: '101',
@@ -192,12 +193,27 @@ test.beforeEach(async ({ page }) => {
   }))
 })
 
+test('login offers Google while reading remains optional', async ({ page }) => {
+  await page.route('**/api/me', route => fulfillJson(route, {
+    authenticated: false,
+    user: null,
+  }))
+
+  await page.goto('/login?next=%2Fadmin%2Fingest')
+
+  await expect(page.getByRole('link', { name: 'Continue with Google' }))
+    .toHaveAttribute('href', '/api/auth/oauth2/google?next=%2Fadmin%2Fingest')
+  await expect(page.getByRole('link', { name: 'Continue without an account' })).toBeVisible()
+  await expect(page.getByLabel('Email')).toBeVisible()
+})
+
 test('catalog to reader lookup save to vocabulary', async ({ page }) => {
   await page.goto('/')
 
   await expect(page.getByText('Smoke Book').first()).toBeVisible()
   await page.getByRole('link', { name: /Read\s+EN\s+→\s+DE \(AI\)/i }).click()
   await expect(page).toHaveURL(/\/reader\?bookId=101&src=en&tgt=de/)
+  await expect(page).toHaveTitle('MLR — Smoke Book')
   await expect(page.getByText('Translation (DE - AI)')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled()
   await expect(page.getByText('Page 1 / 1').first()).toBeVisible()

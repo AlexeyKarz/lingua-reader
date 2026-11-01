@@ -198,6 +198,24 @@ public class DatabaseSchemaInitializer {
                 """);
 
         jdbc.execute("""
+                create table if not exists oauth_identity (
+                  provider text not null,
+                  subject text not null,
+                  user_id bigint not null references app_user(id) on delete cascade,
+                  email_at_link text not null,
+                  created_at timestamptz not null default now(),
+                  last_login_at timestamptz not null default now(),
+                  primary key(provider, subject),
+                  unique(provider, user_id)
+                )
+                """);
+
+        jdbc.execute("""
+                create index if not exists oauth_identity_user_idx
+                on oauth_identity(user_id)
+                """);
+
+        jdbc.execute("""
                 create table if not exists api_token (
                   id bigserial primary key,
                   user_id bigint not null references app_user(id) on delete cascade,
