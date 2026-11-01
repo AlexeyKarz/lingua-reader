@@ -1,4 +1,4 @@
-FROM gradle:8.10.2-jdk23 AS build
+FROM gradle:8.13.0-jdk23 AS build
 WORKDIR /workspace
 COPY . .
 RUN gradle bootJar --no-daemon
