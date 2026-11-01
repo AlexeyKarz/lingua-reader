@@ -643,9 +643,16 @@ word, the backend checks the local `dictionary_entry` table before using the
 configured translation provider. If dictionary entries are found, the response
 contains all matching imported entries, including definitions, examples, part of
 speech, gender, translations, source metadata, and form-of/base-form links. If no
-entry is found, the app falls back to the provider path.
+entry is found—or an entry has no usable translation—the app sends the selected
+word together with its containing sentence and aligned counterpart to a separate
+AI word-analysis prompt. That prompt returns structured JSON with the lemma,
+learner-friendly base form, part of speech, grammatical gender where applicable,
+features of the selected inflection, contextual translations, and a short usage
+note. Sentence translation continues to use the plain literal-translation path.
 
-Literal word and sentence provider responses are stored in `translation_cache`.
+Contextual word analyses and literal sentence responses are stored in separate
+`translation_cache` namespaces. Word-analysis cache keys include the reading
+context so an ambiguous form can resolve differently in another sentence.
 Natural/literary responses use a separate cache namespace that includes book
 context in the cache key. Explanation responses are intentionally not cached
 because they depend more on context and prompt wording.
@@ -717,8 +724,10 @@ curl "http://localhost:8080/api/translate/word?text=morning&source=en&target=es"
 ```
 
 In the reader UI, select a single word. Dictionary hits are shown as a compact
-entry with translations, definitions, examples, and a source label. Misses still
-use the configured provider or the stub provider.
+entry with translations, definitions, examples, and a source label. Contextual
+AI fallbacks use the same dictionary-style layout. Saving an analysed word stores
+its base/headword form for review and deduplication while retaining the form that
+was selected in the text.
 
 ### Ollama
 

@@ -54,6 +54,19 @@ public class LimitedProviderClient implements ProviderClient {
     }
 
     @Override
+    public String wordAnalysis(String text, String source, String target, String sentenceContext) {
+        QuotaDecision decision = reserve(text, "word");
+        if (!decision.allowed()) {
+            return quotaFallback(decision, fallback.literal(text, source, target));
+        }
+        try {
+            return delegate.wordAnalysis(text, source, target, sentenceContext);
+        } catch (Exception e) {
+            return providerFailureFallback(e, fallback.literal(text, source, target));
+        }
+    }
+
+    @Override
     public String literary(String text, String source, String target, String bookContext) {
         return literary(text, source, target, bookContext, null);
     }

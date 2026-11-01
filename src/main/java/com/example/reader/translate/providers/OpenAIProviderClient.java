@@ -34,6 +34,7 @@ public class OpenAIProviderClient implements ProviderClient {
     private final int maxCompletionTokens;
     private final int literaryMaxCompletionTokens;
     private final String literalSystem;
+    private final String wordSystem;
     private final String literarySystem;
     private final String explainSystem;
     private final String providerName = "openai";
@@ -69,6 +70,7 @@ public class OpenAIProviderClient implements ProviderClient {
         this.registry = registry;
         log.info("OpenAI provider enabled with model {} and maxCompletionTokens {}", this.model, this.maxCompletionTokens);
         this.literalSystem = prompts.getLiteralSystem();
+        this.wordSystem = prompts.getWordSystem();
         this.literarySystem = prompts.getLiterarySystem();
         this.explainSystem = prompts.getExplainSystem();
     }
@@ -88,6 +90,25 @@ public class OpenAIProviderClient implements ProviderClient {
                 source,
                 target,
                 () -> callChat(model, literalSystem, userPrompt, maxCompletionTokens, 0.1)
+        );
+    }
+
+    @Override
+    public String wordAnalysis(String text, String source, String target, String sentenceContext) {
+        log.info("Calling OpenAI word analysis {} -> {} ({} chars, ctx {} chars)",
+                source, target, text.length(), sentenceContext == null ? 0 : sentenceContext.length());
+        String userPrompt = "Source language: " + source +
+                "\nTarget language: " + target +
+                "\nSelected word: " + text +
+                "\nSentence context: " + (sentenceContext == null ? "" : sentenceContext);
+        return ProviderMetrics.record(
+                registry,
+                providerName,
+                model,
+                "word_analysis",
+                source,
+                target,
+                () -> callChat(model, wordSystem, userPrompt, maxCompletionTokens, 0.1)
         );
     }
 

@@ -277,6 +277,7 @@ public class DatabaseSchemaInitializer {
                   user_id bigint not null references app_user(id) on delete cascade,
                   kind text not null,
                   text text not null,
+                  selected_text text,
                   normalized_text text not null,
                   source_lang text not null,
                   target_lang text not null,
@@ -300,6 +301,8 @@ public class DatabaseSchemaInitializer {
                     unique(user_id, kind, source_lang, target_lang, normalized_text)
                 )
                 """);
+
+        jdbc.execute("alter table saved_vocabulary_item add column if not exists selected_text text");
 
         jdbc.execute("""
                 create index if not exists saved_vocabulary_user_due_idx

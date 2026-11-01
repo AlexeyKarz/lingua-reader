@@ -3,6 +3,7 @@ package com.example.reader.user;
 public record SaveVocabularyRequest(
         String kind,
         String text,
+        String selectedText,
         String source,
         String target,
         String result,

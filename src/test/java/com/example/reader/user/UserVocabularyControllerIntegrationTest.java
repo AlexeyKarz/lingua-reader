@@ -72,7 +72,8 @@ class UserVocabularyControllerIntegrationTest extends PostgresIntegrationTest {
                         .content("""
                                 {
                                   "kind": "word",
-                                  "text": "  Hallo   Welt ",
+                                  "text": "das Kind",
+                                  "selectedText": "Kindern",
                                   "source": "DE",
                                   "target": "EN",
                                   "result": "Hello world",
@@ -86,7 +87,9 @@ class UserVocabularyControllerIntegrationTest extends PostgresIntegrationTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.kind").value("word"))
-                .andExpect(jsonPath("$.normalizedText").value("hallo welt"))
+                .andExpect(jsonPath("$.text").value("das Kind"))
+                .andExpect(jsonPath("$.selectedText").value("Kindern"))
+                .andExpect(jsonPath("$.normalizedText").value("das kind"))
                 .andExpect(jsonPath("$.source").value("de"))
                 .andExpect(jsonPath("$.target").value("en"))
                 .andExpect(jsonPath("$.review.status").value("new"))
@@ -101,7 +104,8 @@ class UserVocabularyControllerIntegrationTest extends PostgresIntegrationTest {
                         .content("""
                                 {
                                   "kind": "word",
-                                  "text": "hallo welt",
+                                  "text": "das Kind",
+                                  "selectedText": "Kinder",
                                   "source": "de",
                                   "target": "en",
                                   "result": "Hi world",
@@ -113,6 +117,7 @@ class UserVocabularyControllerIntegrationTest extends PostgresIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(id))
                 .andExpect(jsonPath("$.result").value("Hi world"))
+                .andExpect(jsonPath("$.selectedText").value("Kinder"))
                 .andExpect(jsonPath("$.page").value(3));
 
         mvc.perform(get("/api/user/vocabulary").cookie(session))

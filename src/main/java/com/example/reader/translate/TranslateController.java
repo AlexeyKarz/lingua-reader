@@ -36,24 +36,45 @@ public class TranslateController {
             @RequestParam String text,
             @RequestParam String source,
             @RequestParam String target,
-            Authentication authentication) {
+        Authentication authentication) {
+        return word(text, source, target, "", authentication);
+    }
 
-        log.info("User word lookup: {} -> {} ({} chars)", source, target, text.length());
+    @PostMapping("/word")
+    public WordTranslationResult word(@RequestBody Map<String, String> body, Authentication authentication) {
+        return word(
+                body.getOrDefault("text", ""),
+                body.getOrDefault("source", "en"),
+                body.getOrDefault("target", "de"),
+                body.getOrDefault("context", ""),
+                authentication
+        );
+    }
+
+    private WordTranslationResult word(
+            String text,
+            String source,
+            String target,
+            String context,
+            Authentication authentication
+    ) {
+
+        log.info("User word lookup: {} -> {} ({} chars, ctx {} chars)", source, target, text.length(), context.length());
         Instant start = Instant.now();
         recordTranslation("translation_requested", authentication, "word", source, target, null, null, text.length(), null, null);
         try {
-            WordTranslationResult result = svc.word(text, source, target);
+            WordTranslationResult result = svc.word(text, source, target, context);
             recordTranslation(
                     "translation_succeeded",
                     authentication,
                     "word",
                     source,
                     target,
-                    result.dictionary() ? "dictionary" : svc.providerName(),
+                    result.dictionary() && !result.aiGenerated() ? "dictionary" : svc.providerName(),
                     Duration.between(start, Instant.now()),
                     text.length(),
                     200,
-                    Map.of("dictionary", result.dictionary())
+                    Map.of("dictionary", result.dictionary(), "aiGenerated", result.aiGenerated())
             );
             return result;
         } catch (RuntimeException ex) {

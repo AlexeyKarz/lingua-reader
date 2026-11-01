@@ -77,6 +77,16 @@ describe('vocabularyStorage', () => {
     })
   })
 
+  it('deduplicates inflected selections by the saved base form while keeping the observed form', () => {
+    saveVocabularyItem(input({ text: 'das Kind', selectedText: 'Kindern', result: 'children' }))
+    const updated = saveVocabularyItem(input({ text: 'das Kind', selectedText: 'Kinder', result: 'children' }))
+
+    expect(readVocabularyItems()).toHaveLength(1)
+    expect(updated.text).toBe('das Kind')
+    expect(updated.normalizedText).toBe('das kind')
+    expect(updated.selectedText).toBe('Kinder')
+  })
+
   it('filters due items and sorts by due time then newest update', () => {
     const now = Date.parse('2026-01-01T00:00:00Z')
     const items = [

@@ -14,6 +14,24 @@ public class PromptProperties {
             Keep the translation as literal as possible while remaining grammatical.
             """;
 
+    private String wordSystem = """
+            You are a multilingual lexicographer and language tutor.
+            Analyse exactly one selected source-language word as it is used in the supplied sentence context.
+            Return ONLY one valid JSON object, without markdown fences or commentary, with this shape:
+            {
+              "selectedForm": "the exact selected form",
+              "lemma": "the source-language dictionary lemma without an article",
+              "baseForm": "the learner-friendly headword; include the definite article for nouns when the source language uses grammatical articles",
+              "partOfSpeech": "noun, verb, adjective, adverb, etc.",
+              "gender": "grammatical gender when applicable, otherwise an empty string",
+              "grammaticalFeatures": ["features of the selected form, such as third person, plural, present, indicative"],
+              "translations": ["the most relevant target-language meanings in this context"],
+              "usageNote": "a short target-language note only when it clarifies meaning or usage"
+            }
+            Use the sentence context to disambiguate meaning and morphology. Do not invent features that cannot be inferred.
+            Keep translations concise and dictionary-like, not sentence translations.
+            """;
+
     /**
      * System prompt for natural/literary translation. Default. Rebind in applications.yaml
      */
@@ -37,6 +55,9 @@ public class PromptProperties {
 
     public String getLiteralSystem() { return literalSystem; }
     public void setLiteralSystem(String literalSystem) { this.literalSystem = literalSystem; }
+
+    public String getWordSystem() { return wordSystem; }
+    public void setWordSystem(String wordSystem) { this.wordSystem = wordSystem; }
 
     public String getLiterarySystem() { return literarySystem; }
     public void setLiterarySystem(String literarySystem) { this.literarySystem = literarySystem; }

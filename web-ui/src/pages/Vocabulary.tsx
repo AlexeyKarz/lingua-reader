@@ -21,6 +21,10 @@ function languageKey(item: Pick<SavedVocabularyItem, 'source' | 'target'>) {
     return `${item.source}::${item.target}`
 }
 
+function normalizeVocabularyDisplay(value: string) {
+    return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase()
+}
+
 function formatDate(value: number) {
     return new Intl.DateTimeFormat(undefined, {
         month: 'short',
@@ -224,6 +228,11 @@ export default function VocabularyPage() {
                             <div className="theme-heading text-2xl font-semibold leading-tight">
                                 {activeItem.text}
                             </div>
+                            {activeItem.selectedText && normalizeVocabularyDisplay(activeItem.selectedText) !== normalizeVocabularyDisplay(activeItem.text) && (
+                                <div className="mt-1 text-sm muted-copy">
+                                    Selected in the text as <span className="theme-copy font-medium">{activeItem.selectedText}</span>
+                                </div>
+                            )}
                             <div className="mt-2 text-sm muted-copy">
                                 {activeItem.title || `Book ${activeItem.bookId}`} · page {activeItem.page + 1}
                             </div>

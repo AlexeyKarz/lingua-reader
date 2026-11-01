@@ -66,6 +66,7 @@ type PageData = {
 
 type WordDetails = {
     dictionary: boolean
+    aiGenerated?: boolean
     lemma?: string
     partOfSpeech?: string
     gender?: string
@@ -74,6 +75,7 @@ type WordDetails = {
     definitions?: string[]
     examples?: string[]
     translations?: string[]
+    formTags?: string[]
     entries?: DictionaryEntryDetails[]
     sourceName?: string
     sourceUrl?: string
@@ -904,7 +906,14 @@ export default function Reader() {
 
             const buildContext = () => {
                 let alignedContext = ''
+                let selectedSentenceContext = ''
                 if (pop.sentenceId !== undefined) {
+                    const selectedSentence = pop.pane === 'left'
+                        ? leftById.get(pop.sentenceId)
+                        : rightById.get(pop.sentenceId)
+                    if (selectedSentence?.text) {
+                        selectedSentenceContext = `Selected sentence: ${selectedSentence.text}`
+                    }
                     if (pop.pane === 'left') {
                         const oppositeId = alignMap.get(pop.sentenceId)
                         const oppositeSentence = oppositeId ? rightById.get(oppositeId) : undefined
@@ -926,19 +935,29 @@ export default function Reader() {
                     `Selected side: ${pop.pane === 'left' ? 'original' : 'translation'}`,
                     `Reader pair: ${src.toUpperCase()} → ${tgt.toUpperCase()}`,
                     `Current page: ${page + 1}`,
+                    selectedSentenceContext,
                     alignedContext,
                 ].filter(Boolean).join(' | ')
             }
 
             if (action === 'translate') {
                 if (isWord) {
-                    const qs = new URLSearchParams({ text, source: sourceLang, target: targetLang })
-                    const r = await fetch(`/api/translate/word?${qs}`)
+                    const r = await csrfFetch('/api/translate/word', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            text,
+                            source: sourceLang,
+                            target: targetLang,
+                            context: buildContext(),
+                        }),
+                    })
                     const j = (await parseJson(r)) as WordTranslationResponse
                     resultText = j.translated ?? ''
-                    if (j.dictionary) {
+                    if (j.dictionary || j.aiGenerated) {
                         wordDetails = {
-                            dictionary: true,
+                            dictionary: !!j.dictionary,
+                            aiGenerated: !!j.aiGenerated,
                             lemma: j.lemma,
                             partOfSpeech: j.partOfSpeech,
                             gender: j.gender,
@@ -947,6 +966,7 @@ export default function Reader() {
                             definitions: j.definitions ?? [],
                             examples: j.examples ?? [],
                             translations: j.translations ?? [],
+                            formTags: j.formTags ?? [],
                             entries: j.entries ?? [],
                             sourceName: j.sourceName,
                             sourceUrl: j.sourceUrl,
@@ -1056,12 +1076,16 @@ export default function Reader() {
 
     async function saveCurrentTranslation() {
         if (pop.kind !== 'result' || pop.action === 'explain' || !pop.result?.trim()) return
-        const kind: SaveVocabularyInput['kind'] = pop.wordDetails?.dictionary || (pop.text.length <= 40 && !/\s/.test(pop.text))
+        const kind: SaveVocabularyInput['kind'] = pop.wordDetails || (pop.text.length <= 40 && !/\s/.test(pop.text))
             ? 'word'
             : 'sentence'
+        const baseForm = kind === 'word'
+            ? pop.wordDetails?.baseSurface?.trim() || pop.wordDetails?.lemma?.trim() || pop.text
+            : pop.text
         const input: SaveVocabularyInput = {
             kind,
-            text: pop.text,
+            text: baseForm,
+            selectedText: pop.text,
             source: pop.sourceLang,
             target: pop.targetLang,
             result: pop.result,
@@ -1123,6 +1147,7 @@ export default function Reader() {
             definitions: details.definitions,
             examples: details.examples,
             translations: details.translations,
+            formTags: details.formTags,
         }]
     }
 
@@ -1167,7 +1192,7 @@ export default function Reader() {
             !isDictionaryFormEntry(entry) &&
             normalizeDictionarySurface(entry.surface) !== selected
         )
-        const forms = entries.filter(isDictionaryFormEntry)
+        const forms = details.aiGenerated ? [] : entries.filter(isDictionaryFormEntry)
         const summaryTranslations = uniqueDictionaryStrings(
             [
                 ...(details.translations ?? []),
@@ -1177,6 +1202,36 @@ export default function Reader() {
 
         return (
             <div className="theme-copy mt-3 space-y-5 text-sm">
+                {(details.aiGenerated || details.baseSurface || details.partOfSpeech || details.gender || !!details.formTags?.length) && (
+                    <div className="dictionary-summary">
+                        <div className="dictionary-section-title">
+                            {details.aiGenerated ? 'Contextual word analysis' : 'Selected form'}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                            <span className="dictionary-meta-chip">selected: {selectedText}</span>
+                            {details.baseSurface && (
+                                <span className="dictionary-meta-chip">base form: {details.baseSurface}</span>
+                            )}
+                            {details.partOfSpeech && (
+                                <span className="dictionary-meta-chip">{details.partOfSpeech}</span>
+                            )}
+                            {details.gender && (
+                                <span className="dictionary-meta-chip">gender: {details.gender}</span>
+                            )}
+                            {details.formTags?.map(feature => (
+                                <span key={feature} className="dictionary-meta-chip">{feature}</span>
+                            ))}
+                        </div>
+                        {details.aiGenerated && (
+                            <div className="mt-2 space-y-1 text-xs muted-copy">
+                                <p>Analysed using the surrounding sentence.</p>
+                                {details.definitions?.map((note, index) => (
+                                    <p key={`${note}-${index}`}>{note}</p>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
                 {!!summaryTranslations.length && (
                     <div className="dictionary-summary">
                         <div className="dictionary-section-title">Translations</div>
@@ -1735,13 +1790,15 @@ export default function Reader() {
                                             ? 'Explanation'
                                             : pop.action === 'literary'
                                                 ? 'Natural translation'
-                                                : pop.wordDetails?.dictionary
-                                                    ? 'Dictionary'
+                                                : pop.wordDetails?.aiGenerated
+                                                    ? 'AI word analysis'
+                                                    : pop.wordDetails?.dictionary
+                                                        ? 'Dictionary'
                                                     : 'Literal translation'}
                                     </div>
 
                                     <div className="theme-heading mt-2 text-sm font-semibold">“{pop.text}”</div>
-                                    {pop.wordDetails?.dictionary ? (
+                                    {pop.wordDetails ? (
                                         renderDictionaryResult(pop.wordDetails, pop.text)
                                     ) : (
                                         <div className="theme-copy mt-2 whitespace-pre-wrap text-sm">

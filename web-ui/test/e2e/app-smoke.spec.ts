@@ -78,9 +78,20 @@ test.beforeEach(async ({ page }) => {
   }))
   await page.route('**/api/translate/sentence', route => fulfillJson(route, { translated: 'Hallo Welt.' }))
   await page.route('**/api/translate/literary', route => fulfillJson(route, { translated: 'Natural Hallo Welt.' }))
-  await page.route('**/api/translate/word?**', route => fulfillJson(route, {
+  await page.route('**/api/translate/word', route => fulfillJson(route, {
     dictionary: false,
-    translated: 'Hallo',
+    aiGenerated: true,
+    translated: 'long\nBase form: long\nPart of speech: adjective\nSelected form: comparative',
+    lemma: 'long',
+    baseSurface: 'long',
+    partOfSpeech: 'adjective',
+    gender: '',
+    formTags: ['comparative'],
+    translations: ['long'],
+    definitions: [],
+    examples: [],
+    entries: [],
+    sourceName: 'AI contextual analysis',
   }))
   await page.route('**/api/translate/explain', route => fulfillJson(route, { explanation: 'A short explanation.' }))
   await page.route('**/api/user/vocabulary', async route => {
@@ -252,6 +263,49 @@ test('catalog to reader lookup save to vocabulary', async ({ page }) => {
   await expect(page.getByText(/EN\s+.+\s+DE/).first()).toBeVisible()
 })
 
+test('word lookup uses sentence context and saves the base form', async ({ page }) => {
+  let wordRequest: {text?: string; context?: string} = {}
+  page.on('request', request => {
+    if (request.url().endsWith('/api/translate/word')) {
+      wordRequest = request.postDataJSON() as {text?: string; context?: string}
+    }
+  })
+
+  await page.goto('/reader?bookId=101&src=en&tgt=de')
+  const sourceSentence = page.locator('[data-sentence-id="1"]')
+  await expect(sourceSentence).toContainText('deliberately longer')
+  await sourceSentence.evaluate(node => {
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT)
+    let textNode = walker.nextNode()
+    while (textNode && !textNode.textContent?.includes('longer')) textNode = walker.nextNode()
+    if (!textNode?.textContent) throw new Error('Could not find word in sentence')
+    const start = textNode.textContent.indexOf('longer')
+    const range = document.createRange()
+    range.setStart(textNode, start)
+    range.setEnd(textNode, start + 'longer'.length)
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    node.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: 120, clientY: 120 }))
+  })
+
+  await page.getByRole('button', { name: 'Translate' }).click()
+  await expect(page.getByText('AI word analysis')).toBeVisible()
+  await expect(page.getByText('Contextual word analysis')).toBeVisible()
+  await expect(page.getByText('base form: long')).toBeVisible()
+  await expect(page.getByText('comparative')).toBeVisible()
+  expect(wordRequest.text).toBe('longer')
+  expect(wordRequest.context).toContain('Selected sentence: Hello world.')
+  expect(wordRequest.context).toContain('Aligned translation sentence: Hallo Welt.')
+
+  await page.getByRole('button', { name: 'Save' }).click()
+  await page.getByRole('link', { name: 'Profile' }).click()
+  await page.getByRole('link', { name: 'Vocabulary' }).click()
+  await expect(page.getByRole('heading', { name: 'Saved items' })).toBeVisible()
+  await expect(page.getByText('long', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText(/Selected in the text as\s+longer/)).toBeVisible()
+})
+
 test('profile keeps user and admin actions out of the main navigation', async ({ page }) => {
   await page.goto('/profile')
 
@@ -280,7 +334,7 @@ test('standard user profile only exposes personal actions', async ({ page }) => 
 
   await page.goto('/profile')
 
-  await expect(page.getByRole('heading', { name: 'Reader' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Reader', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Vocabulary' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Log out' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Admin panel' })).toHaveCount(0)

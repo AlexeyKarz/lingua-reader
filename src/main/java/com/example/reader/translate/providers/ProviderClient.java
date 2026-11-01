@@ -19,6 +19,15 @@ public interface ProviderClient {
     String literal(String text, String source, String target);
 
     /**
+     * Context-aware dictionary-style analysis for one selected word. Implementations should
+     * return a JSON object matching the schema described by the provider prompt. The service
+     * deliberately parses this centrally so every provider produces the same public response.
+     */
+    default String wordAnalysis(String text, String source, String target, String sentenceContext) {
+        return literal(text, source, target);
+    }
+
+    /**
      * Natural/literary translation that preserves authorial tone and meaning
      * without forcing word-by-word structure.
      */

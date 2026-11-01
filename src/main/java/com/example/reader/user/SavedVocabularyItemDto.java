@@ -4,6 +4,7 @@ public record SavedVocabularyItemDto(
         String id,
         String kind,
         String text,
+        String selectedText,
         String normalizedText,
         String source,
         String target,

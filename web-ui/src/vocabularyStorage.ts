@@ -15,6 +15,7 @@ export type SavedVocabularyItem = {
     id: string
     kind: 'word' | 'sentence'
     text: string
+    selectedText?: string
     normalizedText: string
     source: string
     target: string
@@ -155,6 +156,7 @@ function isVocabularyItem(value: unknown): value is SavedVocabularyItem {
     return typeof item.id === 'string' &&
         (item.kind === 'word' || item.kind === 'sentence') &&
         typeof item.text === 'string' &&
+        (item.selectedText === undefined || typeof item.selectedText === 'string') &&
         typeof item.normalizedText === 'string' &&
         typeof item.source === 'string' &&
         typeof item.target === 'string' &&

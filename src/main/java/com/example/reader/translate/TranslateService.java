@@ -3,12 +3,14 @@ package com.example.reader.translate;
 import com.example.reader.dictionary.DictionaryLookupResult;
 import com.example.reader.dictionary.DictionaryService;
 import com.example.reader.translate.providers.ProviderClient;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.annotation.Timed;
 import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.function.Supplier;
+import java.util.List;
 
 @Service
 public class TranslateService {
@@ -18,16 +20,19 @@ public class TranslateService {
     private final ProviderClient provider;
     private final DictionaryService dictionaryService;
     private final TranslationCacheRepository cache;
+    private final ObjectMapper objectMapper;
     private final String providerName;
 
     public TranslateService(
             ProviderClient provider,
             DictionaryService dictionaryService,
-            TranslationCacheRepository cache
+            TranslationCacheRepository cache,
+            ObjectMapper objectMapper
     ) {
         this.provider = provider;
         this.dictionaryService = dictionaryService;
         this.cache = cache;
+        this.objectMapper = objectMapper;
         this.providerName = provider.getClass().getSimpleName();
         log.info("Translation provider active: {}", provider.getClass().getSimpleName());
     }
@@ -39,16 +44,21 @@ public class TranslateService {
             extraTags = {"component", "service"}
     )
     public WordTranslationResult word(String text, String source, String target) {
+        return word(text, source, target, "");
+    }
+
+    public WordTranslationResult word(String text, String source, String target, String sentenceContext) {
         log.info("Word translate request: {} -> {} ({} chars)", source, target, text.length());
         DictionaryLookupResult dictionary = dictionaryService.lookup(text, source, target);
         if (dictionary.found()) {
             java.util.List<String> translations = dictionary.translations();
             String formatted = dictionary.formattedText();
+            AiWordAnalysis analysis = null;
             if (translations.isEmpty()) {
-                String providerTranslation = cachedLiteral("word", text, source, target);
-                if (providerTranslation != null && !providerTranslation.isBlank()) {
-                    translations = java.util.List.of(providerTranslation);
-                    formatted = "Translation: " + providerTranslation + "\n\n" + formatted;
+                analysis = contextualWordAnalysis(text, source, target, sentenceContext);
+                if (!analysis.translations().isEmpty()) {
+                    translations = analysis.translations();
+                    formatted = formatWordAnalysis(analysis);
                 }
             }
             return new WordTranslationResult(
@@ -57,21 +67,43 @@ public class TranslateService {
                     target,
                     formatted,
                     true,
-                    dictionary.lemma(),
-                    dictionary.partOfSpeech(),
-                    dictionary.gender(),
-                    dictionary.baseSurface(),
+                    analysis != null,
+                    prefer(analysis == null ? null : analysis.lemma(), dictionary.lemma()),
+                    prefer(analysis == null ? null : analysis.partOfSpeech(), dictionary.partOfSpeech()),
+                    prefer(analysis == null ? null : analysis.gender(), dictionary.gender()),
+                    prefer(analysis == null ? null : analysis.baseForm(), dictionary.baseSurface()),
                     dictionary.baseNormalized(),
-                    dictionary.definitions(),
+                    mergeUsageNote(dictionary.definitions(), analysis),
                     dictionary.examples(),
                     translations,
+                    analysis == null ? dictionaryFormTags(dictionary) : analysis.grammaticalFeatures(),
                     dictionary.entries(),
                     dictionary.sourceName(),
                     dictionary.sourceUrl()
             );
         }
 
-        return WordTranslationResult.provider(text, source, target, cachedLiteral("word", text, source, target));
+        AiWordAnalysis analysis = contextualWordAnalysis(text, source, target, sentenceContext);
+        return new WordTranslationResult(
+                text,
+                source,
+                target,
+                formatWordAnalysis(analysis),
+                false,
+                true,
+                analysis.lemma(),
+                analysis.partOfSpeech(),
+                analysis.gender(),
+                analysis.baseForm(),
+                normalizeWord(analysis.baseForm()),
+                analysis.usageNote().isBlank() ? List.of() : List.of(analysis.usageNote()),
+                List.of(),
+                analysis.translations(),
+                analysis.grammaticalFeatures(),
+                List.of(),
+                "AI contextual analysis",
+                ""
+        );
     }
 
     @Timed(
@@ -130,8 +162,121 @@ public class TranslateService {
         return providerName;
     }
 
-    private String cachedLiteral(String operation, String text, String source, String target) {
-        return cachedProvider(operation, text, source, target, () -> provider.literal(text, source, target));
+    private AiWordAnalysis contextualWordAnalysis(
+            String text,
+            String source,
+            String target,
+            String sentenceContext
+    ) {
+        String context = sentenceContext == null ? "" : sentenceContext.strip();
+        String cacheText = context.isBlank()
+                ? text
+                : "Selected word:\n" + text + "\n\nSentence context:\n" + context;
+        String raw = cachedProvider(
+                "word_analysis_v1",
+                cacheText,
+                source,
+                target,
+                () -> provider.wordAnalysis(text, source, target, context)
+        );
+        AiWordAnalysis analysis = parseWordAnalysis(raw, text);
+        if (analysis.translations().isEmpty()) {
+            throw new IllegalStateException("AI word analysis did not include a translation");
+        }
+        return analysis;
+    }
+
+    private AiWordAnalysis parseWordAnalysis(String raw, String selectedText) {
+        if (raw == null || raw.isBlank()) {
+            return AiWordAnalysis.translationOnly(selectedText, "");
+        }
+        String json = raw.strip();
+        if (json.startsWith("```")) {
+            json = json.replaceFirst("^```(?:json)?\\s*", "")
+                    .replaceFirst("\\s*```$", "")
+                    .strip();
+        }
+        int objectStart = json.indexOf('{');
+        int objectEnd = json.lastIndexOf('}');
+        if (objectStart >= 0 && objectEnd > objectStart) {
+            json = json.substring(objectStart, objectEnd + 1);
+        }
+        try {
+            AiWordAnalysis parsed = objectMapper.readValue(json, AiWordAnalysis.class);
+            return normalizeWordAnalysis(parsed, selectedText);
+        } catch (Exception error) {
+            log.warn("Word-analysis provider returned non-JSON output; using it as a translation: {}", error.getMessage());
+            return AiWordAnalysis.translationOnly(selectedText, raw);
+        }
+    }
+
+    private AiWordAnalysis normalizeWordAnalysis(AiWordAnalysis value, String selectedText) {
+        if (value == null) return AiWordAnalysis.translationOnly(selectedText, "");
+        String selected = prefer(value.selectedForm(), selectedText);
+        String lemma = prefer(value.lemma(), selected);
+        String baseForm = prefer(value.baseForm(), lemma);
+        return new AiWordAnalysis(
+                selected,
+                lemma,
+                baseForm,
+                clean(value.partOfSpeech()),
+                clean(value.gender()),
+                cleanList(value.grammaticalFeatures()),
+                cleanList(value.translations()),
+                clean(value.usageNote())
+        );
+    }
+
+    private String formatWordAnalysis(AiWordAnalysis analysis) {
+        StringBuilder text = new StringBuilder(String.join("; ", analysis.translations()));
+        if (!analysis.baseForm().isBlank()) appendLine(text, "Base form: " + analysis.baseForm());
+        if (!analysis.partOfSpeech().isBlank()) appendLine(text, "Part of speech: " + analysis.partOfSpeech());
+        if (!analysis.gender().isBlank()) appendLine(text, "Gender: " + analysis.gender());
+        if (!analysis.grammaticalFeatures().isEmpty()) {
+            appendLine(text, "Selected form: " + String.join(", ", analysis.grammaticalFeatures()));
+        }
+        if (!analysis.usageNote().isBlank()) appendLine(text, analysis.usageNote());
+        return text.toString();
+    }
+
+    private void appendLine(StringBuilder text, String line) {
+        if (!text.isEmpty()) text.append('\n');
+        text.append(line);
+    }
+
+    private List<String> mergeUsageNote(List<String> definitions, AiWordAnalysis analysis) {
+        if (analysis == null || analysis.usageNote().isBlank()) return definitions;
+        java.util.ArrayList<String> merged = new java.util.ArrayList<>(definitions == null ? List.of() : definitions);
+        merged.add(analysis.usageNote());
+        return List.copyOf(merged);
+    }
+
+    private List<String> dictionaryFormTags(DictionaryLookupResult dictionary) {
+        if (dictionary.entries() == null) return List.of();
+        return dictionary.entries().stream()
+                .flatMap(entry -> entry.formTags() == null ? java.util.stream.Stream.empty() : entry.formTags().stream())
+                .map(this::clean)
+                .filter(value -> !value.isBlank())
+                .distinct()
+                .toList();
+    }
+
+    private List<String> cleanList(List<String> values) {
+        if (values == null) return List.of();
+        return values.stream().map(this::clean).filter(value -> !value.isBlank()).distinct().toList();
+    }
+
+    private String prefer(String preferred, String fallback) {
+        String cleaned = clean(preferred);
+        return cleaned.isBlank() ? clean(fallback) : cleaned;
+    }
+
+    private String clean(String value) {
+        return value == null ? "" : value.strip();
+    }
+
+    private String normalizeWord(String value) {
+        return clean(value).toLowerCase(java.util.Locale.ROOT);
     }
 
     private String cachedProvider(

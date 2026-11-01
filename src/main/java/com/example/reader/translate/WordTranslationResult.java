@@ -10,6 +10,7 @@ public record WordTranslationResult(
         String target,
         String translated,
         boolean dictionary,
+        boolean aiGenerated,
         String lemma,
         String partOfSpeech,
         String gender,
@@ -18,13 +19,9 @@ public record WordTranslationResult(
         List<String> definitions,
         List<String> examples,
         List<String> translations,
+        List<String> formTags,
         List<DictionaryEntry> entries,
         String sourceName,
         String sourceUrl
 ) {
-    public static WordTranslationResult provider(String text, String source, String target, String translated) {
-        return new WordTranslationResult(
-                text, source, target, translated, false, "", "", "", "", "", List.of(), List.of(), List.of(), List.of(), "", ""
-        );
-    }
 }

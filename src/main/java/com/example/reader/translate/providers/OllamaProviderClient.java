@@ -52,6 +52,29 @@ public class OllamaProviderClient implements ProviderClient {
     }
 
     @Override
+    public String wordAnalysis(String text, String source, String target, String sentenceContext) {
+        String prompt = """
+                You are a multilingual lexicographer. Analyse the selected %s word in its sentence context.
+                Return ONLY valid JSON with the keys selectedForm, lemma, baseForm, partOfSpeech,
+                gender, grammaticalFeatures (array), translations (array), and usageNote.
+                Write translations and usageNote in %s. Include a definite article in baseForm for
+                nouns when %s uses grammatical articles. Use context to disambiguate meaning and form.
+
+                Selected word: %s
+                Sentence context: %s
+                """.formatted(source, target, source, text, sentenceContext == null ? "" : sentenceContext);
+        return ProviderMetrics.record(
+                registry,
+                providerName,
+                model,
+                "word_analysis",
+                source,
+                target,
+                () -> generate(model, prompt)
+        );
+    }
+
+    @Override
     public String literary(String text, String source, String target, String bookContext) {
         return literary(text, source, target, bookContext, null);
     }

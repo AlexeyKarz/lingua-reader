@@ -26,6 +26,7 @@ public class GoogleProviderClient implements ProviderClient {
     private final int maxOutputTokens;
     private final int literaryMaxOutputTokens;
     private final String literalSystem;
+    private final String wordSystem;
     private final String literarySystem;
     private final String explainSystem;
     private final String apiKey;
@@ -56,6 +57,7 @@ public class GoogleProviderClient implements ProviderClient {
         this.registry = registry;
 
         this.literalSystem = prompts.getLiteralSystem();
+        this.wordSystem = prompts.getWordSystem();
         this.literarySystem = prompts.getLiterarySystem();
         this.explainSystem = prompts.getExplainSystem();
 
@@ -75,6 +77,23 @@ public class GoogleProviderClient implements ProviderClient {
                 source,
                 target,
                 () -> callGenerateContent(model, literalSystem, prompt, 0.1, maxOutputTokens)
+        );
+    }
+
+    @Override
+    public String wordAnalysis(String text, String source, String target, String sentenceContext) {
+        String prompt = "Source language: " + source +
+                "\nTarget language: " + target +
+                "\nSelected word: " + text +
+                "\nSentence context: " + (sentenceContext == null ? "" : sentenceContext);
+        return ProviderMetrics.record(
+                registry,
+                providerName,
+                model,
+                "word_analysis",
+                source,
+                target,
+                () -> callGenerateContent(model, wordSystem, prompt, 0.1, maxOutputTokens)
         );
     }
 

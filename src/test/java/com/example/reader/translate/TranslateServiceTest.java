@@ -4,6 +4,7 @@ import com.example.reader.dictionary.DictionaryService;
 import com.example.reader.dictionary.DictionaryEntry;
 import com.example.reader.dictionary.DictionaryLookupResult;
 import com.example.reader.translate.providers.ProviderClient;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -26,7 +27,7 @@ class TranslateServiceTest {
         ProviderClient provider = mock(ProviderClient.class);
         DictionaryService dictionaryService = mock(DictionaryService.class);
         TranslationCacheRepository cache = mock(TranslationCacheRepository.class);
-        TranslateService service = new TranslateService(provider, dictionaryService, cache);
+        TranslateService service = new TranslateService(provider, dictionaryService, cache, new ObjectMapper());
         DictionaryEntry form = new DictionaryEntry(
                 1L, "key", "el", "ru", "ταξείδι", "ταξείδι", "", "noun", "",
                 "ταξίδι", "ταξίδι", List.of("form-of"), List.of("παρωχημένη γραφή του ταξίδι"),
@@ -36,14 +37,63 @@ class TranslateServiceTest {
                 true, "ταξείδι\nForm of: ταξίδι", "", "noun", "", "ταξίδι", "ταξίδι",
                 form.definitions(), List.of(), List.of(), List.of(form), "Kaikki", "https://kaikki.org/"
         ));
-        when(cache.find(eq("word"), eq("el"), eq("ru"), anyString(), anyString())).thenReturn(Optional.empty());
-        when(provider.literal("ταξείδι", "el", "ru")).thenReturn("путешествие");
+        when(cache.find(eq("word_analysis_v1"), eq("el"), eq("ru"), anyString(), anyString())).thenReturn(Optional.empty());
+        when(provider.wordAnalysis("ταξείδι", "el", "ru", "")).thenReturn("""
+                {"selectedForm":"ταξείδι","lemma":"ταξίδι","baseForm":"το ταξίδι","partOfSpeech":"noun",
+                 "gender":"neuter","grammaticalFeatures":["obsolete spelling"],"translations":["путешествие"],
+                 "usageNote":""}
+                """);
 
         WordTranslationResult result = service.word("ταξείδι", "el", "ru");
 
         assertThat(result.dictionary()).isTrue();
+        assertThat(result.aiGenerated()).isTrue();
+        assertThat(result.baseSurface()).isEqualTo("το ταξίδι");
         assertThat(result.translations()).containsExactly("путешествие");
         assertThat(result.entries()).containsExactly(form);
+    }
+
+    @Test
+    void missingDictionaryUsesSentenceContextForStructuredWordAnalysis() {
+        ProviderClient provider = mock(ProviderClient.class);
+        DictionaryService dictionaryService = mock(DictionaryService.class);
+        TranslationCacheRepository cache = mock(TranslationCacheRepository.class);
+        TranslateService service = new TranslateService(provider, dictionaryService, cache, new ObjectMapper());
+        String context = "Selected sentence: Sie gingen mit den Kindern nach Hause.";
+
+        when(dictionaryService.lookup("Kindern", "de", "en")).thenReturn(DictionaryLookupResult.missing());
+        when(cache.find(eq("word_analysis_v1"), eq("de"), eq("en"), anyString(), anyString()))
+                .thenReturn(Optional.empty());
+        when(provider.wordAnalysis("Kindern", "de", "en", context)).thenReturn("""
+                {
+                  "selectedForm": "Kindern",
+                  "lemma": "Kind",
+                  "baseForm": "das Kind",
+                  "partOfSpeech": "noun",
+                  "gender": "neuter",
+                  "grammaticalFeatures": ["dative", "plural"],
+                  "translations": ["children"],
+                  "usageNote": "Dative plural after mit."
+                }
+                """);
+
+        WordTranslationResult result = service.word("Kindern", "de", "en", context);
+
+        assertThat(result.dictionary()).isFalse();
+        assertThat(result.aiGenerated()).isTrue();
+        assertThat(result.lemma()).isEqualTo("Kind");
+        assertThat(result.baseSurface()).isEqualTo("das Kind");
+        assertThat(result.gender()).isEqualTo("neuter");
+        assertThat(result.formTags()).containsExactly("dative", "plural");
+        assertThat(result.translations()).containsExactly("children");
+        verify(provider).wordAnalysis("Kindern", "de", "en", context);
+        verify(cache).find(
+                eq("word_analysis_v1"),
+                eq("de"),
+                eq("en"),
+                eq("Selected word:\nKindern\n\nSentence context:\n" + context),
+                anyString()
+        );
     }
 
     @Test
@@ -51,7 +101,7 @@ class TranslateServiceTest {
         ProviderClient provider = mock(ProviderClient.class);
         DictionaryService dictionaryService = mock(DictionaryService.class);
         TranslationCacheRepository cache = mock(TranslationCacheRepository.class);
-        TranslateService service = new TranslateService(provider, dictionaryService, cache);
+        TranslateService service = new TranslateService(provider, dictionaryService, cache, new ObjectMapper());
 
         when(cache.find(eq("literary_sentence"), eq("de"), eq("en"), anyString(), anyString()))
                 .thenReturn(Optional.empty());
@@ -83,7 +133,7 @@ class TranslateServiceTest {
         ProviderClient provider = mock(ProviderClient.class);
         DictionaryService dictionaryService = mock(DictionaryService.class);
         TranslationCacheRepository cache = mock(TranslationCacheRepository.class);
-        TranslateService service = new TranslateService(provider, dictionaryService, cache);
+        TranslateService service = new TranslateService(provider, dictionaryService, cache, new ObjectMapper());
 
         when(cache.find(eq("literary_sentence"), eq("de"), eq("en"), anyString(), anyString()))
                 .thenReturn(Optional.of("Cached sentence."));
@@ -99,7 +149,7 @@ class TranslateServiceTest {
         ProviderClient provider = mock(ProviderClient.class);
         DictionaryService dictionaryService = mock(DictionaryService.class);
         TranslationCacheRepository cache = mock(TranslationCacheRepository.class);
-        TranslateService service = new TranslateService(provider, dictionaryService, cache);
+        TranslateService service = new TranslateService(provider, dictionaryService, cache, new ObjectMapper());
 
         when(cache.find(eq("literary_sentence"), eq("de"), eq("en"), anyString(), anyString()))
                 .thenReturn(Optional.empty());
@@ -132,7 +182,7 @@ class TranslateServiceTest {
         ProviderClient provider = mock(ProviderClient.class);
         DictionaryService dictionaryService = mock(DictionaryService.class);
         TranslationCacheRepository cache = mock(TranslationCacheRepository.class);
-        TranslateService service = new TranslateService(provider, dictionaryService, cache);
+        TranslateService service = new TranslateService(provider, dictionaryService, cache, new ObjectMapper());
         String refusal = "Извините, я не могу помочь с этой просьбой.";
 
         when(cache.find(eq("literary_sentence"), eq("el"), eq("ru"), anyString(), anyString()))
@@ -148,7 +198,7 @@ class TranslateServiceTest {
         ProviderClient provider = mock(ProviderClient.class);
         DictionaryService dictionaryService = mock(DictionaryService.class);
         TranslationCacheRepository cache = mock(TranslationCacheRepository.class);
-        TranslateService service = new TranslateService(provider, dictionaryService, cache);
+        TranslateService service = new TranslateService(provider, dictionaryService, cache, new ObjectMapper());
 
         when(cache.find(eq("literary_sentence"), eq("el"), eq("ru"), anyString(), anyString()))
                 .thenReturn(Optional.of("Извините, я не могу помочь с этой просьбой."));

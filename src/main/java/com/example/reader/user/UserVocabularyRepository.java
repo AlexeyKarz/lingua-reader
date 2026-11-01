@@ -51,13 +51,13 @@ public class UserVocabularyRepository {
         Instant now = Instant.now();
         jdbc.update("""
                 insert into saved_vocabulary_item(
-                    id, user_id, kind, text, normalized_text, source_lang, target_lang,
+                    id, user_id, kind, text, selected_text, normalized_text, source_lang, target_lang,
                     result, dictionary, work_id, book_id_text, title, author, page,
                     sentence_id, review_status, review_due_at, review_interval_days,
                     review_ease, review_count, created_at, updated_at
                 )
                 values(
-                    cast(:id as uuid), :userId, :kind, :text, :normalizedText, :source, :target,
+                    cast(:id as uuid), :userId, :kind, :text, :selectedText, :normalizedText, :source, :target,
                     :result, :dictionary, :workId, :bookIdText, :title, :author, :page,
                     :sentenceId, 'new', :now, 0, 2.5, 0, :now, :now
                 )
@@ -168,13 +168,13 @@ public class UserVocabularyRepository {
             UUID id = UUID.randomUUID();
             jdbc.update("""
                     insert into saved_vocabulary_item(
-                        id, user_id, kind, text, normalized_text, source_lang, target_lang,
+                        id, user_id, kind, text, selected_text, normalized_text, source_lang, target_lang,
                         result, dictionary, work_id, book_id_text, title, author, page,
                         sentence_id, review_status, review_due_at, review_interval_days,
                         review_ease, review_count, last_reviewed_at, created_at, updated_at
                     )
                     values(
-                        cast(:id as uuid), :userId, :kind, :text, :normalizedText, :source, :target,
+                        cast(:id as uuid), :userId, :kind, :text, :selectedText, :normalizedText, :source, :target,
                         :result, :dictionary, :workId, :bookIdText, :title, :author, :page,
                         :sentenceId, :reviewStatus, :reviewDueAt, :reviewIntervalDays,
                         :reviewEase, :reviewCount, :lastReviewedAt, :createdAt, :updatedAt
@@ -191,6 +191,7 @@ public class UserVocabularyRepository {
         jdbc.update("""
                 update saved_vocabulary_item
                 set text = :text,
+                    selected_text = :selectedText,
                     normalized_text = :normalizedText,
                     result = :result,
                     dictionary = :dictionary,
@@ -217,6 +218,7 @@ public class UserVocabularyRepository {
         jdbc.update("""
                 update saved_vocabulary_item
                 set text = :text,
+                    selected_text = :selectedText,
                     result = :result,
                     dictionary = :dictionary,
                     work_id = :workId,
@@ -239,6 +241,7 @@ public class UserVocabularyRepository {
                 .addValue("userId", userId)
                 .addValue("kind", input.kind())
                 .addValue("text", input.text())
+                .addValue("selectedText", input.selectedText())
                 .addValue("normalizedText", input.normalizedText())
                 .addValue("source", input.source())
                 .addValue("target", input.target())
@@ -258,6 +261,7 @@ public class UserVocabularyRepository {
                 .addValue("userId", userId)
                 .addValue("kind", input.kind())
                 .addValue("text", input.text())
+                .addValue("selectedText", input.selectedText())
                 .addValue("normalizedText", input.normalizedText())
                 .addValue("source", input.source())
                 .addValue("target", input.target())
@@ -290,6 +294,7 @@ public class UserVocabularyRepository {
             throw new IllegalArgumentException("kind must be word or sentence");
         }
         String text = trimToNull(request.text());
+        String selectedText = trimToNull(request.selectedText());
         String source = trimLower(request.source());
         String target = trimLower(request.target());
         String result = trimToNull(request.result());
@@ -304,6 +309,7 @@ public class UserVocabularyRepository {
         return new ValidatedVocabulary(
                 kind,
                 text,
+                selectedText == null ? text : selectedText,
                 normalizeSavedText(text),
                 source,
                 target,
@@ -324,6 +330,7 @@ public class UserVocabularyRepository {
         ValidatedVocabulary base = validate(new SaveVocabularyRequest(
                 item.kind(),
                 item.text(),
+                item.selectedText(),
                 item.source(),
                 item.target(),
                 item.result(),
@@ -340,6 +347,7 @@ public class UserVocabularyRepository {
         return new ImportedVocabulary(
                 base.kind(),
                 base.text(),
+                base.selectedText(),
                 StringUtils.hasText(item.normalizedText()) ? normalizeSavedText(item.normalizedText()) : base.normalizedText(),
                 base.source(),
                 base.target(),
@@ -418,6 +426,7 @@ public class UserVocabularyRepository {
                 rs.getString("id"),
                 rs.getString("kind"),
                 rs.getString("text"),
+                StringUtils.hasText(rs.getString("selected_text")) ? rs.getString("selected_text") : rs.getString("text"),
                 rs.getString("normalized_text"),
                 rs.getString("source_lang"),
                 rs.getString("target_lang"),
@@ -488,6 +497,7 @@ public class UserVocabularyRepository {
     private record ValidatedVocabulary(
             String kind,
             String text,
+            String selectedText,
             String normalizedText,
             String source,
             String target,
@@ -503,6 +513,7 @@ public class UserVocabularyRepository {
     private record ImportedVocabulary(
             String kind,
             String text,
+            String selectedText,
             String normalizedText,
             String source,
             String target,
