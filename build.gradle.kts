@@ -34,7 +34,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-aop") // needed for @Timed on beans
 
     // (Optional but recommended) Spring Modulith — helps structure a modular monolith
-    implementation("org.springframework.modulith:spring-modulith-starter-core:1.2.13")
+    implementation("org.springframework.modulith:spring-modulith-starter-core:2.1.2")
 
     // parsing EPUB → XHTML/text
     implementation("org.apache.tika:tika-core:2.9.1")
