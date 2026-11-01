@@ -43,7 +43,7 @@ dependencies {
     implementation("com.github.jai-imageio:jai-imageio-jpeg2000:1.4.0")
 
     // HTML parsing for chapter/paragraph extraction
-    implementation("org.jsoup:jsoup:1.18.1")
+    implementation("org.jsoup:jsoup:1.23.2")
 
     // sentence splitting (Java-native)
     implementation("org.apache.opennlp:opennlp-tools:2.4.0")
