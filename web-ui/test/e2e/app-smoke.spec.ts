@@ -244,11 +244,61 @@ test('catalog to reader lookup save to vocabulary', async ({ page }) => {
   await page.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByText('Sentence saved for review.')).toBeVisible()
 
+  await page.getByRole('link', { name: 'Profile' }).click()
   await page.getByRole('link', { name: 'Vocabulary' }).click()
   await expect(page).toHaveURL(/\/vocabulary/)
   await expect(page.getByRole('heading', { name: 'Saved items' })).toBeVisible()
   await expect(page.getByText('Hello world.').first()).toBeVisible()
   await expect(page.getByText(/EN\s+.+\s+DE/).first()).toBeVisible()
+})
+
+test('profile keeps user and admin actions out of the main navigation', async ({ page }) => {
+  await page.goto('/profile')
+
+  const navigation = page.getByRole('navigation')
+  await expect(navigation.getByRole('link').allTextContents()).resolves.toEqual(['Catalog', 'Reader', 'Profile'])
+  await expect(page.getByRole('heading', { name: 'Admin' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Vocabulary' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Admin panel' })).toBeVisible()
+  await expect(page.getByRole('link', { name: /^Content Ingestion/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Log out' })).toBeVisible()
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('standard user profile only exposes personal actions', async ({ page }) => {
+  await page.route('**/api/me', route => fulfillJson(route, {
+    authenticated: true,
+    user: {
+      id: 2,
+      email: 'reader@example.test',
+      displayName: 'Reader',
+      roles: ['USER'],
+    },
+  }))
+
+  await page.goto('/profile')
+
+  await expect(page.getByRole('heading', { name: 'Reader' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Vocabulary' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Log out' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Admin panel' })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: /^Content Ingestion/ })).toHaveCount(0)
+})
+
+test('about explains reader features, ingestion, and architecture', async ({ page }) => {
+  await page.goto('/about')
+
+  await expect(page).toHaveTitle('About — Multilang Reader')
+  await expect(page.getByRole('heading', { name: 'Read across languages without losing your place.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'One text, several ways in' })).toBeVisible()
+  await expect(page.getByRole('list', { name: 'Book ingestion pipeline' }).getByRole('listitem')).toHaveCount(7)
+  await expect(page.getByRole('heading', { name: 'A modular full-stack pet project' })).toBeVisible()
+  await expect(page.getByText('PostgreSQL + pgvector')).toBeVisible()
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
 test('admin ingestion accepts txt upload and shows completed status', async ({ page }) => {

@@ -76,10 +76,10 @@ export default function App() {
         }
     }, [auth.authenticated, auth.loading, auth.user?.id, pathname])
 
-    const NavLink = ({ to, label, activePath }: {to:string; label:string; activePath?: string}) => (
+    const NavLink = ({ to, label, activePath, active }: {to:string; label:string; activePath?: string; active?: boolean}) => (
         <Link
             to={to}
-            className={`nav-pill ${pathname === (activePath ?? to) ? 'nav-pill-active' : ''}`}
+            className={`nav-pill ${(active ?? pathname === (activePath ?? to)) ? 'nav-pill-active' : ''}`}
         >
             {label}
         </Link>
@@ -101,19 +101,11 @@ export default function App() {
                             <nav className="nav-shell min-w-0 sm:w-auto">
                                 <NavLink to="/" label="Catalog" />
                                 <NavLink to={readerPath} activePath="/reader" label="Reader" />
-                                <NavLink to="/vocabulary" label="Vocabulary" />
-                                {auth.hasRole('ADMIN') && <NavLink to="/admin" label="Admin" />}
-                                {auth.authenticated ? (
-                                    <button
-                                        type="button"
-                                        className="nav-pill"
-                                        onClick={() => void auth.logout()}
-                                    >
-                                        Logout
-                                    </button>
-                                ) : (
-                                    <NavLink to="/login" label="Login" />
-                                )}
+                                <NavLink
+                                    to="/profile"
+                                    label="Profile"
+                                    active={pathname === '/profile' || pathname === '/login'}
+                                />
                             </nav>
                             <button
                                 type="button"
@@ -131,6 +123,11 @@ export default function App() {
                 <main>
                     <Outlet />
                 </main>
+                <footer className="app-footer">
+                    <span>Multilang Reader</span>
+                    <span aria-hidden="true">·</span>
+                    <Link to="/about">About the project</Link>
+                </footer>
             </div>
         </div>
     )
