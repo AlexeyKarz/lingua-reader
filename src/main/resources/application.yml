@@ -47,12 +47,13 @@ translate:
 
   openai:
     apiKey: ${OPENAI_API_KEY:}
-    model: ${OPENAI_MODEL:gpt-4o-mini}
-    literaryModel: ${OPENAI_LITERARY_MODEL:${OPENAI_MODEL:gpt-4o-mini}}
+    model: ${OPENAI_MODEL:gpt-6-luna}
+    literaryModel: ${OPENAI_LITERARY_MODEL:${OPENAI_MODEL:gpt-6-luna}}
     ocrCleanupModel: ${OPENAI_OCR_CLEANUP_MODEL:gpt-5.6-luna}
     timeoutSeconds: ${OPENAI_TIMEOUT_SECONDS:30}
     maxCompletionTokens: ${OPENAI_MAX_COMPLETION_TOKENS:300}
     literaryMaxCompletionTokens: ${OPENAI_LITERARY_MAX_COMPLETION_TOKENS:700}
+    reasoningEffort: ${OPENAI_REASONING_EFFORT:none}
 
   limits:
     enabled: ${TRANSLATE_LIMITS_ENABLED:true}

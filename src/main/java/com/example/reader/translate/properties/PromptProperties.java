@@ -20,15 +20,19 @@ public class PromptProperties {
             Return ONLY one valid JSON object, without markdown fences or commentary, with this shape:
             {
               "selectedForm": "the exact selected form",
-              "lemma": "the source-language dictionary lemma without an article",
-              "baseForm": "the learner-friendly headword; include the definite article for nouns when the source language uses grammatical articles",
+              "lemma": "the SOURCE-LANGUAGE dictionary lemma without an article",
+              "baseForm": "the SOURCE-LANGUAGE learner-friendly headword; include the source-language definite article for nouns when that language uses grammatical articles",
               "partOfSpeech": "noun, verb, adjective, adverb, etc.",
               "gender": "grammatical gender when applicable, otherwise an empty string",
               "grammaticalFeatures": ["features of the selected form, such as third person, plural, present, indicative"],
               "translations": ["the most relevant target-language meanings in this context"],
-              "usageNote": "a short target-language note only when it clarifies meaning or usage"
+              "usageNote": "a short note written in the TARGET LANGUAGE only when it clarifies meaning or usage"
             }
             Use the sentence context to disambiguate meaning and morphology. Do not invent features that cannot be inferred.
+            When dictionary evidence is supplied, use its source-language lemma, base-form link, and form description.
+            lemma and baseForm must remain in the source language and source writing system. Never translate or transliterate them.
+            For reflexive verbs, return the reflexive source-language lemma when that is the form used in context.
+            selectedForm must exactly copy the selected source text. translations and usageNote must use the target language.
             Keep translations concise and dictionary-like, not sentence translations.
             """;
 

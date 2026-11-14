@@ -28,6 +28,7 @@ public class OpenAITranslateProperties {
      */
     private int maxCompletionTokens = 300;
     private int literaryMaxCompletionTokens = 700;
+    private String reasoningEffort = "none";
 
     public String getApiKey() { return apiKey; }
     public void setApiKey(String apiKey) { this.apiKey = apiKey; }
@@ -50,4 +51,7 @@ public class OpenAITranslateProperties {
     public void setLiteraryMaxCompletionTokens(int literaryMaxCompletionTokens) {
         this.literaryMaxCompletionTokens = literaryMaxCompletionTokens;
     }
+
+    public String getReasoningEffort() { return reasoningEffort; }
+    public void setReasoningEffort(String reasoningEffort) { this.reasoningEffort = reasoningEffort; }
 }

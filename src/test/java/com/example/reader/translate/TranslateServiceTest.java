@@ -37,8 +37,8 @@ class TranslateServiceTest {
                 true, "ταξείδι\nForm of: ταξίδι", "", "noun", "", "ταξίδι", "ταξίδι",
                 form.definitions(), List.of(), List.of(), List.of(form), "Kaikki", "https://kaikki.org/"
         ));
-        when(cache.find(eq("word_analysis_v1"), eq("el"), eq("ru"), anyString(), anyString())).thenReturn(Optional.empty());
-        when(provider.wordAnalysis("ταξείδι", "el", "ru", "")).thenReturn("""
+        when(cache.find(eq("word_analysis_v2"), eq("el"), eq("ru"), anyString(), anyString())).thenReturn(Optional.empty());
+        when(provider.wordAnalysis(eq("ταξείδι"), eq("el"), eq("ru"), anyString())).thenReturn("""
                 {"selectedForm":"ταξείδι","lemma":"ταξίδι","baseForm":"το ταξίδι","partOfSpeech":"noun",
                  "gender":"neuter","grammaticalFeatures":["obsolete spelling"],"translations":["путешествие"],
                  "usageNote":""}
@@ -51,6 +51,12 @@ class TranslateServiceTest {
         assertThat(result.baseSurface()).isEqualTo("το ταξίδι");
         assertThat(result.translations()).containsExactly("путешествие");
         assertThat(result.entries()).containsExactly(form);
+        verify(provider).wordAnalysis(
+                eq("ταξείδι"),
+                eq("el"),
+                eq("ru"),
+                argThat(context -> context.contains("dictionary definition: παρωχημένη γραφή του ταξίδι"))
+        );
     }
 
     @Test
@@ -62,7 +68,7 @@ class TranslateServiceTest {
         String context = "Selected sentence: Sie gingen mit den Kindern nach Hause.";
 
         when(dictionaryService.lookup("Kindern", "de", "en")).thenReturn(DictionaryLookupResult.missing());
-        when(cache.find(eq("word_analysis_v1"), eq("de"), eq("en"), anyString(), anyString()))
+        when(cache.find(eq("word_analysis_v2"), eq("de"), eq("en"), anyString(), anyString()))
                 .thenReturn(Optional.empty());
         when(provider.wordAnalysis("Kindern", "de", "en", context)).thenReturn("""
                 {
@@ -88,11 +94,62 @@ class TranslateServiceTest {
         assertThat(result.translations()).containsExactly("children");
         verify(provider).wordAnalysis("Kindern", "de", "en", context);
         verify(cache).find(
-                eq("word_analysis_v1"),
+                eq("word_analysis_v2"),
                 eq("de"),
                 eq("en"),
                 eq("Selected word:\nKindern\n\nSentence context:\n" + context),
                 anyString()
+        );
+    }
+
+    @Test
+    void rejectsTranslatedBaseFormAndWrongLanguageNoteFromAiSupplement() {
+        ProviderClient provider = mock(ProviderClient.class);
+        DictionaryService dictionaryService = mock(DictionaryService.class);
+        TranslationCacheRepository cache = mock(TranslationCacheRepository.class);
+        TranslateService service = new TranslateService(provider, dictionaryService, cache, new ObjectMapper());
+        DictionaryEntry entry = new DictionaryEntry(
+                7L, "es:acurrucado", "es", "ru", "acurrucado", "acurrucado", "", "verb", "",
+                "", "", List.of(), List.of("Participio de acurrucarse."), List.of(), List.of(),
+                "Kaikki", "https://kaikki.org/"
+        );
+        when(dictionaryService.lookup("acurrucado", "es", "ru")).thenReturn(new DictionaryLookupResult(
+                true, "acurrucado", "", "verb", "", "", "", entry.definitions(), List.of(),
+                List.of(), List.of(entry), "Kaikki", "https://kaikki.org/"
+        ));
+        when(cache.find(eq("word_analysis_v2"), eq("es"), eq("ru"), anyString(), anyString()))
+                .thenReturn(Optional.empty());
+        when(provider.wordAnalysis(eq("acurrucado"), eq("es"), eq("ru"), anyString())).thenReturn("""
+                {
+                  "selectedForm": "acurrucado",
+                  "lemma": "acurrucar",
+                  "baseForm": "аккурукадо",
+                  "partOfSpeech": "adjective",
+                  "gender": "masculine",
+                  "grammaticalFeatures": ["past participle", "singular", "masculine"],
+                  "translations": ["свернувшийся", "сжимающийся"],
+                  "usageNote": "Describes a state of being curled up or huddled."
+                }
+                """);
+
+        WordTranslationResult result = service.word(
+                "acurrucado",
+                "es",
+                "ru",
+                "Selected sentence: Un viejo acurrucado tiembla y tose."
+        );
+
+        assertThat(result.baseSurface()).isEqualTo("acurrucar");
+        assertThat(result.lemma()).isEqualTo("acurrucar");
+        assertThat(result.formTags()).containsExactly("past participle", "singular");
+        assertThat(result.definitions()).isEmpty();
+        assertThat(result.entries()).containsExactly(entry);
+        assertThat(result.translated()).doesNotContain("аккурукадо", "Describes a state");
+        verify(provider).wordAnalysis(
+                eq("acurrucado"),
+                eq("es"),
+                eq("ru"),
+                argThat(context -> context.contains("dictionary definition: Participio de acurrucarse."))
         );
     }
 

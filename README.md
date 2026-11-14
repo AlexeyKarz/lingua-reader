@@ -653,6 +653,9 @@ note. Sentence translation continues to use the plain literal-translation path.
 Contextual word analyses and literal sentence responses are stored in separate
 `translation_cache` namespaces. Word-analysis cache keys include the reading
 context so an ambiguous form can resolve differently in another sentence.
+Generated lemmas and base forms are also checked against the selected word's
+writing system, preventing a target-language translation or transliteration from
+being presented as a source-language headword.
 Natural/literary responses use a separate cache namespace that includes book
 context in the cache key. Explanation responses are intentionally not cached
 because they depend more on context and prompt wording.

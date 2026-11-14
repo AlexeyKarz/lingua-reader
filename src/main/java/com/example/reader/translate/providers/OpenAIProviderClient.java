@@ -33,6 +33,7 @@ public class OpenAIProviderClient implements ProviderClient {
     private final int timeoutSeconds;
     private final int maxCompletionTokens;
     private final int literaryMaxCompletionTokens;
+    private final String reasoningEffort;
     private final String literalSystem;
     private final String wordSystem;
     private final String literarySystem;
@@ -63,12 +64,14 @@ public class OpenAIProviderClient implements ProviderClient {
                 ? this.literaryModel : props.getOcrCleanupModel();
         this.maxCompletionTokens = props.getMaxCompletionTokens();
         this.literaryMaxCompletionTokens = props.getLiteraryMaxCompletionTokens();
+        this.reasoningEffort = normalizeReasoningEffort(props.getReasoningEffort());
         this.webClient = builder
                 .baseUrl("https://api.openai.com")
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + props.getApiKey())
                 .build();
         this.registry = registry;
-        log.info("OpenAI provider enabled with model {} and maxCompletionTokens {}", this.model, this.maxCompletionTokens);
+        log.info("OpenAI provider enabled with model {}, maxCompletionTokens {}, and reasoningEffort {}",
+                this.model, this.maxCompletionTokens, this.reasoningEffort);
         this.literalSystem = prompts.getLiteralSystem();
         this.wordSystem = prompts.getWordSystem();
         this.literarySystem = prompts.getLiterarySystem();
@@ -259,17 +262,8 @@ public class OpenAIProviderClient implements ProviderClient {
     }
 
     private String callChat(String model, String systemPrompt, String userPrompt, int maxTokens, double temperature) {
-        // Minimal Chat Completions-style call
         long started = System.currentTimeMillis();
-        Map<String, Object> body = Map.of(
-                "model", model,
-                "messages", List.of(
-                        Map.of("role", "system", "content", systemPrompt),
-                        Map.of("role", "user", "content", userPrompt)
-                ),
-                "temperature", temperature,
-                "max_tokens", maxTokens
-        );
+        Map<String, Object> body = chatRequestBody(model, systemPrompt, userPrompt, maxTokens, temperature);
 
         try {
             OpenAIChatResponse response = this.webClient
@@ -283,14 +277,20 @@ public class OpenAIProviderClient implements ProviderClient {
                     .block();
 
             long durationMs = System.currentTimeMillis() - started;
-            if (response == null || response.choices == null || response.choices.isEmpty()) {
-                throw new IllegalStateException("Empty OpenAI response");
-            }
-            String content = response.choices.getFirst().message.content;
+            String content = extractChatText(response, maxTokens);
             log.info("OpenAI call succeeded in {} ms ({} chars)", durationMs, content == null ? 0 : content.length());
             return content;
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - started;
+            if (e instanceof WebClientResponseException responseException) {
+                String detail = responseException.getResponseBodyAsString().trim();
+                if (detail.length() > 1_000) detail = detail.substring(0, 1_000);
+                log.error("OpenAI Chat Completions call failed after {} ms: {} {}", durationMs, e.getMessage(), detail);
+                throw new IllegalStateException(
+                        detail.isBlank() ? e.getMessage() : "OpenAI rejected the request: " + detail,
+                        e
+                );
+            }
             log.error("OpenAI call failed after {} ms: {}", durationMs, e.getMessage());
             throw e;
         }
@@ -308,18 +308,8 @@ public class OpenAIProviderClient implements ProviderClient {
             boolean minimizeReasoning
     ) {
         long started = System.currentTimeMillis();
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("model", model);
-        body.put("instructions", systemPrompt);
-        body.put("input", responseInput);
-        body.put("max_output_tokens", maxTokens);
-        body.put("store", false);
-        // OCR cleanup is a constrained transcription task. Without this, reasoning models can
-        // spend the full output allowance thinking and return no (or truncated) corrected text.
-        String normalizedModel = model.toLowerCase(Locale.ROOT);
-        if (minimizeReasoning && (normalizedModel.startsWith("gpt-5") || normalizedModel.startsWith("gpt-6"))) {
-            body.put("reasoning", Map.of("effort", "none"));
-        }
+        Map<String, Object> body = responsesRequestBody(
+                model, systemPrompt, responseInput, maxTokens, minimizeReasoning);
 
         try {
             OpenAIResponsesResponse response = this.webClient
@@ -357,12 +347,101 @@ public class OpenAIProviderClient implements ProviderClient {
         return modelOverride == null || modelOverride.isBlank() ? literaryModel : modelOverride.trim();
     }
 
-    private String extractResponsesText(OpenAIResponsesResponse response) {
+    Map<String, Object> chatRequestBody(
+            String model,
+            String systemPrompt,
+            String userPrompt,
+            int maxTokens,
+            double temperature
+    ) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", model);
+        body.put("messages", List.of(
+                Map.of("role", "system", "content", systemPrompt),
+                Map.of("role", "user", "content", userPrompt)
+        ));
+        body.put("max_completion_tokens", maxTokens);
+
+        String effectiveReasoningEffort = effectiveReasoningEffort(model, false);
+        if (effectiveReasoningEffort != null) {
+            body.put("reasoning_effort", effectiveReasoningEffort);
+        }
+        // GPT-6 reasoning models accept sampling controls only when reasoning is disabled.
+        if (effectiveReasoningEffort == null || "none".equals(effectiveReasoningEffort)) {
+            body.put("temperature", temperature);
+        }
+        return body;
+    }
+
+    Map<String, Object> responsesRequestBody(
+            String model,
+            String systemPrompt,
+            Object responseInput,
+            int maxTokens,
+            boolean minimizeReasoning
+    ) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", model);
+        body.put("instructions", systemPrompt);
+        body.put("input", responseInput);
+        body.put("max_output_tokens", maxTokens);
+        body.put("store", false);
+
+        String effectiveReasoningEffort = effectiveReasoningEffort(model, minimizeReasoning);
+        if (effectiveReasoningEffort != null) {
+            body.put("reasoning", Map.of("effort", effectiveReasoningEffort));
+        }
+        return body;
+    }
+
+    private String effectiveReasoningEffort(String model, boolean minimizeReasoning) {
+        String normalizedModel = model == null ? "" : model.toLowerCase(Locale.ROOT);
+        if (!(normalizedModel.startsWith("gpt-5") || normalizedModel.startsWith("gpt-6"))) {
+            return null;
+        }
+        return minimizeReasoning ? "none" : reasoningEffort;
+    }
+
+    private String normalizeReasoningEffort(String configured) {
+        String normalized = configured == null ? "none" : configured.trim().toLowerCase(Locale.ROOT);
+        if (!Set.of("none", "low", "medium", "high", "xhigh", "max").contains(normalized)) {
+            throw new IllegalArgumentException("Unsupported OpenAI reasoning effort: " + configured);
+        }
+        return normalized;
+    }
+
+    String extractChatText(OpenAIChatResponse response, int maxTokens) {
+        if (response == null || response.choices == null || response.choices.isEmpty()) {
+            throw new IllegalStateException("Empty OpenAI Chat Completions response");
+        }
+        Choice choice = response.choices.getFirst();
+        if (choice == null) {
+            throw new IllegalStateException("OpenAI Chat Completions response contained an empty choice");
+        }
+        if ("length".equals(choice.finish_reason)) {
+            throw new IllegalStateException(
+                    "OpenAI Chat Completions response was truncated at max_completion_tokens=" + maxTokens);
+        }
+        if (choice.message == null || choice.message.content == null || choice.message.content.isBlank()) {
+            String reason = choice.finish_reason == null || choice.finish_reason.isBlank()
+                    ? "unknown" : choice.finish_reason;
+            throw new IllegalStateException(
+                    "OpenAI Chat Completions response did not include output text (finish_reason=" + reason + ")");
+        }
+        return choice.message.content.trim();
+    }
+
+    String extractResponsesText(OpenAIResponsesResponse response) {
         if (response == null) {
             throw new IllegalStateException("Empty OpenAI Responses response");
         }
         if (response.error != null) {
             throw new IllegalStateException("OpenAI Responses error: " + response.error.message);
+        }
+        if ("incomplete".equals(response.status)) {
+            String reason = response.incomplete_details == null || response.incomplete_details.reason == null
+                    ? "unknown" : response.incomplete_details.reason;
+            throw new IllegalStateException("OpenAI Responses response was incomplete (reason=" + reason + ")");
         }
         if (response.output_text != null && !response.output_text.isBlank()) {
             return response.output_text;
@@ -394,6 +473,7 @@ public class OpenAIProviderClient implements ProviderClient {
 
     public static class Choice {
         public Message message;
+        public String finish_reason;
     }
 
     public static class Message {
@@ -405,6 +485,8 @@ public class OpenAIProviderClient implements ProviderClient {
         public String output_text;
         public List<OpenAIResponsesOutput> output;
         public OpenAIResponsesError error;
+        public String status;
+        public OpenAIResponsesIncompleteDetails incomplete_details;
     }
 
     public static class OpenAIResponsesOutput {
@@ -419,6 +501,10 @@ public class OpenAIProviderClient implements ProviderClient {
 
     public static class OpenAIResponsesError {
         public String message;
+    }
+
+    public static class OpenAIResponsesIncompleteDetails {
+        public String reason;
     }
 
     public static class OpenAIModelsResponse {

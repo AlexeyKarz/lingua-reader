@@ -11,6 +11,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.function.Supplier;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class TranslateService {
@@ -55,7 +57,12 @@ public class TranslateService {
             String formatted = dictionary.formattedText();
             AiWordAnalysis analysis = null;
             if (translations.isEmpty()) {
-                analysis = contextualWordAnalysis(text, source, target, sentenceContext);
+                analysis = contextualWordAnalysis(
+                        text,
+                        source,
+                        target,
+                        wordAnalysisContext(sentenceContext, dictionary)
+                );
                 if (!analysis.translations().isEmpty()) {
                     translations = analysis.translations();
                     formatted = formatWordAnalysis(analysis);
@@ -73,7 +80,9 @@ public class TranslateService {
                     prefer(analysis == null ? null : analysis.gender(), dictionary.gender()),
                     prefer(analysis == null ? null : analysis.baseForm(), dictionary.baseSurface()),
                     dictionary.baseNormalized(),
-                    mergeUsageNote(dictionary.definitions(), analysis),
+                    analysis == null
+                            ? dictionary.definitions()
+                            : analysis.usageNote().isBlank() ? List.of() : List.of(analysis.usageNote()),
                     dictionary.examples(),
                     translations,
                     analysis == null ? dictionaryFormTags(dictionary) : analysis.grammaticalFeatures(),
@@ -173,7 +182,7 @@ public class TranslateService {
                 ? text
                 : "Selected word:\n" + text + "\n\nSentence context:\n" + context;
         String raw = cachedProvider(
-                "word_analysis_v1",
+                "word_analysis_v2",
                 cacheText,
                 source,
                 target,
@@ -184,6 +193,25 @@ public class TranslateService {
             throw new IllegalStateException("AI word analysis did not include a translation");
         }
         return analysis;
+    }
+
+    private String wordAnalysisContext(String sentenceContext, DictionaryLookupResult dictionary) {
+        List<String> evidence = new java.util.ArrayList<>();
+        if (dictionary != null) {
+            if (!clean(dictionary.lemma()).isBlank()) evidence.add("dictionary lemma: " + clean(dictionary.lemma()));
+            if (!clean(dictionary.baseSurface()).isBlank()) evidence.add("dictionary base form: " + clean(dictionary.baseSurface()));
+            if (dictionary.definitions() != null) {
+                dictionary.definitions().stream()
+                        .map(this::clean)
+                        .filter(value -> !value.isBlank())
+                        .limit(6)
+                        .map(value -> "dictionary definition: " + value)
+                        .forEach(evidence::add);
+            }
+        }
+        String context = sentenceContext == null ? "" : sentenceContext.strip();
+        if (evidence.isEmpty()) return context;
+        return context + (context.isBlank() ? "" : "\n") + "Dictionary evidence: " + String.join(" | ", evidence);
     }
 
     private AiWordAnalysis parseWordAnalysis(String raw, String selectedText) {
@@ -212,18 +240,32 @@ public class TranslateService {
 
     private AiWordAnalysis normalizeWordAnalysis(AiWordAnalysis value, String selectedText) {
         if (value == null) return AiWordAnalysis.translationOnly(selectedText, "");
-        String selected = prefer(value.selectedForm(), selectedText);
-        String lemma = prefer(value.lemma(), selected);
-        String baseForm = prefer(value.baseForm(), lemma);
+        String selected = clean(selectedText);
+        String lemmaCandidate = prefer(value.lemma(), selected);
+        String lemma = sharesLetterScript(lemmaCandidate, selected) ? lemmaCandidate : selected;
+        String baseCandidate = prefer(value.baseForm(), lemma);
+        String baseForm = sharesLetterScript(baseCandidate, selected) ? baseCandidate : lemma;
+        String partOfSpeech = clean(value.partOfSpeech());
+        String gender = clean(value.gender());
+        List<String> translations = cleanList(value.translations());
+        List<String> grammaticalFeatures = cleanList(value.grammaticalFeatures()).stream()
+                .filter(feature -> !feature.equalsIgnoreCase(partOfSpeech))
+                .filter(feature -> !feature.equalsIgnoreCase(gender))
+                .toList();
+        String usageNote = clean(value.usageNote());
+        if (!usageNote.isBlank() && !translations.isEmpty()
+                && !sharesLetterScript(usageNote, String.join(" ", translations))) {
+            usageNote = "";
+        }
         return new AiWordAnalysis(
                 selected,
                 lemma,
                 baseForm,
-                clean(value.partOfSpeech()),
-                clean(value.gender()),
-                cleanList(value.grammaticalFeatures()),
-                cleanList(value.translations()),
-                clean(value.usageNote())
+                partOfSpeech,
+                gender,
+                grammaticalFeatures,
+                translations,
+                usageNote
         );
     }
 
@@ -242,13 +284,6 @@ public class TranslateService {
     private void appendLine(StringBuilder text, String line) {
         if (!text.isEmpty()) text.append('\n');
         text.append(line);
-    }
-
-    private List<String> mergeUsageNote(List<String> definitions, AiWordAnalysis analysis) {
-        if (analysis == null || analysis.usageNote().isBlank()) return definitions;
-        java.util.ArrayList<String> merged = new java.util.ArrayList<>(definitions == null ? List.of() : definitions);
-        merged.add(analysis.usageNote());
-        return List.copyOf(merged);
     }
 
     private List<String> dictionaryFormTags(DictionaryLookupResult dictionary) {
@@ -277,6 +312,24 @@ public class TranslateService {
 
     private String normalizeWord(String value) {
         return clean(value).toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private boolean sharesLetterScript(String candidate, String reference) {
+        Set<Character.UnicodeScript> referenceScripts = letterScripts(reference);
+        Set<Character.UnicodeScript> candidateScripts = letterScripts(candidate);
+        if (referenceScripts.isEmpty()) return true;
+        if (candidateScripts.isEmpty()) return false;
+        return candidateScripts.stream().anyMatch(referenceScripts::contains);
+    }
+
+    private Set<Character.UnicodeScript> letterScripts(String value) {
+        if (value == null || value.isBlank()) return Set.of();
+        return value.codePoints()
+                .filter(Character::isLetter)
+                .mapToObj(Character.UnicodeScript::of)
+                .filter(script -> script != Character.UnicodeScript.COMMON)
+                .filter(script -> script != Character.UnicodeScript.INHERITED)
+                .collect(Collectors.toUnmodifiableSet());
     }
 
     private String cachedProvider(
