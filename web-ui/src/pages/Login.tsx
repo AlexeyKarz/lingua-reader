@@ -60,7 +60,8 @@ export default function LoginPage() {
     }
 
     return (
-        <div className="mx-auto max-w-xl">
+        <div className="login-sheet">
+            <span className="publisher-mark" aria-hidden="true">m/r</span>
             <section className="surface-panel rounded-[28px] px-5 py-5 md:px-6">
                 <div className="soft-badge mb-2">Account</div>
                 <h2 className="theme-heading text-2xl font-semibold md:text-[1.85rem]">Sign in</h2>

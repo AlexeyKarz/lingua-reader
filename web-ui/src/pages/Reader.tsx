@@ -175,7 +175,7 @@ function writeSavedReaderState(bookId: string, src: string, tgt: string, state: 
     }
 }
 
-export default function Reader() {
+export default function Reader({ typographyKey = '' }: { typographyKey?: string }) {
     const auth = useAuth()
     const location = useLocation()
     const navigate = useNavigate()
@@ -292,11 +292,33 @@ export default function Reader() {
     const rightRef = useRef<HTMLDivElement>(null)
     const leftContentRef = useRef<HTMLDivElement>(null)
     const rightContentRef = useRef<HTMLDivElement>(null)
+    const pendingPageScroll = useRef<string | null>(null)
+
+    function revealPageStart() {
+        const firstSentence = leftContentRef.current?.querySelector<HTMLElement>('[data-sentence-id]')
+        if (!firstSentence) return
+        const rect = firstSentence.getBoundingClientRect()
+        if (rect.top < 24 || rect.top > window.innerHeight - 80) {
+            firstSentence.scrollIntoView({ block: 'start', behavior: 'instant' })
+        }
+    }
+
+    function changePage(nextPage: number, nextSize = size) {
+        setPop({ kind: 'hidden' })
+        rangeRef.current = null
+        if (nextPage === page && nextSize === size) {
+            revealPageStart()
+            return
+        }
+        pendingPageScroll.current = `${readerStorageKey}:${nextPage}:${nextSize}`
+        setPage(nextPage)
+        setSize(nextSize)
+    }
 
     // Jump handler
     function handleJump() {
         const val = Number(jumpInput)
-        if (!Number.isFinite(val) || val < 1) {
+        if (!Number.isInteger(val) || val < 1) {
             setJumpError('Enter a positive page number')
             return
         }
@@ -305,7 +327,7 @@ export default function Reader() {
             return
         }
         setJumpError(null)
-        setPage(val - 1)
+        changePage(val - 1)
     }
 
     useEffect(() => {
@@ -341,6 +363,7 @@ export default function Reader() {
         if (auth.loading) return
         let alive = true
         setProgressReady(false)
+        pendingPageScroll.current = null
 
         ;(async () => {
             let saved: SavedReaderState | null = null
@@ -396,6 +419,7 @@ export default function Reader() {
                 const fetchedTotalPages = Math.max(1, Math.ceil(j.totalSrc / size))
                 if (page >= fetchedTotalPages) {
                     const lastPage = fetchedTotalPages - 1
+                    if (pendingPageScroll.current) pendingPageScroll.current = `${readerStorageKey}:${lastPage}:${size}`
                     setPage(lastPage)
                     setJumpInput(String(lastPage + 1))
                     return
@@ -421,6 +445,7 @@ export default function Reader() {
                 setJumpInput(String(j.page + 1))
             } catch (e) {
                 if (e instanceof DOMException && e.name === 'AbortError') return
+                pendingPageScroll.current = null
                 console.error(e)
                 setData(null)
                 setInfo('Error loading page (check language pair and alignments)')
@@ -429,7 +454,7 @@ export default function Reader() {
             }
         })()
         return () => controller.abort()
-    }, [bookId, src, tgt, page, size, progressReady, hasReaderParams])
+    }, [bookId, src, tgt, page, size, progressReady, hasReaderParams, readerStorageKey])
 
     // close notice (no alignment) automatically
     useEffect(() => {
@@ -717,7 +742,19 @@ export default function Reader() {
             window.removeEventListener('resize', alignVisiblePassages)
             resetSpacing()
         }
-    }, [data, visualAlignment, mobilePaneLayout, expandedGroups, showFrontLeft, showFrontRight])
+    }, [data, visualAlignment, mobilePaneLayout, expandedGroups, showFrontLeft, showFrontRight, typographyKey])
+
+    // Run after the new page renders and passage alignment has been scheduled.
+    // Initial loads and restored progress deliberately do not move the viewport.
+    useLayoutEffect(() => {
+        if (status !== 'idle' || data?.page !== page || data?.size !== size ||
+            pendingPageScroll.current !== `${readerStorageKey}:${page}:${size}`) return
+        const frame = requestAnimationFrame(() => {
+            pendingPageScroll.current = null
+            revealPageStart()
+        })
+        return () => cancelAnimationFrame(frame)
+    }, [data, status, page, size, readerStorageKey])
 
     // Compute popover coords after it (re)renders or when selection rect changes.
     useLayoutEffect(() => {
@@ -1208,7 +1245,6 @@ export default function Reader() {
                             {details.aiGenerated ? 'Contextual word analysis' : 'Selected form'}
                         </div>
                         <div className="mt-2 flex flex-wrap gap-2">
-                            <span className="dictionary-meta-chip">selected: {selectedText}</span>
                             {details.baseSurface && (
                                 <span className="dictionary-meta-chip">base form: {details.baseSurface}</span>
                             )}
@@ -1222,9 +1258,8 @@ export default function Reader() {
                                 <span key={feature} className="dictionary-meta-chip">{feature}</span>
                             ))}
                         </div>
-                        {details.aiGenerated && (
-                            <div className="mt-2 space-y-1 text-xs muted-copy">
-                                <p>Analysed using the surrounding sentence.</p>
+                        {details.aiGenerated && !!details.definitions?.length && (
+                            <div className="mt-3 space-y-2 text-sm muted-copy">
                                 {details.definitions?.map((note, index) => (
                                     <p key={`${note}-${index}`}>{note}</p>
                                 ))}
@@ -1233,7 +1268,7 @@ export default function Reader() {
                     </div>
                 )}
                 {!!summaryTranslations.length && (
-                    <div className="dictionary-summary">
+                    <div className="dictionary-summary dictionary-translations">
                         <div className="dictionary-section-title">Translations</div>
                         <div className="mt-2 flex flex-wrap gap-2">
                             {summaryTranslations.slice(0, 8).map(translation => (
@@ -1659,21 +1694,22 @@ export default function Reader() {
             <div className="page-dock">
                 <div className="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between">
                     <div className="flex shrink-0 flex-wrap items-center gap-3">
-                        <button className="btn" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={status === 'loading' || page <= 0}>
+                        <button className="btn" onClick={() => changePage(Math.max(0, page - 1))} disabled={status === 'loading' || page <= 0}>
                             Prev
                         </button>
                         <div className="surface-panel-strong theme-heading rounded-full px-4 py-2 text-sm font-medium">
                             Page {page + 1}{data?.totalSrc ? ` / ${Math.max(1, Math.ceil(data.totalSrc / size))}` : ''}
                         </div>
-                        <button className="btn" onClick={() => setPage(p => totalPages === null ? p : Math.min(totalPages - 1, p + 1))} disabled={status === 'loading' || totalPages === null || isLastPage}>
+                        <button className="btn" onClick={() => { if (totalPages !== null) changePage(Math.min(totalPages - 1, page + 1)) }} disabled={status === 'loading' || totalPages === null || isLastPage}>
                             Next
                         </button>
                     </div>
 
                     <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
                         <div className="flex shrink-0 flex-nowrap items-center gap-2 text-sm">
-                            <label className="whitespace-nowrap text-xs uppercase tracking-[0.18em] muted-copy">Jump to</label>
+                            <label htmlFor="reader-page-number" className="whitespace-nowrap text-xs uppercase tracking-[0.18em] muted-copy">Jump to</label>
                             <input
+                                id="reader-page-number"
                                 type="text"
                                 inputMode="numeric"
                                 pattern="[0-9]*"
@@ -1702,19 +1738,20 @@ export default function Reader() {
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2 text-sm">
-                            <label className="text-xs uppercase tracking-[0.18em] muted-copy">Sentences / page</label>
+                            <label htmlFor="reader-page-size" className="text-xs uppercase tracking-[0.18em] muted-copy">Sentences / page</label>
                             <select
+                                id="reader-page-size"
                                 value={size}
+                                disabled={status === 'loading'}
                                 onChange={e => {
                                     const val = Number(e.target.value)
                                     if (!Number.isFinite(val)) return
                                     const currentOffset = page * size
                                     const newPage = Math.floor(currentOffset / val)
-                                    setPage(newPage)
-                                    setSize(val)
+                                    changePage(newPage, val)
                                     setJumpInput(String(newPage + 1))
                                 }}
-                                className="input pr-8"
+                                className="input reader-page-size"
                             >
                                 {[5, 10, 15, 20, 30, 40, 50].map(n => (
                                     <option key={n} value={n}>{n}</option>
@@ -1752,7 +1789,7 @@ export default function Reader() {
                             ×
                         </button>
 
-                        <div className="pr-10">
+                        <div className="lookup-content">
                             <div className="text-xs uppercase tracking-[0.18em] muted-copy">
                                 {pop.sourceLang.toUpperCase()} → {pop.targetLang.toUpperCase()}
                             </div>

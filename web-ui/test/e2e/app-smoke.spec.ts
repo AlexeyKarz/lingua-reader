@@ -204,6 +204,174 @@ test.beforeEach(async ({ page }) => {
   }))
 })
 
+test('Jackets preserves multiple edition pairs and language filters', async ({ page }) => {
+  await page.route('**/api/catalog/books', route => fulfillJson(route, [
+    { ...catalog[0], langs: ['en', 'de', 'ru'] },
+    { ...catalog[0], workId: 102, title: 'Another Work', originalLang: 'es', langs: ['es', 'en'] },
+  ]))
+  await page.goto('/')
+  await expect(page.locator('.library-work')).toHaveCount(2)
+  await expect(page.getByRole('link', { name: 'English / German AI' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'English / Russian' })).toHaveAttribute('href', '/reader?bookId=101&src=en&tgt=ru')
+  await page.getByLabel('Translation language', { exact: true }).selectOption('ru')
+  await expect(page.locator('.library-work')).toHaveCount(1)
+  await expect(page.getByRole('link', { name: 'English / German AI' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Reset filters' }).click()
+  await expect(page.locator('.library-work')).toHaveCount(2)
+})
+
+test('About panels keep comfortable content padding', async ({ page }) => {
+  for (const width of [1360, 800, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/about')
+    const pipeline = page.locator('.about-section.surface-panel')
+    await expect(pipeline).toBeVisible()
+    const insets = await pipeline.evaluate(el => {
+      const outer = el.getBoundingClientRect()
+      const inner = el.querySelector('.about-section-heading')!.getBoundingClientRect()
+      return { left: inner.left - outer.left, right: parseFloat(getComputedStyle(el).paddingRight) }
+    })
+    expect(insets.left).toBeGreaterThanOrEqual(20)
+    expect(insets.right).toBeGreaterThanOrEqual(20)
+    if (width === 1360) await page.screenshot({ path: '/tmp/mlr-about-refined.png', fullPage: true })
+    expect(await page.locator('.about-tech-note').first().evaluate(el => parseFloat(getComputedStyle(el).paddingLeft))).toBeGreaterThanOrEqual(20)
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  }
+})
+
+test('long edition lists scroll without shrinking the pair labels', async ({ page }) => {
+  await page.route('**/api/catalog/books', route => fulfillJson(route, [
+    { ...catalog[0], langs: ['en', 'de', 'ru', 'el', 'es', 'fr', 'it', 'pt', 'nl'] },
+  ]))
+  for (const width of [1360, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/')
+    const pairs = page.getByRole('group', { name: 'Reading pairs for Smoke Book' })
+    await expect(pairs.getByRole('link')).toHaveCount(8)
+    expect(await pairs.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
+    await expect(pairs.getByRole('link').first()).toHaveCSS('font-size', '15px')
+    await expect(page.getByLabel('Translation language', { exact: true })).toHaveCSS('font-size', '15px')
+    await pairs.getByRole('link').last().focus()
+    expect(await pairs.evaluate(el => el.scrollTop)).toBeGreaterThan(0)
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  }
+})
+
+test('pagination reveals the new text after loading, including jumps and page size changes', async ({ page }) => {
+  await page.route('**/api/reader/pages?**', async route => {
+    const params = new URL(route.request().url()).searchParams
+    const currentPage = Number(params.get('page'))
+    const size = Number(params.get('size'))
+    const offset = currentPage * size
+    await fulfillJson(route, {
+      bookId: '101', src: 'en', tgt: 'de', title: 'Smoke Book', page: currentPage, size,
+      totalSrc: 60, totalTgt: 60,
+      left: Array.from({ length: size }, (_, i) => ({ id: offset + i + 1, text: `Passage ${offset + i + 1}. ${'A lengthy paragraph of source text. '.repeat(12)}` })),
+      right: Array.from({ length: size }, (_, i) => ({ id: 1000 + offset + i + 1, text: `Translation ${offset + i + 1}.` })),
+      alignments: Array.from({ length: size }, (_, i) => ({ leftId: offset + i + 1, rightId: 1000 + offset + i + 1, score: .99 })),
+    })
+  })
+  await page.goto('/reader?bookId=101&src=en&tgt=de')
+  await expect(page.locator('[data-sentence-id="1"]')).toBeVisible()
+  expect(await page.evaluate(() => scrollY)).toBe(0)
+  await page.getByRole('checkbox', { name: 'Align passages' }).check()
+  const expectStart = async (id: number) => {
+    const first = page.locator(`[data-sentence-id="${id}"]`)
+    await expect(first).toBeVisible()
+    await expect.poll(() => first.evaluate(el => {
+      const top = el.getBoundingClientRect().top
+      return top >= 0 && top < 80
+    })).toBe(true)
+  }
+  await page.getByRole('button', { name: 'Next', exact: true }).click()
+  await expectStart(21)
+  await page.getByRole('button', { name: 'Prev', exact: true }).click()
+  await expectStart(1)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByLabel('Page number').fill('3')
+  await page.getByRole('button', { name: 'Go', exact: true }).click()
+  await expectStart(41)
+  await page.getByLabel('Sentences / page', { exact: true }).selectOption('50')
+  await expectStart(1)
+  const select = page.getByLabel('Sentences / page', { exact: true })
+  await expect(select).toHaveValue('50')
+  expect(await select.evaluate(el => parseFloat(getComputedStyle(el).paddingRight))).toBeGreaterThanOrEqual(32)
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
+test('profile has balanced insets even with a long name and email', async ({ page }) => {
+  await page.route('**/api/me', route => fulfillJson(route, {
+    authenticated: true,
+    user: { id: 2, email: 'a.very.long.reader.email.address@example.test', displayName: 'Alex · demo reader', roles: ['USER'] },
+  }))
+  for (const width of [1360, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/profile')
+    await expect(page.getByRole('heading', { name: 'Alex · demo reader' })).toBeVisible()
+    const insets = await page.locator('.profile-hero').evaluate(hero => {
+      const rect = hero.getBoundingClientRect()
+      const heading = hero.querySelector('h2')!.getBoundingClientRect()
+      const avatar = hero.querySelector('.profile-avatar')!.getBoundingClientRect()
+      const style = getComputedStyle(hero)
+      return { left: heading.left - rect.left, right: rect.right - avatar.right, paddingLeft: parseFloat(style.paddingLeft), paddingRight: parseFloat(style.paddingRight) }
+    })
+    expect(insets.left).toBeGreaterThanOrEqual(24)
+    expect(insets.right).toBeGreaterThanOrEqual(24)
+    expect(insets.paddingLeft).toBe(insets.paddingRight)
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  }
+})
+
+test('reading typography persists and recalculates aligned passages', async ({ page }) => {
+  await page.goto('/reader?bookId=101&src=en&tgt=de')
+  await expect(page.locator('[data-sentence-id="1"]')).toBeVisible()
+  await page.getByRole('checkbox', { name: 'Align passages' }).check()
+  await page.getByRole('button', { name: 'Aa · Reading type' }).click()
+  await page.getByLabel('Typeface', { exact: true }).selectOption('sans')
+  await page.getByLabel('Reading text size').fill('25')
+  await expect(page.locator('.reader-pane .select-text').first()).toHaveCSS('font-size', '25px')
+  // Padding aligns the text baseline, not the padded paragraph's bounding box.
+  await expect.poll(() => page.evaluate(() => {
+    const top = (id: number) => {
+      const node = document.querySelector(`[data-sentence-id="${id}"]`)!
+      return node.getBoundingClientRect().top + parseFloat(getComputedStyle(node).paddingTop)
+    }
+    return Math.abs(top(3) - top(4))
+  })).toBeLessThan(2)
+  await page.reload()
+  await page.getByRole('button', { name: 'Aa · Reading type' }).click()
+  await expect(page.getByLabel('Typeface', { exact: true })).toHaveValue('sans')
+  await expect(page.getByLabel('Reading text size')).toHaveValue('25')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByLabel('Reading text size').fill('14')
+  await expect(page.locator('.reader-pane .select-text').first()).toHaveCSS('font-size', '14px')
+  await page.getByRole('button', { name: 'Split', exact: true }).click()
+  await expect(page.locator('.reader-pane .select-text').first()).toHaveCSS('font-size', '14px')
+  await page.reload()
+  await page.getByRole('button', { name: 'Aa · Reading type' }).click()
+  await expect(page.getByLabel('Reading text size')).toHaveValue('14')
+  await expect(page.locator('.reader-pane .select-text').first()).toHaveCSS('font-size', '14px')
+})
+
+test('Jackets routes fit a narrow mobile viewport in dark mode', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 900 })
+  await page.addInitScript(() => localStorage.setItem('mlr:theme', 'dark'))
+  for (const [path, selector] of [
+    ['/', '.library-work'],
+    ['/reader?bookId=101&src=en&tgt=de', '[data-sentence-id="1"]'],
+    ['/profile', '.profile-avatar'],
+    ['/vocabulary', 'h2'],
+    ['/about', '.about-hero'],
+    ['/admin', 'table'],
+    ['/admin/ingest', 'input[type="file"]'],
+  ]) {
+    await page.goto(path)
+    await expect(page.locator(selector).first()).toBeVisible()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), { message: `No overflow on ${path}` }).toBe(true)
+  }
+})
+
 test('login offers Google while reading remains optional', async ({ page }) => {
   await page.route('**/api/me', route => fulfillJson(route, {
     authenticated: false,
@@ -222,7 +390,7 @@ test('catalog to reader lookup save to vocabulary', async ({ page }) => {
   await page.goto('/')
 
   await expect(page.getByText('Smoke Book').first()).toBeVisible()
-  await page.getByRole('link', { name: /Read\s+EN\s+→\s+DE \(AI\)/i }).click()
+  await page.getByRole('link', { name: 'English / German AI' }).click()
   await expect(page).toHaveURL(/\/reader\?bookId=101&src=en&tgt=de/)
   await expect(page).toHaveTitle('MLR — Smoke Book')
   await expect(page.getByText('Translation (DE - AI)')).toBeVisible()
@@ -294,6 +462,18 @@ test('word lookup uses sentence context and saves the base form', async ({ page 
   await expect(page.getByText('Contextual word analysis')).toBeVisible()
   await expect(page.getByText('base form: long')).toBeVisible()
   await expect(page.getByText('comparative')).toBeVisible()
+  await expect(page.getByText('Analysed using the surrounding sentence.')).toHaveCount(0)
+  await expect(page.locator('.dictionary-meta-chip').first()).toHaveCSS('font-size', '13px')
+  await expect(page.locator('.dictionary-translations .dictionary-chip').first()).toHaveCSS('font-size', '16px')
+  for (const width of [1360, 390, 320]) {
+    await page.setViewportSize({ width, height: 844 })
+    const popup = page.locator('.popover-surface')
+    await expect.poll(() => popup.evaluate(el => {
+      const r = el.getBoundingClientRect()
+      return r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight
+    })).toBe(true)
+    if (width === 390) await page.screenshot({ path: '/tmp/mlr-lookup-refined.png' })
+  }
   expect(wordRequest.text).toBe('longer')
   expect(wordRequest.context).toContain('Selected sentence: Hello world.')
   expect(wordRequest.context).toContain('Aligned translation sentence: Hallo Welt.')

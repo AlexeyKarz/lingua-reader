@@ -10,9 +10,10 @@ import About from './pages/About'
 import Catalog from './pages/Catalog'
 import Login from './pages/Login'
 import Profile from './pages/Profile'
-import Reader from './pages/Reader'
+import Reader from './pages/ReaderView'
 import Vocabulary from './pages/Vocabulary'
 import './index.css'
+import './jackets.css'
 
 const qc = new QueryClient()
 const router = createBrowserRouter([
