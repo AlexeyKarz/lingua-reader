@@ -2,6 +2,7 @@
 package com.example.reader.translate.providers;
 
 import com.example.reader.translate.properties.OllamaTranslateProperties;
+import com.example.reader.translate.properties.PromptProperties;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -15,9 +16,10 @@ public class OllamaProviderClient implements ProviderClient {
     private final String model;
     private final String literaryModel;
     private final String explainModel;
+    private final String explainSystem;
     private final String providerName = "ollama";
 
-    public OllamaProviderClient(OllamaTranslateProperties props, WebClient.Builder builder, MeterRegistry registry) {
+    public OllamaProviderClient(OllamaTranslateProperties props, PromptProperties prompts, WebClient.Builder builder, MeterRegistry registry) {
         this.client = builder.baseUrl(props.getBaseUrl()).build();
         this.model = props.getModel();
         this.literaryModel = (props.getLiteraryModel() == null || props.getLiteraryModel().isBlank())
@@ -27,6 +29,7 @@ public class OllamaProviderClient implements ProviderClient {
                 ? props.getModel()
                 : props.getExplainModel();
         this.registry = registry;
+        this.explainSystem = prompts.getExplainSystem();
     }
 
     @Override
@@ -108,14 +111,8 @@ public class OllamaProviderClient implements ProviderClient {
 
     @Override
     public String explain(String text, String source, String target, String bookContext) {
-        String prompt = """
-                You are a language tutor.
-                Explain vocabulary, grammar, and nuance for this sentence.
-                The explanation should be as concise and clear as possible.
-                Do not use markdown symbols.
-                Provide the explanation in %s.
-                Use book context if helpful.
-
+        String prompt = explainSystem + "\n\n" + """
+                Target language (for explanation): %s
                 Book context: %s
                 Source language: %s
                 Sentence:

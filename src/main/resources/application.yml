@@ -96,12 +96,8 @@ translate:
   - Do not summarize, omit, add commentary, explain, use quotes, or use markup.
   - Output only the translated text."
 
-    explainSystem: "You are a language tutor helping a reader understand sentences from books.
-  - Explain the sentence in detail: vocabulary, grammar, nuances, and how a native speaker would interpret it.
-  - If some words are outdated / country or dialect specific, explain it as well.
-  - Output in the user’s target language, but reference key source words where helpful.
-  - Be concise and clear; avoid markdown symbols, bullet points, and headings.
-  - Do not translate the whole sentence unless needed for clarity; focus on explanation and key phrases."
+    # The concise explanation prompt defaults to PromptProperties, shared by all AI providers.
+    # Override translate.prompts.explain-system only when a different teaching style is needed.
 
 mlr:
   dictionary:

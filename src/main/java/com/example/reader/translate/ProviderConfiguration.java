@@ -47,7 +47,7 @@ public class ProviderConfiguration {
         ProviderClient provider = switch (which) {
             case "openai" -> new OpenAIProviderClient(openAIProps, promptProps, builder, registry);
             case "google", "gemini" -> new GoogleProviderClient(googleProps, promptProps, builder, registry);
-            case "ollama" -> new OllamaProviderClient(ollamaProps, builder, registry);
+            case "ollama" -> new OllamaProviderClient(ollamaProps, promptProps, builder, registry);
             default -> new StubProviderClient();
         };
         if (!"stub".equals(which) && limitProps.isEnabled()) {
