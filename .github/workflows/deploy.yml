@@ -86,12 +86,14 @@ jobs:
         working-directory: web-ui
         run: npm run test:e2e
 
-      - name: Upload Playwright diagnostics
+      - name: Upload test diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-diagnostics
+          name: test-diagnostics
           path: |
+            build/reports/tests/test/
+            build/test-results/test/
             web-ui/playwright-report/
             web-ui/test-results/
           if-no-files-found: ignore
